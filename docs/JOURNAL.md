@@ -306,6 +306,33 @@ Owner: focus on **F4/F9** (Vergil's move set from the MOT bitstream) and the
 - Next: **G10/G9** — the record directory that binds a name to its bytes; then
   Stage 1 of the test plan (tint `R_UI.WAD`) needs a WAD reader/writer.
 
+---
+
+## 2026-10-17 — WAD reconnaissance tool + census (two of my own claims falsified)
+
+- Did: shipped `tools/gow3/wad.py` and `wad_info.py` implementing only the
+  *verified* parts of the container, then censused the 90 smallest WADs. 13 new
+  tests (94 total).
+- Found — and corrected two of the claims I filed an hour earlier:
+  - **`DC_` is not always 6 times.** Measured `{0 markers: 17, 6 markers: 73}`.
+  - **The 16-byte prefix is not constant.** It matched the four files I had
+    hand-dumped but fails on the other 73. The tool now reports `prefix_matches`
+    instead of asserting it, so the assumption stays falsifiable.
+  - **Banner is not unique per file**: 76 distinct banners across 90 files;
+    `WAD_R_Lang` is shared by 13, `WAD_R_I_Ice` by 3.
+  - **Entity/AI split confirmed and common**: 54 of 90 small WADs carry AI
+    (`hfsm*`), 28 are entity WADs, 8 other.
+  - **The `hfsm*` vocabulary is small and legible**: `hfsmEnemy1`,
+    `hfsmReactive`, `hfsmBreakable`, `hfsmHeroBreak`, `hfsmSavePoint`,
+    `hfsmIO_Misc`, combined in 7 distinct sets. Enemy behaviour is assembled from
+    named modules.
+- Note on method: the census had to be limited to WADs under 2 MB — scanning all
+  408 (21.5 GB) exceeds a reasonable command timeout. Worth a streaming pass
+  later.
+- Next: the record directory (G9/G10). This is the last unknown before a WAD
+  reader/writer, which Stage 1 of the test plan needs.
+
+
 
 
 

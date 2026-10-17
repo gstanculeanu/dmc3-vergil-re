@@ -700,9 +700,42 @@ another.
 (G9/G10); what the `0x000B / 0x0009 / 4` triple before `DC_` means; whether the
 `hfsm*` definitions can be re-authored safely.
 
+**Corrections after a census of the 90 smallest WADs** (all under 2 MB; the full
+set is 408 WADs / 21.5 GB and reads too slowly to scan end to end):
+
+| Claim | Measured |
+|---|---|
+| "`DC_` appears exactly 6 times" | **False.** Distribution is `{0 markers: 17, 6 markers: 73}`. |
+| "the 16-byte prefix is `00*8, 0B 00 09 00, 04 00 00 00`" | **False as a constant.** It matched the four hand-picked samples but fails on the other 73. The prefix varies (likely a size/offset), so tooling must report it rather than assume it. |
+| entity vs AI split | **Confirmed and common:** of 90 files, **54 carry AI**, 28 are entity WADs, 8 other. |
+| banner is unique per file | **False.** 76 distinct banners for 90 files: `WAD_R_Lang` is shared by 13 files and `WAD_R_I_Ice` by 3. |
+
+**The `hfsm*` vocabulary** (a fixed set of behaviour modules, by frequency):
+
+```
+20x  hfsmBreakable, hfsmEnemy1, hfsmIO_Misc
+18x  the above + hfsmReactive
+10x  the above + hfsmReactive, hfsmSavePoint
+ 2x  hfsmBreakable, hfsmEnemy1, hfsmHeroBreak, hfsmIO_Misc
+ 2x  the above + hfsmReactive
+ 1x  hfsmReactive                  (OLY115.WAD)
+ 1x  the above + hfsmHeroBreak, hfsmReactive, hfsmSavePoint
+```
+
+So enemy behaviour is assembled from named modules — `hfsmEnemy1` (the enemy
+loop), `hfsmReactive`, `hfsmHeroBreak`, `hfsmSavePoint`, `hfsmIO_Misc`,
+`hfsmBreakable`. That is a promising, legible structure for authoring Vergil's
+behaviour later.
+
+**Tooling.** `tools/gow3/wad.py` + `tools/gow3/wad_info.py` implement exactly the
+verified parts — header, `DC_<banner>` markers (with a `prefix_matches` flag so
+the variable prefix is *reported*, not assumed), name-family classification and
+`hfsm` detection — and never claim to extract payloads. 13 unit tests.
+
 **Consequence.** G9 is larger than "unzip and repack": the container is an object
-graph. But the naming is legible and the entity/AI split is exactly the seam a
-boss port needs.
+graph. But the naming is legible, the entity/AI split is exactly the seam a boss
+port needs, and the AI side is a small set of named behaviour modules.
+
 
 
 

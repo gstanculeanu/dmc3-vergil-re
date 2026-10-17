@@ -128,3 +128,35 @@ def tm2_file(dds_prefix: int = 0x70, payload: bytes = b"\xAB" * 32) -> bytes:
     struct.pack_into("<I", header, 0x08, 0x00020100)
     struct.pack_into("<I", header, 0x0C, 0x0000AAE4)
     return bytes(header) + dds_header() + payload
+
+
+# ---------------------------------------------------------------------------
+# GoW3R WAD fixtures (layout from E-016 / E-022)
+# ---------------------------------------------------------------------------
+
+def wad_bytes(
+    banner: str = "WAD_R_Sword00",
+    names=(),
+    dc_count: int = 6,
+    bad_dc_prefix: bool = False,
+    pad: int = 0x40,
+) -> bytes:
+    """A synthetic ``R_*.WAD``: header, some names, then ``DC_<banner>`` markers."""
+    blob = bytearray()
+    blob += struct.pack("<II", 20, 8)
+    blob += banner.encode("latin-1")
+    blob += b"\x00" * (pad - len(blob))
+
+    for i, name in enumerate(names):
+        blob += struct.pack("<II", i + 1, 0)
+        raw = name.encode("latin-1")
+        blob += raw + b"\x00" * (0x38 - len(raw))
+
+    for _ in range(dc_count):
+        if bad_dc_prefix:
+            blob += b"\xFF" * 16
+        else:
+            blob += b"\x00" * 8 + b"\x0b\x00\x09\x00\x04\x00\x00\x00"
+        raw = ("DC_" + banner).encode("latin-1")
+        blob += raw + b"\x00" * (0x38 - len(raw))
+    return bytes(blob)
