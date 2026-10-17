@@ -103,13 +103,23 @@ Open questions that follow, tracked as issues **G6**, **G7** and **G10**:
 1. Which bosses exist in GoW3R, and which wield a blade? → **answered** by E-016
    (`R_HERCULES`, `R_HADES`, `R_HELIOS`, `R_HERMES`, `R_POSEIDON00`, `R_ZEUS00..60`).
 2. Which one has a rig and an animation budget that can accept Vergil's mesh and
-   move set? → still open (G3), pending the WAD container decode.
-3. Can the health bar's **name** be changed to "Vergil"? → **the mechanism is
-   confirmed yes** (E-020): boss names are plain ASCII inside `R_LANG_EN.WAD`
-   (`Hades`, `Zeus`, `Hercules`, `Cronos`, …), and that file is a normal mod
-   target. Remaining: find the exact health-bar entry and confirm in game.
-4. Does the port's own in-game menu's "enemy health bar" option interact with,
-   or duplicate, the boss bar? → still open.
+   move set? → **target chosen: Hades** (G6 answered). The owner has a save
+   immediately before that fight, so it is testable in one click, and Hades is a
+   large humanoid.
+
+## Target locked: Hades
+
+| | |
+|---|---|
+| Pre-fight save | `SD-261017161301` — `Hades' Palace`, play time 1:43:35 |
+| Entity WAD (model) | `R_HADES.WAD` — 85,727,632 B, banner `WAD_R_Hades`, 6 `DC_` markers, **no AI** |
+| Big variant | `R_HADESBIG.WAD` — 82,873,312 B; `R_HADESBIGSOUL.WAD` — 13,649,648 B |
+| AI WAD (behaviour) | `HDS675AI1HADES.WAD` — 47,136 B, `hfsmEnemy1`, `hfsmBreakable`, `hfsmIO_Misc` |
+| Health-bar name | the string `Hades` in `R_LANG_EN.WAD` |
+
+This is the ideal shape for the plan: the **model** is one file, the **behaviour**
+is another, and the **name** is a third — all replaceable, and all testable from
+one save one click from the fight.
 
 ## The asset registry: `WadGraph` (E-021)
 

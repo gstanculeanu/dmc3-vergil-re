@@ -503,6 +503,14 @@ contents (hence stashing, which is order-independent). Whether `SAVEDATA` carrie
 a checksum that would reject a hand-edited save — relevant later, since a
 hand-authored "boss test" save would be ideal.
 
+**Refinement — timestamps are UTC in the folder, local in the files.** Slot names
+encode UTC while file mtimes are local: `SD-261017161301` says 16:13 and its files
+were written at 20:13 local (a 4-hour offset on this machine). Matching a slot to
+a moment the owner describes therefore needs the offset, not the folder string
+alone. This is how the owner's "save at 20:13" resolved to `SD-261017161301`
+(`Hades' Palace`, play time 1:43:35) — the save immediately before the Hades
+fight, which locked the Phase 3 target boss.
+
 **Consequence.** `tools/gow3/savedata.py` + `tools/gow3/save_list.py` read the
 labels; `scripts/boss-test.ps1` drives the loop;
 `docs/TESTING.md` documents it. No game asset is copied into the repository.

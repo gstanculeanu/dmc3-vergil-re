@@ -56,8 +56,8 @@ Labels used: `re`, `tooling`, `format`, `phase-1`, `phase-2`, `phase-3`, `blocke
 | G3 | Decide retarget vs standalone mesh for the replaced boss's rig | open |
 | G4 | Build the GoW3R exporter | blocked by G2, G3 |
 | G5 | Package as a `gow3_pc` mod and verify the encounter in the port | blocked by G4 |
-| G6 | Choose the sword-wielding **boss** Vergil replaces (inherits the health bar) | open |
-| G7 | Confirm the boss health bar, and try to rename it to "Vergil" | **mechanism confirmed** (E-020): names are plain ASCII in `R_LANG_EN.WAD`; needs one in-game check |
+| G6 | Choose the sword-wielding **boss** Vergil replaces (inherits the health bar) | **ANSWERED: Hades** — save `SD-261017161301` (`Hades' Palace`, 1:43:35) sits immediately before the fight. `R_HADES.WAD` (85,727,632 B) + AI `HDS675AI1HADES.WAD` (47,136 B) |
+| G7 | Confirm the boss health bar, and try to rename it to "Vergil" | **mechanism confirmed** (E-020): the name is the string `Hades` in `R_LANG_EN.WAD`; needs one in-game check at the locked save |
 | G10 | Decode the `WadGraph` registry: bind names to WADs; test a `Stub_` slot | open — **critical path for a *new* boss** (E-021) |
 
 ## Research / hygiene

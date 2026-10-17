@@ -86,59 +86,66 @@ can be tied to what was installed.
 * Nothing here writes to the game dump. Only the port's own `user\` and `mods\`
   folders are touched.
 
-## The staged test plan (no save sits before a boss)
+## The test point is locked: Hades
 
-Owner's answer: **none of the existing saves is immediately before a boss.** So the
-loop is built in stages, each testable from where the game already is. Only the
-last stage needs a boss.
+Owner confirmed a save sits immediately before the **Hades** fight.
 
-### Stage 1 — "does a mod swap land at all?" (no boss, no enemy hunting)
+| | |
+|---|---|
+| **Slot folder** | `SD-261017161301` |
+| **In-game location** | `Hades' Palace` |
+| **Play time** | 1:43:35 |
+| **Save time** | 2026-10-17 20:13:02 (local) |
+| **Target boss** | **Hades** |
+| **Entity WAD** | `R_HADES.WAD` — 85,727,632 bytes, banner `WAD_R_Hades`, **no** AI state machines |
+| **AI WAD** | `HDS675AI1HADES.WAD` — 47,136 bytes, `hfsmBreakable`, `hfsmEnemy1`, `hfsmIO_Misc` |
+| **Health-bar name** | `R_LANG_EN.WAD` (the string `Hades`) |
 
-Replace a texture inside **`R_UI.WAD`** (27.8 MB, the HUD's art) — for example tint
-an orb or meter icon. The HUD is on screen the moment any save loads, so the result
-is visible **within two seconds of loading, standing still, from any save.**
+Note on timestamps: **slot folder names are UTC, file times are local** (here a
+4-hour offset). `SD-261017161301` encodes 16:13 UTC and the file was written at
+20:13 local. This matters when matching a slot to a moment the owner describes.
+
+So the loop is now:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/boss-test.ps1 -List
+powershell -ExecutionPolicy Bypass -File scripts/boss-test.ps1 `
+    -BossTest -InstallMod D:\re\vergil-mod -Play
+# -> press Continue / Load Game; you are in Hades' Palace; the fight starts
+powershell -ExecutionPolicy Bypass -File scripts/boss-test.ps1 -Restore
+```
+
+`-BossTest` isolates `SD-261017161301` for you, so no slot name is needed.
+
+## The staged test plan
+
+Only the last stage needs the boss; earlier stages are testable from any save, and
+stage 1 still needs no WAD writer (see G9/G10) — which is the current blocker.
+
+### Stage 1 — "does a mod swap land at all?" (no boss needed)
+
+Replace a texture inside **`R_UI.WAD`** (27.8 MB, the HUD's art) — tint an orb or
+meter icon. The HUD is on screen the moment any save loads, so the result is
+visible **within two seconds of loading, standing still**.
 
 Validates: mod folder is picked up → a replaced `R_*.WAD` really loads → the game
 still runs. No boss, no walking, no enemies.
 
-### Stage 2 — "can we change a character?" (no boss)
+### Stage 2 — "can we change a character?" (no boss needed)
 
-Replace a **common enemy** — `R_GRUNT00` (grunts appear in many levels),
-`R_SOLDIER00`, `R_SIREN00`, `R_CYCLOPS00`. Load any combat save and look at the
-enemy in front of you. This proves mesh/texture replacement on a *character* rather
-than on UI.
+Replace a **common enemy** — `R_GRUNT00`, `R_SOLDIER00`, `R_SIREN00`,
+`R_CYCLOPS00`. Load any combat save and look at the enemy in front of you.
 
-### Stage 3 — the boss and its health bar (needs a pre-boss save)
+### Stage 3 — Hades (locked above)
 
-**This is the one-time cost the owner must pay once:** when next playing, save
-*immediately before a boss* and tell me the slot name. From then on every iteration
-is a single click. Until that save exists, the boss health bar requirement (G7)
-cannot be verified — but nothing else is blocked by it.
+Tint `R_HADES.WAD` green (or scale a submesh) and confirm four things:
+**loads → boss spawns → health bar appears → the change is visible.**
 
-Then: tint the boss green (`R_HERCULES`, `R_HADES`, …) and confirm the four
-checks — loads, boss spawns, **health bar appears**, change is visible.
+Then rename the bar to "Vergil" by editing the `Hades` string in `R_LANG_EN.WAD`.
 
 ### Stage 4 — Vergil
 
 Only after Stages 1–3 pass is it worth feeding Vergil's mesh through the converters.
-
-## Choosing the boss (deferred)
-
-Since the target is "whichever is reachable", the boss is chosen once the pre-boss
-save exists. Candidates (E-016):
-
-| Boss | Archive(s) | Note |
-|---|---|---|
-| Zeus | `R_ZEUS00..60` — **six** variants | the only boss with a real sword; likely multi-phase |
-| Hercules | `R_HERCULES`, `R_HERCULES10` | humanoid, two variants |
-| Hades | `R_HADES`, `R_HADESBIG` | owner has saves in his realm |
-| Chronos | level `CRN###` | the `CRN` levels are his |
-| Poseidon | `R_POSEIDON00`, `R_POSMAIN00` | prologue; needs a new game |
-
-The user's saves sit in the **Hades** section (`Realm of Hades`, `The Depths of
-Hades`, `The Three Judges`), and `HDS675AI1HADES.WAD` places the Hades encounter at
-level `HDS675`. If the next save lands near `HDS675`, **Hades is the natural
-target**; otherwise the boss nearest wherever the pre-boss save is taken wins.
 
 ## Why this matters beyond convenience
 

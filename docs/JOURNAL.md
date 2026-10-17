@@ -332,6 +332,34 @@ Owner: focus on **F4/F9** (Vergil's move set from the MOT bitstream) and the
 - Next: the record directory (G9/G10). This is the last unknown before a WAD
   reader/writer, which Stage 1 of the test plan needs.
 
+---
+
+## 2026-10-17 — Test point locked: Hades
+
+Owner: *"save at 20:13 is just before the hades fight"*.
+
+- Did: resolved the slot, locked the Phase 3 target, and wired a default into the
+  harness. Recorded the timestamp subtlety in E-018; updated `TESTING.md`,
+  `GOW3.md`, `BACKLOG.md`.
+- Found: **slot folder names are UTC while file times are local** (4-hour offset
+  here). `SD-261017161301` encodes 16:13 UTC and its files were written at
+  **20:13:02 local** — an exact match for the owner's description. So the slot is
+  `SD-261017161301`, location **`Hades' Palace`**, play time **1:43:35**.
+- **Target boss locked: Hades.**
+  - `R_HADES.WAD` — 85,727,632 B, banner `WAD_R_Hades`, 6 `DC_` markers, **no** AI
+    state machines (an entity WAD, as predicted).
+  - `R_HADESBIG.WAD` 82,873,312 B; `R_HADESBIGSOUL.WAD` 13,649,648 B.
+  - `HDS675AI1HADES.WAD` — 47,136 B, `hfsmEnemy1` / `hfsmBreakable` / `hfsmIO_Misc`
+    (the behaviour, a separate replaceable file).
+  - The health-bar name is the string `Hades` in `R_LANG_EN.WAD`.
+- The shape is exactly what the plan wants: **model**, **behaviour** and **name**
+  are three separate replaceable files, and all three are reachable from one save
+  one click away from the fight.
+- Harness: added `-BossTest` (isolates `SD-261017161301` with no slot argument).
+- Blocked on: **G9/G10** — the WAD record directory. Without a WAD reader/writer,
+  Stage 1 (tint `R_UI.WAD`) cannot be run.
+
+
 
 
 

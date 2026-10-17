@@ -18,6 +18,10 @@
         -Play                   launch the game
 
 .EXAMPLE
+    # the locked Hades test point, with a mod, and launch
+    powershell -ExecutionPolicy Bypass -File scripts/boss-test.ps1 -BossTest -InstallMod D:\re\vergil-mod -Play
+
+.EXAMPLE
     # what is available where?
     powershell -ExecutionPolicy Bypass -File scripts/boss-test.ps1 -List
 
@@ -40,6 +44,9 @@ param(
     [string] $Isolate,
     [switch] $Restore,
     [switch] $IncludeAutosave,
+
+    [string] $BossSlot = 'SD-261017161301',
+    [switch] $BossTest,
 
     [string] $InstallMod,
     [string] $RemoveMod,
@@ -198,6 +205,7 @@ Assert-GameStopped
 $didSomething = $false
 
 if ($Isolate) { Invoke-Isolate -SlotName $Isolate; $didSomething = $true }
+if ($BossTest) { Invoke-Isolate -SlotName $BossSlot; $didSomething = $true }
 if ($Restore) { Invoke-Restore; $didSomething = $true }
 if ($InstallMod) { Invoke-InstallMod -Path $InstallMod; $didSomething = $true }
 if ($RemoveMod) { Invoke-RemoveMod -Name $RemoveMod; $didSomething = $true }
