@@ -1478,3 +1478,91 @@ truth).
 **Consequence.** `tools/dmc3/mot.py` gains `mot_summary()` (duration +
 record_count from real bytes) with a unit test on a synthetic fixture; no game
 data is read by the test suite. The full census is recorded here as E-035.
+
+
+---
+## E-036 — `SHW ` shader-chunk header: verified bytes across all four chunks (F2, bounded slice)
+
+**Observation.** Read the four `SHW ` chunks of `pl021.pac` (slots 8, 14, 24,
+26; slots 24/26 byte-identical) from the real artifact
+(`G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\pl021.pac`).
+Header fields, body-relative, little-endian:
+
+| Offset | Slot 8 (0x75470) | Slot 14 (0x7EB80) | Slot 24 (0x82F90) | Slot 26 (0x85670) |
+|---|---|---|---|---|
+| +0x00 | char[4] `"SHW "` | `"SHW "` | `"SHW "` | `"SHW "` |
+| +0x04 | f32 0.5 | f32 0.5 | f32 0.5 | f32 0.5 |
+| +0x08 | u32 0 | u32 0 | u32 0 | u32 0 |
+| +0x0C | u32 0 | u32 0 | u32 0 | u32 0 |
+| +0x10 | u32 0x00011811 | u32 0x00002707 | u32 0x00020101 | u32 0x00010101 |
+| +0x14 | u32 100 | u32 102 | u32 0x000315D8 | u32 103 |
+| +0x18 | u32 0 | u32 0 | u32 0 | u32 0 |
+| +0x1C | u32 0 | u32 0 | u32 0 | u32 0 |
+| +0x20 | u16 0x000A | u16 0x0016 | u16 0x0027 | u16 0x0027 |
+| +0x22 | u16 0x0010 | u16 0x0028 | u16 0x0042 | u16 0x0042 |
+| +0x24 | u32 0 | u32 0 | u32 0 | u32 0 |
+| +0x28 | u32 0 | u32 0 | u32 0 | u32 0 |
+| +0x2C | u32 0 | u32 0 | u32 0 | u32 0 |
+| +0x30 | u32 0x460 | u32 0x1E0 | u32 0x60 | u32 0x60 |
+| +0x34 | u32 0 | u32 0 | u32 0 | u32 0 |
+| +0x38 | u32 0x560 | u32 0x460 | u32 0x480 | u32 0x480 |
+| +0x3C | u32 0 | u32 0 | u32 0 | u32 0 |
+| +0x40 | u32 0x5E0 | u32 0x5A0 | u32 0x690 | u32 0x690 |
+| +0x44 | u32 0 | u32 0 | u32 0 | u32 0 |
+| +0x48 | u32 0x680 | u32 0x700 | u32 0x900 | u32 0x900 |
+| +0x4C | u32 0 | u32 0 | u32 0 | u32 0 |
+| +0x50 | zero ×16 | zero ×16 | zero ×16 | zero ×16 |
+| +0x60 | table begins | table begins | table begins | table begins |
+
+Worked example — slot 8 raw bytes (file offset 0x75470):
+
+```
++0x00: 53 48 57 20 00 00 00 3f  "SHW "  f32=0.5
++0x08: 00 00 00 00 00 00 00 00  u32=0   u32=0
++0x10: 11 18 01 00 64 00 00 00  u32=0x00011811  u32=100
++0x18: 00 00 00 00 00 00 00 00  u32=0   u32=0
++0x20: 0a 00 10 00 00 00 00 00  u16=0x000A  u16=0x0010  u32=0
++0x28: 00 00 00 00 00 00 00 00  u32=0   u32=0
++0x30: 60 04 00 00 00 00 00 00  u32=0x460  u32=0   (sub-table offset)
++0x38: 60 05 00 00 00 00 00 00  u32=0x560  u32=0   (sub-table offset)
++0x40: e0 05 00 00 00 00 00 00  u32=0x5E0  u32=0   (sub-table offset)
++0x48: 80 06 00 00 00 00 00 00  u32=0x680  u32=0   (sub-table offset)
+```
+
+At +0x30's target (chunk+0x460 for slot 8; chunk+0x1E0 for slot 14;
+chunk+0x60 for slots 24/26) the bytes read as 16-byte entries of three
+small u32 indices plus a zero, e.g. slot 8:
+
+```
+chunk+0x460: 00 00 00 00 01 00 00 00 02 00 00 00 00 00 00 00   [0, 1, 2, 0]
+chunk+0x470: 03 00 00 00 00 00 00 00 04 00 00 00 00 00 00 00   [3, 0, 4, 0]
+chunk+0x480: 05 00 00 00 06 00 00 00 07 00 00 00 00 00 00 00   [5, 6, 7, 0]
+chunk+0x490: 05 00 00 00 07 00 00 00 08 00 00 00 00 00 00 00   [5, 7, 8, 0]
+```
+
+Slot 14's table at chunk+0x1E0 reads `[0, 1, 2, 0 / 3, 4, 5, 0 / 6, 7, 4, 0 /
+8, 9, 10, 0]`; slots 24/26's at chunk+0x60 read `[0, 1, 2, 0 / 3, 0, 2, 0 /
+4, 3, 2, 0 / 1, 4, 2, 0 / 5, 6, 7, 0 / 5, 7, 8, 0]`. The sub-table layout
+(indices into which buffer, u16 vs u32 per index) is not established from
+these bytes alone.
+
+**Inference.** The `SHW ` header is a fixed 0x50-byte block: an f32 0.5 at
++0x04 (4/4 chunks), zero u32s at +0x08/+0x0C/+0x18/+0x1C/+0x24/+0x28/+0x2C/
++0x34/+0x3C/+0x44/+0x4C, varying u32s at +0x10/+0x14, a varying u16 pair at
++0x20/+0x22, and four varying u32s at +0x30/+0x38/+0x40/+0x48 each followed
+by a zero u32.  The value at +0x30 points at a sub-table of 16-byte entries
+(three small u32 indices plus a zero) inside the chunk in all four observed
+chunks — e.g. slot 8's +0x30 == 0x460 lands on `[0, 1, 2, 0 / 3, 0, 4, 0 /
+5, 6, 7, 0 / 5, 7, 8, 0]`.  The other three fields (+0x38, +0x40, +0x48)
+also point at sub-tables (slot 8: 0x560, 0x5E0, 0x680) whose contents look
+like i16 pairs, f32 data (1.0f appears at regular spots) and byte data
+respectively; none of the sub-tables' semantics is established.
+
+**Unknown.** The meaning of every header field; what buffer the +0x30 index
+table indexes; the layouts and semantics of the +0x38/+0x40/+0x48 sub-tables;
+and how the chunk binds materials to textures — the texture-binding half of
+issue F2.
+
+**Consequence.** `tools/dmc3/shw.py` exposes `ShwHeader` decoding exactly this
+header from real bytes, exercised by unit tests on synthetic fixtures. The
+payload beyond the header remains [UNKNOWN]; F2 stays open.

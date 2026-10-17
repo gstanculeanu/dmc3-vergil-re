@@ -156,6 +156,75 @@ def mod_body(
     return bytes(blob)
 
 
+def shw_chunk(
+    alpha: float = 0.5,
+    field_08: int = 0,
+    field_0c: int = 0,
+    field_10: int = 0x00011811,
+    field_14: int = 100,
+    field_18: int = 0,
+    field_1c: int = 0,
+    pair_20_0: int = 0x000A,
+    pair_20_1: int = 0x0010,
+    field_24: int = 0,
+    field_28: int = 0,
+    field_2c: int = 0,
+    field_30: int = 0x460,
+    field_34: int = 0,
+    field_38: int = 0x560,
+    field_3c: int = 0,
+    field_40: int = 0x5E0,
+    field_44: int = 0,
+    field_48: int = 0x680,
+    field_4c: int = 0,
+    pad_to: int = 0x60,
+) -> bytes:
+    """A synthetic plain-tagged ``SHW `` chunk mirroring pl021.pac slot 8 (E-036).
+
+    Header (body-relative, little-endian)::
+
+        +0x00 char[4] "SHW "
+        +0x04 f32 alpha             (observed 0.5 in all four real chunks)
+        +0x10 u32 field_10          (observed 0x00011811 / 0x00002707 / ...)
+        +0x14 u32 field_14          (observed 100 / 102 / 0x315D8 / ...)
+        +0x20 u16 pair_20_0         (observed 0x000A / 0x0016 / 0x0027 / ...)
+        +0x22 u16 pair_20_1         (observed 0x0010 / 0x0028 / 0x0042 / ...)
+        +0x28 u32 field_28          (observed 0 in all four real chunks)
+        +0x30 u32 field_30          (observed 0x460 / 0x1E0 / 0x60 / 0x60;
+                                     points at a sub-table in each chunk)
+        +0x38 u32 field_38          (observed 0x560 / 0x460 / 0x480 / ...)
+        +0x40 u32 field_40          (observed 0x5E0 / 0x5A0 / 0x690 / ...)
+        +0x48 u32 field_48          (observed 0x680 / 0x700 / 0x900 / ...)
+
+    All offsets not listed are zero.  Meanings are [UNKNOWN]; this fixture
+    locks in the observed byte layout so a parser can't silently drift from
+    the real artifact.
+    """
+    blob = bytearray(b"\x00" * pad_to)
+    blob[0:4] = b"SHW "
+    struct.pack_into("<f", blob, 0x04, alpha)
+    struct.pack_into("<I", blob, 0x08, field_08)
+    struct.pack_into("<I", blob, 0x0C, field_0c)
+    struct.pack_into("<I", blob, 0x10, field_10)
+    struct.pack_into("<I", blob, 0x14, field_14)
+    struct.pack_into("<I", blob, 0x18, field_18)
+    struct.pack_into("<I", blob, 0x1C, field_1c)
+    struct.pack_into("<H", blob, 0x20, pair_20_0)
+    struct.pack_into("<H", blob, 0x22, pair_20_1)
+    struct.pack_into("<I", blob, 0x24, field_24)
+    struct.pack_into("<I", blob, 0x28, field_28)
+    struct.pack_into("<I", blob, 0x2C, field_2c)
+    struct.pack_into("<I", blob, 0x30, field_30)
+    struct.pack_into("<I", blob, 0x34, field_34)
+    struct.pack_into("<I", blob, 0x38, field_38)
+    struct.pack_into("<I", blob, 0x3C, field_3c)
+    struct.pack_into("<I", blob, 0x40, field_40)
+    struct.pack_into("<I", blob, 0x44, field_44)
+    struct.pack_into("<I", blob, 0x48, field_48)
+    struct.pack_into("<I", blob, 0x4C, field_4c)
+    return bytes(blob)
+
+
 def raw_chunk_slot0() -> bytes:
     """A synthetic raw chunk mirroring pl021.pac slot 0's header (E-033).
 

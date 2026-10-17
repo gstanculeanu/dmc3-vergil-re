@@ -5,6 +5,11 @@ Read-only tooling.  Nothing here writes to a game installation.
 
 from .mod import BODY_PREFIX_SIZE, ModBodyPrefix, ModHeader
 from .raw import SLOT0_HEADER_SIZE, RawHeader, maybe_raw_header
+from .shw import (
+    HEADER_SIZE as SHW_HEADER_SIZE,
+    ShwHeader,
+    maybe_shw_header,
+)
 from .pac import (
     ALIGNMENT,
     MAGIC,
@@ -50,6 +55,9 @@ __all__ = [
     "TAG_MODEL",
     "TAG_MOTION",
     "TAG_SHADER",
+    "SHW_HEADER_SIZE",
+    "ShwHeader",
+    "maybe_shw_header",
     "Chunk",
     "PacArchive",
     "align_up",

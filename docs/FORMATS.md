@@ -344,17 +344,49 @@ remainder of issue F1 (vertex/index/normal/UV/skin-weight layout).
 * `+0x14 == 0xF4240` (1,000,000) in 187/286 chunks suggests one field may be a
   byte size or vertex count, but that is an inference, not an observation.
 
-`SHW ` chunk header (verified bytes, unknown semantics) — unchanged from prior
-observations:
+`SHW ` chunk header (verified bytes across all four `pl021.pac` `SHW `
+chunks; evidence E-036), all little-endian:
 
 ```
-+0x00  char[4] "SHW "
-+0x04  f32     0.5 (0x3F000000) in every observed SHW chunk
-+0x10  u32     varies   e.g. 0x00011811, 0x00002707, 0x00020101
-+0x14  u32     varies   e.g. 100, 102, 0x000315D8
-+0x20  u16,u16 varies   e.g. (0x0A,0x10), (0x16,0x28), (0x27,0x42)
-+0x28  u32     varies   e.g. 0x460, 0x1E0, 0x60
++0x00  char[4]  "SHW "
++0x04  f32      0.5 (0x3F000000) x4/4 observed
++0x08  u32      0 x4/4
++0x0C  u32      0 x4/4   ([UNKNOWN] purpose)
++0x10  u32      varies   (0x00011811, 0x00002707, 0x00020101, 0x00010101)
++0x14  u32      varies   (100, 102, 0x000315D8, 103)
++0x18  u32      0 x4/4
++0x1C  u32      0 x4/4   ([UNKNOWN] purpose)
++0x20  u16      varies   (0x000A, 0x0016, 0x0027, 0x0027)
++0x22  u16      varies   (0x0010, 0x0028, 0x0042, 0x0042)
++0x24  u32      0 x4/4
++0x28  u32      0 x4/4
++0x2C  u32      0 x4/4
++0x30  u32      varies   (0x460, 0x1E0, 0x60, 0x60) — offsets a 16-byte-block
+                       index table in all four chunks   [table layout UNKNOWN]
++0x34  u32      0 x4/4
++0x38  u32      varies   (0x560, 0x460, 0x480, 0x480)   [UNKNOWN]
++0x3C  u32      0 x4/4
++0x40  u32      varies   (0x5E0, 0x5A0, 0x690, 0x690)   [UNKNOWN]
++0x44  u32      0 x4/4
++0x48  u32      varies   (0x680, 0x700, 0x900, 0x900)   [UNKNOWN]
++0x4C  u32      0 x4/4
++0x50  zero bytes x16
 ```
+
+* Slots 24 and 26 are byte-identical `SHW ` chunks (a duplicated shader pair,
+  like the MOD slots 23/25).
+* The four varying fields at +0x30/+0x38/+0x40/+0x48 each point at a sub-table
+  inside the chunk; +0x30's table holds three small u32 indices plus a zero
+  per 16-byte entry in all four chunks (E-036). The sub-table layouts and all
+  field meanings are [UNKNOWN]; the texture binding that issue F2 asks for is
+  not yet decoded.
+* `tools/dmc3/shw.py` exposes `ShwHeader` decoding exactly this header from
+  real bytes, exercised by unit tests on synthetic fixtures.
+
+> **Correction.** An earlier revision of this section listed the varying values
+> `0x460, 0x1E0, 0x60` at `+0x28`. Real bytes show `+0x28` is `0` in all four
+> chunks and those values live at `+0x30`; the spec above reflects the
+> corrected offsets. See `docs/EVIDENCE.md` E-036 for the raw bytes.
 
 Notable: **`pl021.pac` slots 23 and 25 are byte-identical `MOD ` chunks**, as are
 slots 24 and 26 (`SHW `) — a duplicated mesh/shader pair. **[INFERRED]** these are
