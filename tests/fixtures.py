@@ -208,6 +208,62 @@ def tm2_file(dds_prefix: int = 0x70, payload: bytes = b"\xAB" * 32) -> bytes:
     return bytes(header) + dds_header() + payload
 
 
+def real_tm2_preheader() -> bytes:
+    """The exact 0x70-byte platform header observed in ``i001_90.tm2`` (E-034).
+
+    All 28 little-endian u32s; offsets not listed are zero. Meanings are
+    [UNKNOWN]; this fixture locks in the observed bytes so a parser can't
+    silently drift from the real artifact.
+    """
+    blob = bytearray(0x70)
+    fields = {
+        0x08: 0x00020100,
+        0x0C: 0x0000AAE4,
+        0x10: 0x01000100,
+        0x14: 1,
+        0x20: 64,
+        0x38: 0x00010000,
+        0x44: 0x00800080,
+        0x48: 0x3C000000,
+        0x4C: 0x3C000000,
+        0x64: 0x00010080,
+        0x68: 8,
+    }
+    for off, val in fields.items():
+        struct.pack_into("<I", blob, off, val)
+    return bytes(blob)
+
+
+def real_tm2_dds() -> bytes:
+    """The exact 128-byte DDS header observed in ``i001_90.tm2`` at file 0x70.
+
+    ``dwSize=124, flags=0x00081007, 256×256, one mip level, fourCC DXT3``
+    (E-005).  Written out byte-for-byte so ``parse_dds_header`` can be exercised
+    against the real artifact's values rather than the synthetic ``dds_header``.
+    """
+    return bytes(
+        b"DDS "
+        + struct.pack("<I", 124)            # dwSize
+        + struct.pack("<I", 0x00081007)     # dwFlags
+        + struct.pack("<I", 256)            # dwHeight
+        + struct.pack("<I", 256)            # dwWidth
+        + struct.pack("<I", 65536)          # dwPitchOrLinearSize
+        + struct.pack("<I", 0)              # dwDepth
+        + struct.pack("<I", 1)              # dwMipMapCount
+        + b"\x00" * 44                      # dwReserved1[11]
+        + struct.pack("<I", 32)             # ddspf.dwSize
+        + struct.pack("<I", 0x4)            # ddspf.dwFlags (fourCC)
+        + b"DXT3"                           # ddspf.dwFourCC
+        + b"\x00" * 20                      # RGBBitCount + masks
+        + b"\x00" * 16                      # dwCaps..dwReserved2
+    )
+
+
+def real_tm2() -> bytes:
+    """A synthetic ``.tm2`` mirroring ``i001_90.tm2`` exactly (E-034 + E-005)."""
+    return real_tm2_preheader() + real_tm2_dds() + b"\xAB" * 32
+
+
 # ---------------------------------------------------------------------------
 # GoW3R WAD fixtures (layout from E-016 / E-022)
 # ---------------------------------------------------------------------------

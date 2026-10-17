@@ -19,7 +19,7 @@ Labels used: `re`, `tooling`, `format`, `phase-1`, `phase-2`, `phase-3`, `blocke
 | F5 | Determine the 23-entry `+0x22` MOT table's meaning | E-003, E-032 | open — table **structure** decoded (E-032): 23 u16 entries at `+0x22`, `header_size == 0x22 + 2*len(table)` for all 840 chunks; entries constant within a chunk, dominant shape `56 x 22 + 0` (703/840 chunks, incl. every `pl021_*.pac` chunk); variants `504`-based (28), `58 x 22 + 0` (2), mixed 56/0 (71), `56 x 21 + 0 + 0` (18), varying last entry (17), one `0x60`-header chunk with `56 x 31`. **Not per-bone data** (23 vs 24 bones); semantics of `56`/`504`/`58` and the final entry [UNKNOWN] — engine ground truth needed |
 | F6 | Reverse the `PNST` weapon container (`plwp_*`) | E-006 | open — **deprioritised**, Yamato available via E-014 |
 | F7 | Map `(group, slot)` → human-readable animation names | E-009, E-013 | started — `docs/ANIMATIONS.md` seeded from E-013 |
-| F8 | Explain the TM2 pre-header fields | E-005 | open |
+| F8 | Explain the TM2 pre-header fields | E-005, E-034 | open — all 28 pre-header u32s of the single local TM2 (`i001_90.tm2`, DDS at 0x70) recorded (E-034); **every field [UNKNOWN]**; E-005's "only 0x08/0x0C non-zero" claim falsified (non-zero also at 0x10/0x14/0x20/0x38/0x44/0x48/0x4C/0x64/0x68). Needs more TM2 samples or engine ground truth; extraction itself is already working. |
 | F9 | Decompile Vergil's **move set** (clip + timing + hit windows + state transitions) | E-013 | open — **critical path for the enemy goal** |
 | F10 | Decompile Vergil's **sounds and voice** | E-010 | open |
 | F11 | Decompile Vergil's **VFX** (Yamato trails, DT aura, Judgement Cut) | E-007 | open |

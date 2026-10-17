@@ -1,4 +1,5 @@
 import _bootstrap  # noqa: F401
+import struct
 import unittest
 
 import fixtures
@@ -30,6 +31,48 @@ class TestTm2(unittest.TestCase):
     def test_probe(self):
         self.assertTrue(is_hd_tm2(self.raw))
         self.assertFalse(is_hd_tm2(b"\x00" * 512))
+
+    def test_real_tm2_finds_dds_at_0x70(self):
+        """The real i001_90.tm2 pre-header must not hide the DDS magic (E-034)."""
+        raw = fixtures.real_tm2()
+        self.assertEqual(find_dds(raw), 0x70)
+        dds = extract_dds(raw)
+        self.assertTrue(dds.startswith(b"DDS "))
+        self.assertEqual(len(dds), len(raw) - 0x70)
+
+    def test_real_tm2_preheader_matches_observed_bytes(self):
+        """Lock in every pre-header u32 observed in i001_90.tm2 (E-034)."""
+        raw = fixtures.real_tm2()
+        expected = {
+            0x08: 0x00020100,
+            0x0C: 0x0000AAE4,
+            0x10: 0x01000100,
+            0x14: 1,
+            0x20: 64,
+            0x38: 0x00010000,
+            0x44: 0x00800080,
+            0x48: 0x3C000000,
+            0x4C: 0x3C000000,
+            0x64: 0x00010080,
+            0x68: 8,
+        }
+        for off, val in expected.items():
+            with self.subTest(offset=off):
+                self.assertEqual(struct.unpack_from("<I", raw, off)[0], val)
+        # every other pre-header offset is zero
+        nonzero = {
+            off for off in range(0, 0x70, 4)
+            if struct.unpack_from("<I", raw, off)[0] != 0
+        }
+        self.assertEqual(nonzero, set(expected))
+
+    def test_real_tm2_parses_dds_header(self):
+        info = parse_dds_header(fixtures.real_tm2()[0x70:])
+        self.assertEqual(info.width, 256)
+        self.assertEqual(info.height, 256)
+        self.assertEqual(info.mipmaps, 1)
+        self.assertEqual(info.fourcc, b"DXT3")
+        self.assertEqual(info.data_offset, 128)
 
     def test_missing_payload_raises(self):
         with self.assertRaises(Tm2Error):

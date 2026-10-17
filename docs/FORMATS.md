@@ -244,16 +244,49 @@ alone.
 
 ## 4. TM2 textures (`.tm2`) — HD Collection
 
-**Status: [VERIFIED]** — evidence E-005.
+**Status: [VERIFIED] wrapper, [UNKNOWN] pre-header fields** — evidence E-005,
+E-034.
 
 In the HD Collection a `.tm2` is a thin platform header followed by an **ordinary
 DDS** blob. Extraction is `data[find(b"DDS "):]`.
 
-`i001_90.tm2`: `DDS ` at offset **0x70**, `dwSize = 124`, flags `0x00081007`,
-`256×256`, fourCC `DXT3`.
+`i001_90.tm2` (65,776 bytes): `DDS ` at offset **0x70**, `dwSize = 124`, flags
+`0x00081007`, `256×256`, fourCC `DXT3`, one mip level, DDS payload runs from
+file 0xF0 to EOF (65,536 bytes).
 
-**[UNKNOWN]** the meaning of the TM2 pre-header fields (only two non-zero `u32`s
-observed). **[UNKNOWN]** the PS2/PS3 TIM2 variant — this project targets the HD
+### 4.1 TM2 pre-header — census, all fields [UNKNOWN] (E-034)
+
+The 0x70-byte platform header preceding the embedded DDS blob, read as 28
+little-endian u32s in `i001_90.tm2`:
+
+```
++0x00  u32  0                +0x18  u32  0
++0x04  u32  0                +0x1C  u32  0
++0x08  u32  131328 (0x00020100)  +0x20  u32  64
++0x0C  u32  43748 (0x0000AAE4)   +0x24  u32  0
++0x10  u32  16777472 (0x01000100) +0x28  u32  0
++0x14  u32  1                +0x2C  u32  0
++0x30  u32  0                +0x48  u32  0x3C000000
++0x34  u32  0                +0x4C  u32  0x3C000000
++0x38  u32  65536 (0x00010000)   +0x50  u32  0
++0x3C  u32  0                +0x54  u32  0
++0x40  u32  0                +0x58  u32  0
++0x44  u32  0x00800080        +0x5C  u32  0
++0x60  u32  0                +0x64  u32  65664 (0x00010080)
++0x68  u32  8                 +0x6C  u32  0
+```
+
+All 28 fields are **[UNKNOWN]**: no semantics established. An observed
+correlation in this single file — +0x38 == 65,536 equals the DDS pitch — is
+not a rule (only one TM2 file exists in this install, so no cross-file
+confirmation is possible).
+
+**Correction history.** E-005 reported "only 0x08 and 0x0C are non-zero" among
+the pre-header u32s; E-034's full census falsifies that — non-zero u32s also
+appear at +0x10, +0x14, +0x20, +0x38, +0x44, +0x48, +0x4C, +0x64, +0x68. The
+wrapper-is-DDS conclusion stands; only the pre-header census was incomplete.
+
+**[UNKNOWN]** the PS2/PS3 TIM2 variant — this project targets the HD
 Collection build only.
 
 ---

@@ -1362,3 +1362,60 @@ of the other untagged slots shares slot 0's header shape.
 header (`RawHeader`, `maybe_raw_header`) and nothing more; exercised by
 `tests/test_raw.py` on a synthetic fixture. F3 remains open: this slice
 decodes slot 0's header only.
+
+
+---
+## E-034 — `i001_90.tm2` pre-header: all 28 u32s recorded; E-005 claim corrected (F8, bounded slice)
+
+**Observation.** `i001_90.tm2` (65,776 bytes) in
+`G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\`. The ``DDS `` magic
+begins at file offset **0x70**; the preceding 0x70-byte platform header, read as
+28 little-endian u32s:
+
+| Offset | u32 value | Hex | Offset | u32 value | Hex |
+|---|---|---|---|---|---|
+| +0x00 | 0 | 0x00000000 | +0x18 | 0 | 0x00000000 |
+| +0x04 | 0 | 0x00000000 | +0x1C | 0 | 0x00000000 |
+| +0x08 | 131,328 | 0x00020100 | +0x20 | 64 | 0x00000040 |
+| +0x0C | 43,748 | 0x0000AAE4 | +0x24 | 0 | 0x00000000 |
+| +0x10 | 16,777,472 | 0x01000100 | +0x28 | 0 | 0x00000000 |
+| +0x14 | 1 | 0x00000001 | +0x2C | 0 | 0x00000000 |
+| +0x30 | 0 | 0x00000000 | +0x48 | 1,006,632,960 | 0x3C000000 |
+| +0x34 | 0 | 0x00000000 | +0x4C | 1,006,632,960 | 0x3C000000 |
+| +0x38 | 65,536 | 0x00010000 | +0x50 | 0 | 0x00000000 |
+| +0x3C | 0 | 0x00000000 | +0x54 | 0 | 0x00000000 |
+| +0x40 | 0 | 0x00000000 | +0x58 | 0 | 0x00000000 |
+| +0x44 | 8,388,736 | 0x00800080 | +0x5C | 0 | 0x00000000 |
+| +0x60 | 0 | 0x00000000 | +0x64 | 65,664 | 0x00010080 |
+| +0x68 | 8 | 0x00000008 | +0x6C | 0 | 0x00000000 |
+
+The DDS blob itself (verified in E-005): `dwSize = 124`, flags `0x00081007`,
+256×256, fourCC `DXT3`, one mip level, payload begins at file 0xF0 and runs to
+EOF (65,536 payload bytes).
+
+**Correction of E-005.** E-005 reported "only 0x08 and 0x0C are non-zero" among
+the pre-header u32s. That is **falsified** by these bytes: non-zero u32s also
+appear at +0x10, +0x14, +0x20, +0x38, +0x44, +0x48, +0x4C, +0x64, +0x68. The
+wrapper-is-DDS conclusion of E-005 stands; only the pre-header census was
+incomplete.
+
+**Observed correlation (not a rule).** +0x38 == 65,536 equals this file's DDS
+pitch (`dwPitchOrLinearSize`-adjacent field). With a single TM2 file available
+in this install, cross-file correlation to confirm any field's meaning is not
+possible from local bytes alone.
+
+**Inference.** None beyond the wrapper structure. Every pre-header field is
+**[UNKNOWN]**: +0x08 (0x00020100), +0x0C (0x0000AAE4), +0x10 (0x01000100),
++0x14 (1), +0x20 (64), +0x38 (65,536), +0x44 (0x00800080), +0x48/+0x4C
+(0x3C000000 each), +0x64 (65,664), +0x68 (8). Whether any is a version, type,
+format hint, dimension, or reserved padding is not established.
+
+**Unknown.** All pre-header field semantics; whether other TM2 files (none
+present in this install) share this layout; whether the pre-header varies by
+texture format/dimensions. Needs more TM2 samples or engine ground truth.
+
+**Consequence.** No code change is required to extract textures
+(`find_dds` / `extract_dds` already work). `docs/FORMATS.md` §4 is updated with
+the pre-header census, all fields marked [UNKNOWN], and E-005's pre-header
+claim corrected. A synthetic fixture locking the observed bytes is added to
+`tests/fixtures.py` with a matching test in `tests/test_tm2.py`.
