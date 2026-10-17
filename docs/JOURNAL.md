@@ -234,6 +234,46 @@ don't want to play through the game."*
 - Stages 1–2 are blocked only on **G9** (unpack/repack a `R_*.WAD`); the harness
   itself is ready.
 
+---
+
+## 2026-10-17 — F4 record layer decoded; health-bar name found; WadGraph registry
+
+Owner: focus on **F4/F9** (Vergil's move set from the MOT bitstream) and the
+**boss/health-bar confirmation**.
+
+- Did: decoded the MOT payload structure and shipped it; found the boss-name
+  strings and the asset registry. 12 new tests (81 total).
+- **F4 — the record layer is solved (E-019).** After the header:
+  `u32 record_count`, then `record_count` records of
+  `(u16 size, u16 groups, u16 a, u16 b)` + `size-8` bytes, then 0–12 bytes of
+  padding. Validated on **all 840 motion chunks: 0 walk failures, 59,269 records,
+  the stored count reached in every case.** `size == 8*(groups+4)` holds for every
+  record in 796/840 chunks. New API: `walk_records()` / `try_walk_records()`.
+  - **Disproved** `record_count == 3 × bones` (69 = 3 × 23 was a coincidence):
+    the ratio is 3.0 in only 193/840 chunks.
+  - Also learned the `+0x22` table is **23 entries in all 840 chunks**.
+  - Still open: what the 8-byte groups encode (their `u16`s cluster near `0x8000`
+    / `0x3FFF` / `0xBFFF`, i.e. ±1.0 in Q15 — plausible quantised rotation,
+    unproven).
+- **Health bar (G7) — the mechanism is confirmed (E-020).** `R_LANG_EN.WAD` is
+  **plain ASCII** (14,801 runs, zero UTF-16) and contains boss names as exact
+  standalone strings: `Hades`, `Helios`, `Hermes`, `Hercules`, `Zeus`, `Cronos`,
+  `Poseidon`, `Athena`, `Gaia`, `Pandora`, `Kratos`. The file is a normal mod
+  target, so the bar's name should be editable to "Vergil". `R_LANG_DE.WAD` has
+  the same shape in German.
+- **`WadGraph` decoded (E-021).** `DEPENDENCYGRAPH.IFF` is a NUL-separated name
+  registry: 3,693 names — entities (`R_Hercules`), actors/AI (`ARGrunt00`,
+  `ARGrunt00X22`), levels (`Hds675`), **2,109 `.xvag` audio names**, and
+  **3,344 `Stub_NNNN` placeholder slots**. Names match disk WADs
+  **case-insensitively**.
+  - The thousands of stubs are the best evidence yet that a **new** entity could
+    be added (G8) instead of replacing one.
+  - Audio being registered by name means Vergil's voice needs a registry entry too.
+  - Filed **G10** to decode the name→WAD binding and test a stub.
+- Next: **G10** (registry binding) and the 8-byte MOT group encoding; the loop
+  should also decode the `R_*.WAD` container (G9) to unblock the staged tests.
+
+
 
 
 

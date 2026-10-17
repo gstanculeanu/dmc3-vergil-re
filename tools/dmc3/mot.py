@@ -30,8 +30,9 @@ Inferred, **not** proven:
 
 Unknown (open issues):
 
-* the meaning of the ``+0x22`` table, and how track payload encodes keys.
-* the meaning of ``+0x50`` onward (small integers, then a table).
+* the meaning of the ``+0x22`` table (23 entries in **all** 840 chunks; usually
+  56, sometimes 0 or 504).
+* how the 8-byte groups inside a record encode keyframes (see E-019).
 """
 
 from __future__ import annotations
@@ -144,3 +145,154 @@ def maybe_track_payload(chunk: Chunk) -> Optional[bytes]:
     except MotError:
         return None
     return chunk.data[header.payload_offset:]
+
+
+# ---------------------------------------------------------------------------
+# Payload: the record list (evidence E-019)
+# ---------------------------------------------------------------------------
+#
+# After the header comes::
+#
+#     u32  record_count
+#     record_count x {
+#         u16 size          total record size in bytes
+#         u16 groups
+#         u16 field_a       observed 3
+#         u16 field_b       observed 0
+#         (size - 8) bytes  data
+#     }
+#     tail                 0..12 bytes of zero padding
+#
+# Verified on **all 840 MOT chunks in the install** (0 walk failures, 59,269
+# records) with ``record_count`` taken from the stored value.  In 796/840 chunks
+# every record also satisfies ``size == 8 * (groups + 4)``, i.e.
+# ``size - 8 == 8 * (groups + 3)``; the remaining 44 have at least one record
+# that does not, so the relation is strong but not universal.
+#
+# The meaning of the 8-byte groups is still open (issue F4).
+
+RECORD_HEADER_SIZE = 8
+MAX_TAIL_BYTES = 16
+
+
+@dataclass(frozen=True)
+class MotRecord:
+    """One record of a MOT payload."""
+
+    index: int
+    offset: int
+    """Chunk-relative offset of the record's 8-byte header."""
+
+    size: int
+    """Total record size, header included."""
+
+    groups: int
+    """The ``u16`` at ``+2``.  Usually ``size // 8 - 4``."""
+
+    field_a: int
+    field_b: int
+    data: bytes
+    """``size - 8`` bytes of record payload."""
+
+    @property
+    def size_is_consistent(self) -> bool:
+        """True when ``size == 8 * (groups + 4)`` (holds for 796/840 chunks)."""
+        return self.size == 8 * (self.groups + 4)
+
+    @property
+    def group_count(self) -> int:
+        return len(self.data) // 8
+
+    def group_bytes(self) -> List[bytes]:
+        """The record data split into 8-byte groups."""
+        return [self.data[i:i + 8] for i in range(0, len(self.data) - 7, 8)]
+
+
+@dataclass
+class MotPayload:
+    """A fully walked MOT payload."""
+
+    record_count: int
+    records: List[MotRecord] = field(default_factory=list)
+    tail: bytes = b""
+
+    @property
+    def decoded(self) -> int:
+        return len(self.records)
+
+    @property
+    def complete(self) -> bool:
+        """True when the stored record count was reached and the tail is small."""
+        return self.decoded == self.record_count and len(self.tail) <= MAX_TAIL_BYTES
+
+    @property
+    def all_sizes_consistent(self) -> bool:
+        return all(r.size_is_consistent for r in self.records)
+
+    def group_histogram(self) -> dict:
+        histogram: dict = {}
+        for record in self.records:
+            histogram[record.groups] = histogram.get(record.groups, 0) + 1
+        return histogram
+
+
+def walk_records(chunk: Chunk) -> MotPayload:
+    """Walk the record list of a MOT chunk.
+
+    Raises :class:`MotError` if the payload does not parse, so callers that want
+    a best-effort result should use :func:`try_walk_records`.
+    """
+    header = parse_mot(chunk)
+    payload = chunk.data[header.payload_offset:]
+    if len(payload) < 4:
+        raise MotError("MOT payload too short to hold a record count")
+
+    record_count = u32(payload, 0)
+    position = 4
+    records: List[MotRecord] = []
+
+    for index in range(record_count):
+        if position + RECORD_HEADER_SIZE > len(payload):
+            raise MotError(
+                f"record {index} header runs past the payload "
+                f"(+0x{position:X} of 0x{len(payload):X})"
+            )
+        size = u16(payload, position)
+        groups = u16(payload, position + 2)
+        field_a = u16(payload, position + 4)
+        field_b = u16(payload, position + 6)
+
+        if size < RECORD_HEADER_SIZE:
+            raise MotError(f"record {index} has an invalid size {size}")
+        if position + size > len(payload):
+            raise MotError(
+                f"record {index} (size {size}) runs past the payload "
+                f"(+0x{position:X} of 0x{len(payload):X})"
+            )
+
+        records.append(
+            MotRecord(
+                index=index,
+                offset=header.payload_offset + position,
+                size=size,
+                groups=groups,
+                field_a=field_a,
+                field_b=field_b,
+                data=payload[position + RECORD_HEADER_SIZE:position + size],
+            )
+        )
+        position += size
+
+    return MotPayload(
+        record_count=record_count,
+        records=records,
+        tail=payload[position:],
+    )
+
+
+def try_walk_records(chunk: Chunk) -> Optional[MotPayload]:
+    """Like :func:`walk_records` but returns ``None`` instead of raising."""
+    try:
+        return walk_records(chunk)
+    except MotError:
+        return None

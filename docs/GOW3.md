@@ -74,16 +74,40 @@ So the plan is: **pick an existing sword-wielding GoW3R boss, and replace its
 mesh, skeleton/animations, materials, audio and VFX with Vergil's.** The health
 bar, the arena and the phases come along automatically.
 
-Open questions that follow, tracked as issues **G6** and **G7**:
+Open questions that follow, tracked as issues **G6**, **G7** and **G10**:
 
-1. Which bosses exist in GoW3R, and which wield a blade?
+1. Which bosses exist in GoW3R, and which wield a blade? → **answered** by E-016
+   (`R_HERCULES`, `R_HADES`, `R_HELIOS`, `R_HERMES`, `R_POSEIDON00`, `R_ZEUS00..60`).
 2. Which one has a rig and an animation budget that can accept Vergil's mesh and
-   move set?
-3. Can the health bar's **name** be changed to "Vergil"? (A name string may live
-   in a text/UI file a mod *can* replace — worth checking; see the FMG-style text
-   files in `msg/` in the Bloodborne package, E-014.)
+   move set? → still open (G3), pending the WAD container decode.
+3. Can the health bar's **name** be changed to "Vergil"? → **the mechanism is
+   confirmed yes** (E-020): boss names are plain ASCII inside `R_LANG_EN.WAD`
+   (`Hades`, `Zeus`, `Hercules`, `Cronos`, …), and that file is a normal mod
+   target. Remaining: find the exact health-bar entry and confirm in game.
 4. Does the port's own in-game menu's "enemy health bar" option interact with,
-   or duplicate, the boss bar? See `gow3_pc`'s Game tab.
+   or duplicate, the boss bar? → still open.
+
+## The asset registry: `WadGraph` (E-021)
+
+`DEPENDENCYGRAPH.IFF` contains a NUL-separated **name registry** — 3,693 names,
+matching the on-disk WADs case-insensitively:
+
+| Group | Count | Examples |
+|---|---|---|
+| Entities | 100 `R_*` | `R_Hercules`, `R_Hades`, `R_Zeus50`, `R_KratosFear` |
+| Actors / AI | ~50 `AR*` | `ARGrunt00`, `ARGrunt00X22`, `ARCerberus00`, `ARMedusa00` |
+| Levels | ~200 | `Bas100`, `Hds675`, `Oly200`, `Cav300`, `Crn100` |
+| **Audio** | 2,109 `.xvag` | `Amb_Cronos_v1.xvag`, `Bas400TitanHeliosBattle01A.xvag` |
+| **Placeholders** | **3,344 `Stub_NNNN`** | `Stub_0000` … `Stub_3343` |
+
+Two things matter here:
+
+* **Audio is registered by name**, so Vergil's voice (F10) needs a registry entry
+  as well as a file.
+* **Thousands of `Stub_` slots exist.** That is the strongest evidence so far that
+  a genuinely **new** entity could be added rather than only replacing one (G8).
+  Whether a stub can be renamed and pointed at a new WAD is the open question in
+  **G10**.
 
 ## Dump layout — assets located (G1 answered, E-016)
 

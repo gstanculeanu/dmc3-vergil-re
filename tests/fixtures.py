@@ -59,6 +59,42 @@ def motion_chunk(
     return bytes(blob)
 
 
+def mot_payload_with_records(record_groups=(4, 2, 6), tail: int = 0) -> bytes:
+    """A MOT payload: ``u32 count`` then records of ``(size, groups, a, b, data)``.
+
+    Mirrors the verified structure (E-019): ``size == 8 * (groups + 4)`` and the
+    data is ``8 * (groups + 3)`` bytes.
+    """
+    blob = bytearray(struct.pack("<I", len(record_groups)))
+    for index, groups in enumerate(record_groups):
+        size = 8 * (groups + 4)
+        blob += struct.pack("<HHHH", size, groups, 3, 0)
+        for g in range(groups + 3):
+            # 8 bytes per group; deterministic so tests can assert on it
+            blob += struct.pack("<HHHH", 0x8000, index, g, 0x3FFF)
+    blob += b"\x00" * tail
+    return bytes(blob)
+
+
+def motion_chunk_with_records(record_groups=(4, 2, 6), tail: int = 0) -> bytes:
+    """A complete size-prefixed MOT chunk whose payload holds real records."""
+    payload = mot_payload_with_records(record_groups, tail)
+    header_size = MOT_TABLE_OFFSET + 2 * MOT_TABLE_LEN
+    blob = bytearray(header_size)
+    struct.pack_into("<I", blob, 0x00, header_size)
+    blob[0x04:0x08] = b"MOT\x00"
+    struct.pack_into("<f", blob, 0x0C, 100.0)
+    struct.pack_into("<f", blob, 0x14, 100.0)
+    struct.pack_into("<H", blob, 0x18, 1)
+    struct.pack_into("<H", blob, 0x1A, 23)
+    struct.pack_into("<H", blob, 0x1C, 24)
+    struct.pack_into("<H", blob, 0x1E, 0)
+    struct.pack_into("<H", blob, 0x20, 448)
+    for index in range(MOT_TABLE_LEN):
+        struct.pack_into("<H", blob, MOT_TABLE_OFFSET + 2 * index, 56)
+    return bytes(blob) + payload
+
+
 def cloth_text() -> bytes:
     return b";pl021_02.clt\r\n\r\nClothNum\t1\r\n\r\nClothNo     0\r\nClothId     0\r\n"
 

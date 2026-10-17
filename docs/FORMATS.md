@@ -107,12 +107,43 @@ Verified invariants:
 **[INFERRED]** `+0x1C` is the skeleton bone count (24 dominates, matching Vergil's
 24-node skeleton). Note the table has 23 entries, i.e. *one fewer* than the bone
 count, so the table is **not** a naive per-bone array. **[UNKNOWN]** what the
-table indexes, and how the post-header bytes encode keyframes.
+table indexes.
 
 > Correction history: an earlier revision of this project claimed
 > `header_size == 0x20 + 2 * bone_count`. That was **wrong** and was disproven by
 > running the parser over the whole install (840 chunks). The code no longer
 > asserts it. See `JOURNAL.md`.
+
+### 3.1 MOT payload: the record table
+
+**Status: [VERIFIED]** — evidence E-019. Decoded over **all 840 motion chunks in
+the install** (0 failures, 59,269 records, record count reached every time).
+
+```
+payload:
+  u32  record_count
+  record_count x {
+      u16 size          total record size in bytes (header included)
+      u16 groups
+      u16 field_a       observed 3
+      u16 field_b       observed 0
+      (size - 8) bytes  data
+  }
+  tail                  0 / 4 / 8 / 12 bytes of zero padding
+```
+
+* `size == 8 * (groups + 4)` holds for every record in 796/840 chunks.
+* Data is therefore `8 * (groups + 3)` bytes: `groups + 3` eight-byte groups.
+* `groups` observed 1…181; most commonly 2 (12,407 of 59,269 records).
+
+**[UNKNOWN]** the encoding of the 8-byte groups. Their `u16` quadruples cluster
+near `0x8000`, `0x3FFF` and `0xBFFF` — values near ±1.0 in Q15, which is plausible
+for quantised rotation but unproven; high bytes varying by ±3 point at a
+bit-packed stream rather than a plain quaternion array.
+
+**[DISPROVEN]** `record_count == 3 × bone_count` (suggested by 69 = 3 × 23 in
+`pl021_00_9.pac`). Across the install the ratio is 3.0 in only 193/840 chunks.
+
 
 ---
 

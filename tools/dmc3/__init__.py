@@ -14,7 +14,19 @@ from .pac import (
     align_up,
     build_pac,
 )
-from .mot import MotError, MotHeader, is_mot, parse_mot, parse_mot_from_bytes
+from .mot import (
+    MAX_TAIL_BYTES,
+    RECORD_HEADER_SIZE,
+    MotError,
+    MotHeader,
+    MotPayload,
+    MotRecord,
+    is_mot,
+    parse_mot,
+    parse_mot_from_bytes,
+    try_walk_records,
+    walk_records,
+)
 from .tm2 import (
     DdsInfo,
     Tm2Error,
@@ -39,9 +51,15 @@ __all__ = [
     "build_pac",
     "MotError",
     "MotHeader",
+    "MotPayload",
+    "MotRecord",
+    "MAX_TAIL_BYTES",
+    "RECORD_HEADER_SIZE",
     "is_mot",
     "parse_mot",
     "parse_mot_from_bytes",
+    "try_walk_records",
+    "walk_records",
     "DdsInfo",
     "Tm2Error",
     "Tm2File",

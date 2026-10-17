@@ -507,6 +507,147 @@ hand-authored "boss test" save would be ideal.
 labels; `scripts/boss-test.ps1` drives the loop;
 `docs/TESTING.md` documents it. No game asset is copied into the repository.
 
+---
+
+## E-019 — MOT payload decoded: a record table (F4, record layer)
+
+**Observation.** Every MOT payload (from `header_size`, always `0x50`) begins with
+a `u32` record count followed by that many records:
+
+```
+u32  record_count
+record_count x {
+    u16 size          total record size, header included
+    u16 groups
+    u16 field_a       observed 3
+    u16 field_b       observed 0
+    (size - 8) bytes  data
+}
+tail                  0..16 bytes of zero padding
+```
+
+Measured over **every motion chunk in the install: 840/840 walked with zero
+errors, 59,269 records decoded, and `record_count` was reached in all 840.**
+
+Evidence lines from `pl021_00_9.pac` (payload 4,512 bytes):
+
+* stored `record_count` = **69**; walking 69 records consumes the payload exactly
+  leaving **12** bytes of zero padding;
+* the first records read `+0x0004 size=64 groups=4 a=3 b=0`,
+  `+0x0044 size=64 groups=4`, `+0x0084 size=64 groups=4`, `+0x00C4 size=64`,
+  `+0x0104 size=48 groups=2`, `+0x0134 size=48 groups=2`,
+  `+0x0164 size=64`, `+0x01A4 size=80 groups=6`, … — offsets are contiguous.
+
+Two relations hold:
+
+1. **`size == 8 * (groups + 4)`** — true for every record in **796/840** chunks.
+   Equivalently `size - 8 == 8 * (groups + 3)`.
+2. The tail is 0, 4, 8 or 12 bytes — i.e. padding to a 4-byte boundary.
+
+**`groups` histogram** over all 59,269 records: 2 → 12,407; 3 → 2,239; 4 → 2,480;
+5 → 2,964; 6..20 → ~2,000–3,000 each; 1 → 421; maximum **181**.
+
+**Bone count vs record count — a disproved hypothesis.** The header's `+0x22`
+table is **23 entries in all 840 chunks**, and it was tempting to read
+`record_count == 3 × bones` (69 = 3 × 23 in the sample). Measured across the
+install, `record_count / count_a` is 3.0 in only 193 chunks and 2.875 in 165, with
+many other ratios. **The hypothesis is false** and is recorded so it is not
+retried.
+
+**Inference.** The MOT payload is a flat table of self-describing records, each
+carrying `groups + 3` 8-byte groups. Because `groups` is redundant with `size`
+(relation 1) in 95% of records, one of the two fields carries something else; the
+44 inconsistent chunks are the place to look.
+
+**Still unknown (F4 remainder).** What the 8-byte groups *mean*. Observed group
+values read as `u16` quadruples cluster near `0x8000` (=-32768 as `s16`),
+`0x3FFF` (=16383) and `0xBFFF` (=-16383), i.e. values near ±1.0 in Q15 — plausible
+for quantised rotation, but **not proven**, and the widely-varying `214..217`
+high bytes suggest a bit-packed stream rather than a plain quaternion array.
+
+**Consequence.** `tools/dmc3/mot.py` now exposes `walk_records()` /
+`try_walk_records()` returning `MotPayload` / `MotRecord`, exercised by 8 unit
+tests and validated against all 840 real chunks.
+
+---
+
+## E-020 — The boss health-bar name is plain ASCII in `R_LANG_EN.WAD` (G7)
+
+**Observation.** `R_LANG_EN.WAD` (456,432 bytes) contains **14,801 printable ASCII
+runs and no UTF-16 at all** — the game's English text is stored as plain ASCII.
+Searching it for boss names finds them as **exact standalone strings**:
+
+```
+Hades   Helios   Hermes   Hercules   Zeus   Cronos   Poseidon
+Athena  Gaia     Pandora  Kratos     Ares
+```
+
+along with locality labels (`Tomb of Ares`, `Realm of Hades`, `Hades' Palace`),
+item names (`Claws of Hades`, `Head of Helios`, `Hades' Helm`, `Helios' Shield`,
+`Hermes' Coin`, `Zeus' Eagle`), and descriptive prose
+(`"Condemned by his son Zeus, Cronos wanders the Desert of Tartarus for eternity."`).
+
+`R_LANG_DE.WAD` is the same shape (17,065 ASCII runs, German text, **no UTF-16**).
+
+**Inference.** The strings a boss health bar would display live in
+`R_LANG_*.WAD` as plain ASCII. A `gow3_pc` mod **can** replace `R_LANG_EN.WAD`, so
+the displayed name is expected to be editable — Vergil's bar could read
+`Vergil`. This is the mechanism behind requirement G7.
+
+**Unknown.** Which of the several occurrences of e.g. `Hades` is the specific
+health-bar string (there are many: locality, item, prose, dialogue). Confirming
+which index the bar reads needs one in-game test (Stage 3 of `docs/TESTING.md`).
+
+**Consequence.** G7 is no longer speculative: the name is in a replaceable,
+human-editable file. What remains is (a) locating the exact entry and (b) one
+in-game confirmation.
+
+---
+
+## E-021 — `WadGraph` is a readable name registry with ~3,344 free `Stub_` slots (G8/G9)
+
+**Observation.** `DEPENDENCYGRAPH.IFF` (265,776 bytes) has the banner `"WadGraph"`
+at 0x08, then a large **NUL-separated ASCII name table**: **3,693 names, 3,688
+distinct**.
+
+The entries are logical asset names in **CamelCase**:
+
+* **entities** — `R_Hercules`, `R_Hercules10`, `R_Hades`, `R_Zeus50`, `R_Hermes`,
+  `R_KratosFear`, … (100 `R_*` names). The WADs on disk use **uppercase**
+  (`R_HERCULES.WAD`), so the two match **case-insensitively**.
+* **actors / AI** — `ARGrunt00`, `ARGrunt00X22`, `ARArcher00`, `ARCerberus00`,
+  `ARCyclops10`, `ARHarpy00`, `ARMedusa00`, `ARMinotaur00`, `ARSatyr00`,
+  `ARSiren00`, `ARBrute00`, `ARChimera00`, `ARArgus00`, …
+* **levels** — `Bas100`, `Hds675`, `Oly200`, `Cav300`, `Gaz100`, `Crn100`,
+  `Lab100`, `Ica100`, `Pos200`, and their `*AI*` sub-wads (`Bas400AI4Heli`,
+  `Hds675AI1Hades`).
+* **audio** — **2,109 `.xvag` names**, e.g. `Amb_Cronos_v1.xvag`,
+  `Amb_Hades666.xvag`, `Bas400TitanHeliosBattle01A.xvag`, `Rabbid_Dog_Distant.xvag`.
+* **placeholders** — **3,344 names of the form `Stub_0000` … `Stub_3343`.**
+
+Weapons, UI and text (`R_Sword00`, `R_UI`, `R_Lang`) are **absent** from the graph,
+so the registry covers entities, actors, levels and audio specifically.
+
+**Inference.** `WadGraph` looks like a fixed-size registry that maps a logical asset
+name to the archive that provides it. Two consequences:
+
+1. **Audio is registered by name**, so Vergil's voice lines (F10) would need a
+   registry entry as well as a file.
+2. The **~3,344 `Stub_` slots are the strongest evidence yet that a *new* entity
+   could be added** rather than only replacing one (G8): the engine may already
+   have thousands of unused, nameable asset slots.
+
+**Unknown.** How a registry name is bound to a physical WAD (an index table after
+the name block?), and whether a `Stub_` slot can be renamed and pointed at a new
+file without breaking the graph's integrity. Decoding the table that follows the
+names is issue **G10**.
+
+**Note on case.** Matching manifest names to disk WADs must be case-insensitive.
+An earlier check in this journal that compared `R_Hercules` to `R_HERCULES`
+case-sensitively reported a false "0 matches".
+
+
+
 
 
 
