@@ -361,6 +361,26 @@ Owner: *"save at 20:13 is just before the hades fight"*.
 
 ---
 
+## 2026-10-17 — G9: found the DC_ id 0x10 offset table (name→bytes binding lead)
+
+- Did: read real bytes from `R_SWORD00.WAD` (87,840 B) and `BAS500AI3ARG00.WAD`
+  (13,040 B). Found that the `DC_` footer chunk with id `0x10` holds a sorted
+  table of bulk file offsets (47 entries in `R_SWORD00.WAD`: `0xD84, 0xDAC,
+  0xDE4, …, 0x1654`) followed by ASCII strings (`CRT_`, `Sword00`, `FX_…`).
+  Also proved `DC_` marker count is 0 or 6 per WAD, not always 6. Recorded as
+  **E-027**. Fixed stale `wad.py`/`wad_info.py` docstrings (directory IS decoded;
+  `DC_` count is 0 or 6). Added unit test asserting `DC_` count can be zero.
+  Committed as `fac6b82` (refs #36). 112 tests green.
+- Found: **E-027** — `DC_` id `0x10` is the directory→bulk offset table, the
+  missing name→bytes binding. Entry structure (`0x9F`/`0xA4` alternating field,
+  ascending third field) and the mapping from table entries to the 16 directory
+  resource names are unknown. 47 entries vs 16 resources means one entry ≠ one
+  resource. A WAD writer remains blocked.
+- Next: resolve the table entry → resource name mapping (best lead: check how
+  entry offsets align with the directory's resource order, or compare against a
+  larger entity WAD such as `R_HADES.WAD`). Until then, Stage 1 of the boss
+  test loop (tint `R_UI.WAD`) is blocked on G9/G10.
+
 ## 2026-10-17 — G9: resource taxonomy decoded; two of my own measurements discarded
 
 Owner: *"re-iterate until done; I want Hades phase 1 to be Vergil, with his own
