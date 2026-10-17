@@ -214,3 +214,176 @@ def is_wad(data: bytes) -> bool:
         return parse_header(data).looks_valid
     except WadError:
         return False
+
+
+# ---------------------------------------------------------------------------
+# Record stream (E-023)
+# ---------------------------------------------------------------------------
+#
+# From 0x40 a WAD carries a stream of records. Named records are 0x40 bytes:
+#
+#     u32 type ; u32 size ; char name[0x38]
+#
+# Command types: 1 = resource (name + size), 2 = GroupStart, 3 = GroupEnd,
+# 0x12 = root, 0x15 = PopHeap. ``0x80000000 | n`` is a typed marker whose ``n``
+# is a resource class id (MDLX=13, TXRX=7, MATX=8, ANMX=3, BHVX=18, ...).
+#
+# The length of a *marker* record is not yet determined (observed 0x10 and 0x20),
+# so this scanner is deliberately **resynchronising and best effort**: it steps a
+# reasoned stride, and when a position does not look like a record it advances
+# 16 bytes and tries again. It is reliable enough to *inventory* a WAD's typed
+# resources; it is **not** yet a writer, and it must never be used to repack.
+
+RECORD_START = 0x40
+NAMED_RECORD_SIZE = 0x40
+MARKER_STRIDE = 0x10
+ALIGNMENT = 0x10
+
+COMMAND_NAMES = {
+    1: "resource",
+    2: "GroupStart",
+    3: "GroupEnd",
+    0x12: "root",
+    0x15: "PopHeap",
+}
+
+CLASS_NAMES = {
+    1: "CXT",
+    3: "ANMX",
+    4: "SCRX",
+    6: "LGTX",
+    7: "TXRX",
+    8: "MATX",
+    9: "CAMX",
+    13: "MDLX",
+    14: "COLX",
+    15: "PRTX",
+    16: "WPTX",
+    18: "BHVX",
+    19: "SNDX",
+    20: "root",
+    21: "FX",
+    24: "OCCX",
+}
+
+#: Prefixes seen in resource names whose numeric class id has not been confirmed.
+EXTRA_PREFIXES = ("ESC", "WYP", "ENV", "NAV", "SHELL")
+
+#: The standard per-entity resource set: every WAD examined carries one group per
+#: type here (see E-024).
+STANDARD_RESOURCE_SET = (
+    "root", "TXRX", "WPTX", "MATX", "CXT", "ANMX", "LGTX", "SCRX",
+    "BHVX", "MDLX", "PRTX", "CAMX", "SNDX", "COLX", "FX", "OCCX",
+)
+
+MARKER_FLAG = 0x80000000
+
+
+@dataclass(frozen=True)
+class WadRecord:
+    offset: int
+    type_code: int
+    size: int
+    name: str = ""
+    kind: str = "unknown"          # command | marker | unknown
+    class_id: Optional[int] = None
+
+    @property
+    def class_name(self) -> str:
+        if self.class_id is None:
+            return self.kind
+        return CLASS_NAMES.get(self.class_id, f"class{self.class_id}")
+
+    @property
+    def command(self) -> str:
+        return COMMAND_NAMES.get(self.type_code, "")
+
+
+def _read_name(data: bytes, offset: int, limit: int = 0x38) -> str:
+    raw = data[offset:offset + limit]
+    head = raw.split(b"\x00", 1)[0]
+    if not head or not all(32 <= b < 127 for b in head):
+        return ""
+    return head.decode("latin-1")
+
+
+def _looks_like_record(data: bytes, offset: int) -> Optional[WadRecord]:
+    if offset + 8 > len(data):
+        return None
+    type_code = int.from_bytes(data[offset:offset + 4], "little")
+    size = int.from_bytes(data[offset + 4:offset + 8], "little")
+
+    if type_code in COMMAND_NAMES:
+        name = _read_name(data, offset + 8)
+        if type_code == 1 and not name:
+            return None            # a resource must be named
+        return WadRecord(offset=offset, type_code=type_code, size=size,
+                         name=name, kind="command",
+                         class_id=20 if type_code == 0x12 else None)
+
+    if type_code & MARKER_FLAG:
+        return WadRecord(offset=offset, type_code=type_code, size=size,
+                         name="", kind="marker",
+                         class_id=type_code & ~MARKER_FLAG)
+    return None
+
+
+def scan_records(data: bytes, max_unknown_run: int = 24) -> List[WadRecord]:
+    """Best-effort inventory of a WAD's record stream (see the note above)."""
+    records: List[WadRecord] = []
+    offset = RECORD_START
+    unknowns = 0
+
+    while offset + 8 <= len(data):
+        record = _looks_like_record(data, offset)
+        if record is None:
+            unknowns += 1
+            if unknowns > max_unknown_run:
+                break
+            offset += ALIGNMENT
+            continue
+
+        unknowns = 0
+        records.append(record)
+        if record.kind == "command":
+            offset += NAMED_RECORD_SIZE
+        else:
+            # a marker: skip its (unknown-length) body until the next plausible
+            # record boundary
+            offset += MARKER_STRIDE
+    return records
+
+
+def resources(records: List[WadRecord]) -> List[WadRecord]:
+    """Resource definitions (type 1), in file order.
+
+    The class is resolved from the **name prefix** first, because across 87 small
+    WADs the prefix and the following marker id agreed every single time
+    (E-024); the marker id is the fallback.
+    """
+    known = {name: cid for cid, name in CLASS_NAMES.items()}
+    out: List[WadRecord] = []
+
+    for index, record in enumerate(records):
+        if record.type_code != 1:
+            continue
+        marker_id: Optional[int] = None
+        for follower in records[index + 1:index + 4]:
+            if follower.kind == "marker":
+                marker_id = follower.class_id
+                break
+        prefix = record.name.split("_")[0]
+        class_id = known.get(prefix, marker_id)
+        out.append(
+            WadRecord(offset=record.offset, type_code=1, size=record.size,
+                      name=record.name, kind="resource", class_id=class_id)
+        )
+    return out
+
+
+def resource_histogram(records: List[WadRecord]) -> dict:
+    """Class name -> count for the resources of a WAD."""
+    histogram: dict = {}
+    for record in resources(records):
+        histogram[record.class_name] = histogram.get(record.class_name, 0) + 1
+    return histogram

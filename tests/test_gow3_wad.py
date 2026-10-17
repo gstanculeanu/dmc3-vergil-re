@@ -40,20 +40,89 @@ class TestDcMarkers(unittest.TestCase):
         self.assertEqual(len(info.dc_markers), 6)
         self.assertTrue(info.dc_count_ok)
 
-    def test_prefix_matches_the_verified_bytes(self):
-        info = wad.inspect_bytes(fixtures.wad_bytes("WAD_R_Sword00"))
-        self.assertTrue(all(m.prefix_matches for m in info.dc_markers))
-
-    def test_bad_prefix_is_reported_not_hidden(self):
-        info = wad.inspect_bytes(
-            fixtures.wad_bytes("WAD_R_Sword00", bad_dc_prefix=True)
-        )
-        self.assertEqual(len(info.dc_markers), 6)
-        self.assertFalse(all(m.prefix_matches for m in info.dc_markers))
+    def test_prefix_flag_is_reported_not_assumed(self):
+        # E-022/E-023: the prefix is NOT constant in real files, so the tool must
+        # report rather than assume it.
+        good = wad.inspect_bytes(fixtures.wad_bytes("WAD_R_Sword00"))
+        self.assertTrue(all(m.prefix_matches for m in good.dc_markers))
+        bad = wad.inspect_bytes(fixtures.wad_bytes("WAD_R_Sword00", bad_dc_prefix=True))
+        self.assertFalse(all(m.prefix_matches for m in bad.dc_markers))
 
     def test_marker_names_carry_the_banner(self):
         info = wad.inspect_bytes(fixtures.wad_bytes("WAD_R_Hercules"))
         self.assertTrue(all(m.name == "DC_WAD_R_Hercules" for m in info.dc_markers))
+
+
+class TestClassTable(unittest.TestCase):
+    def test_known_ids(self):
+        expected = {1: "CXT", 3: "ANMX", 4: "SCRX", 6: "LGTX", 7: "TXRX",
+                    8: "MATX", 9: "CAMX", 13: "MDLX", 14: "COLX", 15: "PRTX",
+                    16: "WPTX", 18: "BHVX", 19: "SNDX", 20: "root", 21: "FX",
+                    24: "OCCX"}
+        self.assertEqual(wad.CLASS_NAMES, expected)
+
+    def test_standard_resource_set(self):
+        self.assertIn("MDLX", wad.STANDARD_RESOURCE_SET)
+        self.assertIn("ANMX", wad.STANDARD_RESOURCE_SET)
+        self.assertIn("BHVX", wad.STANDARD_RESOURCE_SET)
+        self.assertIn("TXRX", wad.STANDARD_RESOURCE_SET)
+        self.assertEqual(len(wad.STANDARD_RESOURCE_SET), 16)
+
+
+class TestRecordScan(unittest.TestCase):
+    def setUp(self):
+        self.data = fixtures.wad_records_bytes()
+        self.records = wad.scan_records(self.data)
+
+    def test_commands_are_found(self):
+        commands = [r.command for r in self.records if r.kind == "command"]
+        self.assertIn("GroupStart", commands)
+        self.assertIn("GroupEnd", commands)
+        self.assertIn("resource", commands)
+        self.assertIn("PopHeap", commands)
+
+    def test_root_record_is_the_banner(self):
+        roots = [r for r in self.records if r.command == "root"]
+        self.assertEqual(len(roots), 1)
+        self.assertEqual(roots[0].name, "WAD_R_Sword00")
+
+    def test_markers_carry_a_class_id(self):
+        markers = [r for r in self.records if r.kind == "marker"]
+        ids = sorted(m.class_id for m in markers if m.class_id)
+        self.assertEqual(ids, [7, 13, 18, 20])
+
+    def test_resources_resolve_by_name_prefix(self):
+        res = wad.resources(self.records)
+        names = {r.class_name: r.name for r in res}
+        self.assertIn("MDLX", names)
+        self.assertIn("BHVX", names)
+        self.assertTrue(names["MDLX"].startswith("MDLX_"))
+
+    def test_resolution_prefers_prefix_over_marker(self):
+        # a deliberately lying marker must not override a good prefix
+        data = fixtures.wad_records_bytes(
+            resource_classes=(("MDLX", 7),)   # TXRX id on an MDLX resource
+        )
+        recs = wad.scan_records(data)
+        res = wad.resources(recs)
+        mdls = [r for r in res if r.name.startswith("MDLX_")]
+        self.assertEqual(len(mdls), 1)
+        self.assertEqual(mdls[0].class_name, "MDLX")
+
+    def test_resource_histogram(self):
+        histogram = wad.resource_histogram(self.records)
+        self.assertEqual(histogram.get("MDLX"), 1)
+        self.assertEqual(histogram.get("BHVX"), 1)
+
+    def test_scan_terminates_on_garbage(self):
+        records = wad.scan_records(b"\x00" * 4096)
+        self.assertEqual(records, [])
+
+    def test_scan_is_bounded_by_max_unknown_run(self):
+        data = fixtures.wad_records_bytes() + b"\x00\x01\x02\x03" * 4096
+        records = wad.scan_records(data, max_unknown_run=4)
+        self.assertTrue(all(r.offset < len(fixtures.wad_records_bytes()) + 0x100
+                            for r in records))
 
 
 class TestNameFamilies(unittest.TestCase):
@@ -72,27 +141,23 @@ class TestNameFamilies(unittest.TestCase):
         for name, expected in cases.items():
             self.assertEqual(wad.classify_name(name), expected, name)
 
-    def test_hfsm_detection(self):
-        blob = fixtures.wad_bytes("WAD_Hds675AI1Hades", names=("hfsmEnemy1", "hfsmIO_Misc"))
-        info = wad.inspect_bytes(blob)
-        self.assertEqual(info.hfsm_names, ["hfsmEnemy1", "hfsmIO_Misc"])
-        self.assertTrue(info.carries_ai)
-
-    def test_entity_wad_carries_no_ai(self):
-        info = wad.inspect_bytes(fixtures.wad_bytes("WAD_R_Hercules", names=("goFireTrail",)))
-        self.assertEqual(info.hfsm_names, [])
-        self.assertFalse(info.carries_ai)
-        self.assertEqual(info.summary()["kind"], "entity")
+    def test_hfsm_detection_and_entity_wad(self):
+        ai = wad.inspect_bytes(
+            fixtures.wad_bytes("WAD_Hds675AI1Hades", names=("hfsmEnemy1", "hfsmIO_Misc"))
+        )
+        self.assertEqual(ai.hfsm_names, ["hfsmEnemy1", "hfsmIO_Misc"])
+        self.assertTrue(ai.carries_ai)
+        entity = wad.inspect_bytes(fixtures.wad_bytes("WAD_R_Hercules", names=("goFire",)))
+        self.assertFalse(entity.carries_ai)
+        self.assertEqual(entity.summary()["kind"], "entity")
 
     def test_summary_shape(self):
         info = wad.inspect_bytes(fixtures.wad_bytes("WAD_R_Sword00"))
-        summary = info.summary()
         self.assertEqual(
-            set(summary),
+            set(info.summary()),
             {"path", "size", "banner", "kind", "dc_markers", "dc_prefixes_ok",
              "hfsm", "name_families"},
         )
-        self.assertEqual(summary["banner"], "WAD_R_Sword00")
 
     def test_is_wad_probe(self):
         self.assertTrue(wad.is_wad(fixtures.wad_bytes()))

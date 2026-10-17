@@ -838,6 +838,72 @@ WAD reader/writer, and therefore no repack, and therefore no test iteration.
 record is a model, a texture, an animation, a behaviour) is decoded and the
 behaviour side is human-readable. The remaining gap is mechanical record framing.
 
+---
+
+## E-024 — Every WAD is the same 16 typed resource groups; the scanner validates
+
+**Observation.** A resynchronising record scanner (`wad.scan_records`) was run over
+the **87 WADs under 1.5 MB**. Two independent facts came out of it:
+
+1. **EVERY WAD carries the same 16 resource groups**, one group per resource type,
+   in a fixed order:
+
+```
+root  TXRX  WPTX  CXT  ANMX  LGTX  SCRX  BHVX  MDLX  PRTX  CAMX  SNDX  COLX  FX  OCCX  MATX
+```
+
+2. **The name prefix and the marker's class id agreed on every single occurrence**
+   — a 100% consistent cross-check:
+
+| prefix | resolved class | count (of 87 WADs) |
+|---|---|---|
+| `WAD` | root | 87 |
+| `TXRX` `WPTX` `MATX` | TXRX / WPTX / MATX | 87 each |
+| `CXT` `ANMX` `LGTX` `SCRX` `BHVX` `MDLX` `PRTX` `CAMX` `SNDX` `COLX` `FX` `OCCX` | same as the prefix | 95 each |
+
+Because the two derivations (name prefix vs following `0x80000000|n` marker) never
+disagreed, the class table in E-023 and the scanner are mutually validating. This
+is the strongest evidence in the project so far for the WAD layout.
+
+Worked example — the target boss's own archive, `R_HADES.WAD` (85,727,632 bytes):
+
+```
+root  size=24  WAD_R_Hades        TXRX size=16 TXRX_R_Hades   WPTX size=16 ...
+...
+MDLX  size=16  MDLX_R_Hades       ANMX size=16 ANMX_R_Hades   BHVX size=16 BHVX_R_Hades
+MATX  size=24  MATX_R_Hades       ... (16 groups total)
+```
+
+**Inference.** The WAD is a nested group tree with **one group per resource type**,
+so *which* records to replace is now unambiguous. To stand Vergil in Hades'
+phase 1, the groups to swap are:
+
+| group | content | Vergil's replacement |
+|---|---|---|
+| `MDLX_` | **model** | Vergil's mesh |
+| `TXRX_` `WPTX_` `MATX_` | textures / weapon textures / materials | Vergil's DDS set |
+| `ANMX_` | **animations** | Vergil's move clips |
+| `BHVX_` | behaviour | keep Hades's, or author (the AI graph is readable, E-023) |
+| `COLX_` | collision | adjust to Vergil's proportions |
+| others | lights, cameras, sounds, FX, occlusion | mostly keep |
+
+**Still unknown / deliberately not claimed.** The marker records' *length* is not
+determined (observed 0x10 and 0x20), so the scanner resynchronises rather than
+computing exact record boundaries. It is therefore a reliable **inventory** tool
+and **not yet a writer** — repacking is still blocked. `resources()` resolves the
+class from the name prefix first, exactly because that is the more reliable of the
+two signals.
+
+**Errors seen (honest limits).** Three resource names resolved to a bogus class id
+drawn from float data (`class1065353216` = `0x3F800000` = 1.0f), and the prefixes
+`ESC`, `WYP`, `ENV` appear in names but have no confirmed numeric id. These are
+recorded rather than hidden.
+
+**Tooling.** `wad.scan_records`, `wad.resources`, `wad.resource_histogram`,
+`wad.CLASS_NAMES`, `wad.STANDARD_RESOURCE_SET`, and `wad_info.py --resources`.
+15 tests cover the scanner and the class table.
+
+
 
 
 

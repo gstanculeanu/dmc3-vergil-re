@@ -160,3 +160,44 @@ def wad_bytes(
         raw = ("DC_" + banner).encode("latin-1")
         blob += raw + b"\x00" * (0x38 - len(raw))
     return bytes(blob)
+
+
+def _named_record(type_code: int, size: int, name: str) -> bytes:
+    raw = name.encode("latin-1")
+    assert len(raw) < 0x38
+    return (struct.pack("<II", type_code, size)
+            + raw + b"\x00" * (0x38 - len(raw)))
+
+
+def _marker_record(class_id: int, body: int = 8) -> bytes:
+    """A typed marker. Total size is 8 + body and must be 16-byte aligned, so
+    ``body`` is 8 (total 0x10) or 24 (total 0x20) — matching real files."""
+    assert (8 + body) % 0x10 == 0, "marker record must be 16-byte aligned"
+    return struct.pack("<II", 0x80000000 | class_id, 0) + b"\x00" * body
+
+
+def wad_records_bytes(
+    banner: str = "WAD_R_Sword00",
+    resource_classes=(("WAD", 20), ("TXRX", 7), ("MDLX", 13), ("BHVX", 18)),
+) -> bytes:
+    """A synthetic WAD carrying a proper record stream (E-023/E-024).
+
+    ``resource_classes`` is a sequence of ``(prefix, class_id)``; each becomes a
+    ``GroupStart``, a resource, a marker and a ``GroupEnd``, matching the real
+    layout. Ends with ``PopHeap`` and the root banner record.
+    """
+    blob = bytearray()
+    blob += struct.pack("<II", 20, 8)
+    blob += banner.encode("latin-1")
+    blob += b"\x00" * (0x40 - len(blob))
+
+    for prefix, class_id in resource_classes:
+        blob += _named_record(2, 0, "GroupStart")
+        blob += _named_record(1, 0x18 if prefix == "WAD" else 0x10,
+                              f"{prefix}_{banner[4:] if prefix == 'WAD' else banner}")
+        blob += _marker_record(class_id, body=24 if prefix == "WAD" else 8)
+        blob += _named_record(3, 0, "GroupEnd")
+
+    blob += _named_record(0x15, 0, "PopHeap")
+    blob += _named_record(0x12, 0, banner)
+    return bytes(blob)

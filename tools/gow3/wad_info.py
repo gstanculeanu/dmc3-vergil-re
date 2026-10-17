@@ -47,6 +47,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--file", help="a single *.WAD file")
     parser.add_argument("--limit", type=int, default=8, help="max files in --wad-dir")
     parser.add_argument("--ai-only", action="store_true", help="only report AI WADs")
+    parser.add_argument("--resources", action="store_true",
+                        help="list the typed resource groups (MDLX, TXRX, ANMX, BHVX, ...)")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args(argv)
@@ -75,6 +77,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         infos.append(info)
         if not args.json and not args.quiet:
             show(info, verbose=not args.quiet)
+            if args.resources:
+                with open(path, "rb") as handle:
+                    records = wad.scan_records(handle.read())
+                print(f"  resource groups ({len(wad.resources(records))}):")
+                for record in wad.resources(records):
+                    print(f"      {record.class_name:<7} size={record.size:<9} {record.name}")
 
     if args.json:
         print(json.dumps([i.summary() for i in infos], indent=2))

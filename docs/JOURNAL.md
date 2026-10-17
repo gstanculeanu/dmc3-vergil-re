@@ -401,6 +401,34 @@ moves and health bar and everything."*
   payload bytes encode, then check whether the following record is at a
   16-byte-aligned boundary.
 
+---
+
+## 2026-10-17 — G9: the WAD is 16 typed resource groups; scanner validates itself
+
+- Did: built a resynchronising record scanner and validated it across the 87 WADs
+  under 1.5 MB. Shipped `scan_records` / `resources` / `resource_histogram` and
+  `wad_info.py --resources`. Recorded **E-024**. 8 new tests (102 total).
+- Found — and this is the strongest result so far:
+  - **Every WAD carries the same 16 resource groups**, one per type, in a fixed
+    order: `root TXRX WPTX CXT ANMX LGTX SCRX BHVX MDLX PRTX CAMX SNDX COLX FX
+    OCCX MATX`.
+  - **The name prefix and the marker's class id agreed on every occurrence**
+    (87/87 for `WAD`/`TXRX`/`WPTX`/`MATX`; 95 each for the rest). Two independent
+    derivations never disagreeing mutually validates the class table (E-023) *and*
+    the scanner.
+  - Confirmed on the real target: `R_HADES.WAD` (85,727,632 B) exposes
+    `MDLX_R_Hades`, `ANMX_R_Hades`, `TXRX_R_Hades`, `BHVX_R_Hades`, `MATX_R_Hades`, …
+- **So "which records do I replace?" is now answered**: `MDLX_` (mesh), `TXRX_`/
+  `WPTX_`/`MATX_` (textures/materials), `ANMX_` (animations), optionally `BHVX_`
+  (behaviour — Hades's, or authored, since the AI graph is readable).
+- **Not claimed:** marker record *length* is still undetermined (observed 0x10 and
+  0x20), so the scanner resynchronises and is an **inventory** tool, **not a
+  writer**. Repacking stays blocked. Also recorded three false class ids from float
+  data (`class1065353216` = 1.0f) and the unconfirmed prefixes `ESC`, `WYP`, `ENV`.
+- Next: the marker length. With it, the writer becomes possible and Stage 1 of the
+  test plan can finally run.
+
+
 
 
 
