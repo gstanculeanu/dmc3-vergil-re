@@ -145,12 +145,22 @@ the `+0x0C`/`+0x14` duration.  Verified on every Vergil `pl021_*.pac` chunk
 
 **[UNKNOWN]** the group's remaining three u16s (u16[1..3]), the per-record
 preamble groups at positions 0..field_a-1, the value scale and zero point, and
-whether `0x8000` is a base offset or a flag bit.
+whether `0x8000` is a base offset or a flag bit.  (Semantics per E-029.)
+
+The preamble groups were bounded further (evidence E-029): each of the 22,974
+preamble groups across the ten `pl021_*.pac` files reads as a pair of finite
+little-endian f32s with |v| ≤ 1e6; 97.4% have both |v| ≤ 10 and 99.6% both
+|v| ≤ 100 (max |v| ≈ 999.6).  Small magnitude values consistent with
+translation/scale/rotation-like per-record parameters; *which* parameters is
+unknown.  The preamble is **not** a stored base pose: preamble == first keyframe
+groups in 0/7,659 records.
 
 Observations on u16[1..3] across every `pl021_*.pac` MOT chunk (evidence
-E-028): read as signed 16-bit they span the full `[-32768, 32767]` range
-(max abs 32768) and differ from keyframe to keyframe within a record. Frequency
-of the most common values, out of 87,662 values per channel: `0x3FFF`
+E-028/E-029): read as signed 16-bit they span the full `[-32768, 32767]` range
+(max abs 32768) and differ from keyframe to keyframe within a record — they are
+**not constant per record** (only 458/269/258 records have u16[1]/u16[2]/u16[3]
+constant across keyframes, dominated by trivial single-keyframe records).
+Frequency of the most common values, out of 87,662 values per channel: `0x3FFF`
 (+16,383 ≈ +0.5 in Q15) and `0xBFFF` (−16,383 ≈ −0.5 in Q15) about 5,500 hits
 each; `0x0000` about 2,400–2,800 hits; `0xFFFF` (−1) about 950–1,100 hits.
 Only ~5% of values are near zero (|v| < 256).  This is consistent with three
@@ -159,10 +169,14 @@ fixed point), but channel assignment, scale and zero point are not established
 from bytes alone.  A bit-packed stream rather than plain channels remains
 possible.
 
-The record preamble (field_a groups at positions 0..field_a-1) is verified
-structure: `len(group_bytes()) == field_a + groups` for 7,656/7,659 walked
-records and `field_a == 3` for 7,656/7,659.  Its contents carry the same ranged
-values and no field matches a bone index directly — meaning unknown.
+**[DISPROVEN]** `record_count == 3 × bone_count` (suggested by 69 = 3 × 23 in
+`pl021_00_9.pac`). Across the install the ratio is 3.0 in only 193/840 chunks.
+
+**[DISPROVEN]** "u16[1..3] is constant per record" — the channels vary per
+keyframe (E-029).
+
+**[DISPROVEN]** "the preamble encodes the first keyframe / base pose" —
+preamble == first keyframe groups in 0/7,659 records (E-029).
 
 **[DISPROVEN]** `record_count == 3 × bone_count` (suggested by 69 = 3 × 23 in
 `pl021_00_9.pac`). Across the install the ratio is 3.0 in only 193/840 chunks.

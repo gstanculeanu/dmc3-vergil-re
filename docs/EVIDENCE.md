@@ -1078,8 +1078,74 @@ everywhere), and how a record maps to a skeleton bone (no bone index found in
 the bytes read so far).
 
 
+---
+## E-029 — MOT keyframe remainder: preamble groups are f32 pairs; u16[1..3] not decodable from bytes alone (F4 remainder)
 
+**Observation.** Re-walked every MOT chunk in all ten `pl021_*.pac` files with
+`walk_records()`: 7,659 records, ~87.7k keyframe groups, 0 walk failures,
+tails small — consistent with E-019/E-028 over all 840 install chunks.
 
+Per record, the data splits into `field_a` preamble groups followed by
+`groups` keyframe groups: `len(group_bytes()) == field_a + groups` for
+7,656/7,659 records and `field_a == 3` for 7,656/7,659 (the 3 exceptions are
+records whose declared size breaks the `size == 8 * (groups + 4)` relation from
+E-019).
+
+**Worked example** — `pl021_00_9.pac`, slot 0, record 0. The record header sits
+at chunk +0x54 (`40 00 04 00 03 00`: size=64, groups=4, field_a=3, field_b=0);
+its 56-byte data begins at chunk +0x5C:
+
+```
+chunk +0x5C  cd 4a ce 40 60 45 7e 3f   <- preamble group 0: f32 pair (6.446631, 0.993246)
+chunk +0x64  e9 ba c1 bc 51 29 b8 3d   <- preamble group 1: f32 pair (-0.023649, 0.089923)
+chunk +0x6C  83 a0 70 be 83 a0 70 3f   <- preamble group 2: f32 pair (-0.234987, 0.939949)
+chunk +0x74  00 80 ff 3f 53 43 ff bf   <- keyframe[0]: u16[0] = 0x8000 -> frame 0
+chunk +0x7C  0c 80 3c 40 ff bf 7e 40   <- keyframe[1]: u16[0] = 0x800C -> frame 12
+chunk +0x84  33 80 ff bf 53 43 ff 3f   <- keyframe[2]: u16[0] = 0x8033 -> frame 51
+chunk +0x8C  64 80 26 40 ff 3f ff 3f   <- keyframe[3]: u16[0] = 0x8064 -> frame 100 (= the header duration)
+```
+
+This matches E-026's byte dump of the same record (file +0x64 header, file +0x6C
+data; keyframe[3].u16[0] = 0x8064 = 0x8000 + 100 = duration 100).
+
+**Preamble statistics** (all 22,974 preamble groups across the ten files):
+every group reads as two little-endian f32s that are finite with |v| ≤ 1e6;
+97.4% have both |v| ≤ 10; 99.6% have both |v| ≤ 100; max |v| ≈ 999.6.
+Small-magnitude floats (translation/scale/rotation-like magnitude); meaning
+unknown.
+
+**u16[1..3] statistics:** not constant within a record — only 458/269/258 of the
+7,659 records have u16[1]/u16[2]/u16[3] constant across their keyframes, and
+those are dominated by trivial single-keyframe records; the channels vary per
+keyframe. The preamble is **not** a stored base pose: preamble == first keyframe
+groups in 0/7,659 records. The u16[1..3] distribution (E-028) spans the full
+signed range [-32768, 32767] with modal values ±0x3FFF (~±0.5 Q15, ~5,500 hits
+per channel), 0x0000 ~2,400–2,800 hits, 0xFFFF (−1) ~950–1,100 hits; only ~5%
+of values are near zero (|v| < 256).
+
+No record→bone mapping appears anywhere in the bytes: no field matches a bone
+index (0–23), and no field varies as a bone selector across records.
+
+**Inference.** Structure (not semantics): each record =
+`field_a` preamble groups of three f32 pairs (per-record parameters, |v|
+typically ≤ 10) followed by `groups` keyframes; each keyframe = offset-binary
+frame time (`u16[0] − 0x8000`, decoded in E-026) plus three per-keyframe
+16-bit channels. The tight f32 magnitude bound supports reading the preamble as
+real parameters rather than bit-packed noise, but *which* parameters is unknown.
+The keyframe channels' meaning, scale, zero point, and channel assignment are
+unknown.
+
+**Unknown.** Channel semantics of u16[1..3] (position vs rotation, axis
+assignment), their scale and zero point, preamble group semantics, field_b
+(always 0 observed), and how a record maps to a skeleton bone. These cannot be
+established from bytes alone — they need engine ground truth (e.g., comparing a
+decoded clip against an in-game capture, or disassembly of the animation
+player). **Not decodable from bytes alone; recorded as [UNKNOWN] so this is not
+retried.**
+
+**Disproven.** (a) "u16[1..3] is constant per record" — false: the channels
+vary per keyframe. (b) "the preamble encodes the first keyframe / base pose" —
+false: 0/7,659 records match.
 
 
 

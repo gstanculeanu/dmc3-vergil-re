@@ -139,5 +139,81 @@ class TestMotKeyframeTime(unittest.TestCase):
         )
 
 
+class TestMotKeyframeChannelStructure(unittest.TestCase):
+    """Structure checks on the keyframe group's remaining three u16s.
+
+    Real-data finding (E-029): u16[1..3] vary per keyframe — they are NOT
+    per-record constants — and the preamble is NOT a stored base pose
+    (preamble == first keyframe groups in 0/7,659 real records).  These tests
+    lock the structure so a future decoder can target the right fields.
+    """
+
+    def _chunk_with_records(self, record_groups, preamble_values):
+        """Build a MOT chunk whose payload holds one record per entry.
+
+        ``record_groups`` is the per-record ``groups`` value; ``preamble_values``
+        is the per-record list of ``field_a`` 8-byte preamble groups.  Each
+        keyframe group is ``(0x8000 + k, k, 100 + k, 0x3FFF)`` so u16[1] and
+        u16[2] vary per keyframe within a record.
+        """
+        records = bytearray(struct.pack("<I", len(record_groups)))
+        for groups in record_groups:
+            size = 8 * (groups + 4)
+            records += struct.pack("<HHHH", size, groups, 3, 0)
+            # field_a == 3 preamble groups, then ``groups`` keyframes
+            for group in preamble_values:
+                records += group
+            for k in range(groups):
+                records += struct.pack("<HHHH", 0x8000 + k, k, 100 + k, 0x3FFF)
+        header_size = fixtures.MOT_TABLE_OFFSET + 2 * fixtures.MOT_TABLE_LEN
+        blob = bytearray(header_size)
+        struct.pack_into("<I", blob, 0x00, header_size)
+        blob[0x04:0x08] = b"MOT\x00"
+        struct.pack_into("<f", blob, 0x0C, 100.0)
+        struct.pack_into("<f", blob, 0x14, 100.0)
+        struct.pack_into("<H", blob, 0x18, 1)
+        struct.pack_into("<H", blob, 0x1A, 23)
+        struct.pack_into("<H", blob, 0x1C, 24)
+        struct.pack_into("<H", blob, 0x1E, 0)
+        struct.pack_into("<H", blob, 0x20, 448)
+        for index in range(fixtures.MOT_TABLE_LEN):
+            struct.pack_into("<H", blob, fixtures.MOT_TABLE_OFFSET + 2 * index, 56)
+        return chunk_of(bytes(blob) + records)
+
+    def test_preamble_groups_are_positions_zero_to_field_a_minus_one(self):
+        preamble = [
+            struct.pack("<HHHH", 1, 2, 3, 4),
+            struct.pack("<HHHH", 5, 6, 7, 8),
+            struct.pack("<HHHH", 9, 10, 11, 12),
+        ]
+        payload = walk_records(self._chunk_with_records((3,), preamble))
+        record = payload.records[0]
+        all_groups = record.group_bytes()
+        self.assertEqual(len(all_groups), record.field_a + record.groups)
+        self.assertEqual(all_groups[: record.field_a], preamble)
+        self.assertEqual(len(keyframe_groups(record)), record.groups)
+
+    def test_u16_channels_vary_per_keyframe_not_per_record(self):
+        # u16[1] = k and u16[2] = 100 + k differ across keyframes within a record
+        preamble = [struct.pack("<HHHH", 0, 0, 0, 0)] * 3
+        payload = walk_records(self._chunk_with_records((4,), preamble))
+        record = payload.records[0]
+        keyframes = keyframe_groups(record)
+        self.assertEqual(len(keyframes), 4)
+        ch1 = [struct.unpack("<H", g[2:4])[0] for g in keyframes]
+        ch2 = [struct.unpack("<H", g[4:6])[0] for g in keyframes]
+        self.assertEqual(ch1, [0, 1, 2, 3])
+        self.assertEqual(ch2, [100, 101, 102, 103])
+        self.assertEqual(len(set(ch1)), 4)
+        self.assertEqual(len(set(ch2)), 4)
+
+    def test_preamble_is_not_the_first_keyframe_group(self):
+        preamble = [struct.pack("<HHHH", 0, 0, 0, 0)] * 3
+        payload = walk_records(self._chunk_with_records((2,), preamble))
+        record = payload.records[0]
+        keyframes = keyframe_groups(record)
+        self.assertNotEqual(record.group_bytes()[: record.field_a], keyframes[: len(preamble)])
+
+
 if __name__ == "__main__":
     unittest.main()
