@@ -17,8 +17,8 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $RepoDir  = (Split-Path -Parent $PSScriptRoot),
-    [string] $PromptFile = (Join-Path $PSScriptRoot 'agent-prompt.md'),
+    [string] $RepoDir = '',
+    [string] $PromptFile = '',
     [string] $Model = '',
     [int]    $Iterations = 1,
     [int]    $IntervalSeconds = 600
@@ -26,6 +26,24 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Resolve our own location AFTER parameter binding. $PSScriptRoot is NOT reliably
+# populated while parameter defaults are being evaluated when the script is
+# launched with `powershell -File` (which is exactly how Task Scheduler runs it),
+# so never use it in a default value.
+$scriptDir = $PSScriptRoot
+if (-not $scriptDir) {
+    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+if (-not $scriptDir) {
+    throw "cannot determine the script directory; pass -RepoDir explicitly"
+}
+
+if (-not $RepoDir)    { $RepoDir = Split-Path -Parent $scriptDir }
+if (-not $PromptFile) { $PromptFile = Join-Path $scriptDir 'agent-prompt.md' }
+
+if (-not (Test-Path -LiteralPath $RepoDir)) {
+    throw "repo directory not found: $RepoDir"
+}
 $RepoDir = (Resolve-Path -LiteralPath $RepoDir).Path
 $lockPath = Join-Path $RepoDir '.agent-loop.lock'
 $logDir = Join-Path $RepoDir 'logs'

@@ -42,6 +42,54 @@ powershell -ExecutionPolicy Bypass -File scripts/unregister-loop.ps1
 | different instructions | edit `scripts/agent-prompt.md` (picked up on the next tick) |
 | pause without removing | `schtasks /Change /TN dmc3-vergil-re-loop /DISABLE` |
 | resume | `schtasks /Change /TN dmc3-vergil-re-loop /ENABLE` |
+| several iterations back to back | `scripts/agent-loop.ps1 -Iterations 3` |
+
+## Fixed: the loop exited 1 and never ran (2026-10-17)
+
+**Symptom.** The scheduled task fired every 10 minutes but reported `Last Result: 1`
+and never created `logs/` — so no agent ever ran and no commits were produced.
+
+**Root cause.** `agent-loop.ps1` used `$PSScriptRoot` **inside its parameter
+defaults**:
+
+```powershell
+param(
+    [string] $RepoDir    = (Split-Path -Parent $PSScriptRoot),   # <-- empty!
+    [string] $PromptFile = (Join-Path $PSScriptRoot 'agent-prompt.md')
+)
+```
+
+When a script is launched with `powershell -File` — which is exactly what Task
+Scheduler does — `$PSScriptRoot` is **not yet populated while parameter defaults
+are being evaluated**. `Split-Path -Parent ''` therefore threw
+`Cannot bind argument to parameter 'Path' because it is an empty string`, before
+line 32 (which creates `logs/`) could run. The failure was instant, which is why
+there was no partial log either.
+
+**Fix.** Defaults are now empty and the script directory is resolved in the
+**body**, after binding:
+
+```powershell
+$scriptDir = $PSScriptRoot
+if (-not $scriptDir) { $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
+```
+
+The same guard was applied to `boss-test.ps1` and `register-loop.ps1`, which used
+`Split-Path -Parent $PSScriptRoot` inside functions and in the body.
+
+**Verification.**
+
+```powershell
+# must exit 0 and create logs/
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/agent-loop.ps1 -Iterations 0
+
+# the headless call the loop makes must work
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& opencode run --auto 'Reply with exactly: LOOP-OK'"
+```
+
+Lesson recorded because it is easy to reintroduce: **never use `$PSScriptRoot` in a
+parameter default in a script that Task Scheduler will run.**
+
 
 ## Guardrails
 

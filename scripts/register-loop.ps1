@@ -20,8 +20,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$RepoDir = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).Path
-$loopScript = Join-Path $PSScriptRoot 'agent-loop.ps1'
+# Resolve the script directory in the body: $PSScriptRoot is not reliable inside
+# parameter defaults when launched with `powershell -File`.
+$ScriptDir = $PSScriptRoot
+if (-not $ScriptDir) { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
+
+$RepoDir = (Resolve-Path -LiteralPath (Split-Path -Parent $ScriptDir)).Path
+$loopScript = Join-Path $ScriptDir 'agent-loop.ps1'
 if (-not (Test-Path -LiteralPath $loopScript)) { throw "missing $loopScript" }
 
 $psArgs = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$loopScript`""

@@ -39,7 +39,6 @@ param(
     [string] $Gow3Dir = 'C:\Users\GigelCastel\Desktop\gow3\gow3-windows',
     [string] $TitleId = 'CUSA01715',
     [string] $UserId  = '1',
-
     [switch] $List,
     [string] $Isolate,
     [switch] $Restore,
@@ -58,6 +57,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# $PSScriptRoot is not reliable inside parameter defaults when launched with
+# `powershell -File`, so resolve it in the body (see agent-loop.ps1).
+$ScriptDir = $PSScriptRoot
+if (-not $ScriptDir) { $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
+
 # ---------------------------------------------------------------- helpers
 function Write-Step($message) { Write-Host "  $message" }
 
@@ -73,7 +77,7 @@ function Get-StashRoot { Join-Path $Gow3Dir "user\savedata_backups\boss-test-sta
 function Get-ModsRoot  { Join-Path $Gow3Dir 'mods' }
 
 function Write-Log($message) {
-    $dir = Join-Path (Split-Path -Parent $PSScriptRoot) 'logs'
+    $dir = Join-Path $ScriptDir 'logs'
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
     $target = if ($LogFile) { $LogFile } else { Join-Path $dir 'test-loop.log' }
     $stamp = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
@@ -85,7 +89,7 @@ function Invoke-SaveList {
     if (-not (Test-Path -LiteralPath $savesRoot)) {
         throw "saves folder not found: $savesRoot"
     }
-    $tool = Join-Path (Split-Path -Parent $PSScriptRoot) 'tools\gow3\save_list.py'
+    $tool = Join-Path $ScriptDir 'tools\gow3\save_list.py'
     & python $tool --saves-dir $savesRoot
 }
 
