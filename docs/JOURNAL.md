@@ -560,4 +560,32 @@ moves and health bar and everything."*
   rule. F4's remaining unknowns (u16[1..3] scale/zero point) need engine ground
   truth and are not decodable from bytes alone.
 
+---
+
+## 2026-10-18 — F5 bounded slice: +0x22 MOT table structure decoded from real bytes
+
+- Did: read the +0x22 u16 table from every MOT chunk in all 161 PAC files
+  (840 chunks) via the installed GData.afs tree; recorded the census as E-032;
+  added FORMATS.md §3.2 ([PARTIAL] structure / [UNKNOWN] semantics); updated
+  BACKLOG.md F5 row; added `TestMotTableRealShapes` to tests/test_mot.py;
+  full suite **135 tests, all green**; committed as 9394b4f, pushed to origin
+  main; commented issue #5 (left open).
+- Found (**E-032**):
+  - `len(table) == (header_size - 0x22) / 2` holds for all 840 chunks (23
+    entries for the 0x50 header; 31 for the single 0x60 header,
+    `pl000_00_8.pac` slot 1).
+  - Dominant shape: 22 x u16 56 (0x38) then 0 — 703/840 chunks, including
+    every Vergil `pl021_00_*.pac` chunk. Variants: 504-based (28, Crimson
+    overlays), `58 x 22 + 0` (2), mixed 56/0 (71), `56 x 21 + 0 + 0` (18),
+    varying last entry 29..26755 in `demo_pl000_00_3.pac` (17).
+  - Key negative: the table is **not** per-bone data — 23 entries vs 24
+    bones, and no entry varies per index. Semantics of 56/504/58 and the
+    final entry remain [UNKNOWN]; engine ground truth needed.
+- Next: nothing left on F5 from bytes alone. F1 (MOD payload beyond +0x5C)
+  and F4 (keyframe u16[1..3] / preamble semantics) remain stopped at their
+  bounded-slice boundaries for the same reason. Candidates for the next
+  iteration: F3 (untagged pl021.pac chunks), F7 (animation name map), F8
+  (TM2 pre-header), or tooling T11 (PAC writer round-trip test) — all have
+  resolved dependencies.
+
 
