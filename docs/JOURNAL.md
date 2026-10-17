@@ -599,4 +599,24 @@ moves and health bar and everything."*
 - Docs: EVIDENCE.md E-033; FORMATS.md §1.3 ([UNKNOWN]); BACKLOG.md F3 open — header decoded, body layout [UNKNOWN].
 - Next: F3 body layouts (slot 10 u16 pairs, slot 21 0xFFFF-separated table are the clearest tables) need engine ground truth; F1 and F4 remain blocked on engine ground truth as well.
 
+---
+
+## 2026-10-18 — F8 bounded slice: TM2 pre-header census from real bytes
+
+- Did: bounded slice on F8 (TM2 pre-header fields, issue #8). Read the single local TM2,
+  `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\i001_90.tm2` (65,776 bytes),
+  and recorded all 28 pre-header u32s as E-034. Added fixtures
+  (real_tm2_preheader / real_tm2_dds / real_tm2) and 3 unit tests in tests/test_tm2.py.
+  Full suite: 142 tests, all green. Committed acc29ce, pushed to origin main; commented issue #8.
+- Found (E-034): DDS magic at file 0x70; all 28 platform-header u32s are [UNKNOWN]
+  (non-zero at 0x08/0x0C/0x10/0x14/0x20/0x38/0x44/0x48/0x4C/0x64/0x68). E-005's claim
+  that "only 0x08 and 0x0C are non-zero" is falsified; the wrapper-is-DDS extraction
+  conclusion stands.
+- Docs: FORMATS.md §4 updated with the pre-header census and E-005 correction; BACKLOG.md
+  F8 row updated (E-005/E-034, every field [UNKNOWN], extraction already working).
+- Next: F1 (MOD payload beyond +0x5C), F4 (keyframe u16[1..3] / preamble semantics) and
+  F3 body layouts all remain blocked on engine ground truth; nothing further is
+  decodable from bytes alone on those. F8 needs more TM2 samples or engine ground truth
+  before any field can be assigned meaning.
+
 
