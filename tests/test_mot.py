@@ -1,4 +1,5 @@
 import _bootstrap  # noqa: F401
+import struct
 import unittest
 
 import fixtures
@@ -78,6 +79,50 @@ class TestMotRejectsBadInput(unittest.TestCase):
 
     def test_invalid_returns_none_from_helper(self):
         self.assertIsNone(maybe_track_payload(chunk_of(b"nope" + b"\x00" * 96)))
+
+
+def _mot_chunk(table: list[int]) -> bytes:
+    """A MOT chunk whose +0x22 table is written verbatim.
+
+    All other header fields mirror the common real shape (0x50 header,
+    duration 50, cb 24), so only the table differs.
+    """
+    blob = bytearray(fixtures.motion_chunk(table_value=0))
+    assert len(table) == fixtures.MOT_TABLE_LEN
+    for index, value in enumerate(table):
+        struct.pack_into("<H", blob, fixtures.MOT_TABLE_OFFSET + 2 * index, value)
+    return bytes(blob)
+
+
+class TestMotTableRealShapes(unittest.TestCase):
+    """The +0x22 table shapes observed across all 840 real MOT chunks (E-032).
+
+    The table's meaning is [UNKNOWN]; these tests only lock the observed
+    structures and the parser's handling of them.
+    """
+
+    def test_dominant_shape_56_times_22_then_0(self):
+        # pl021_00_9.pac slot 0 and 702 other chunks: 22 x 56 (0x38), then 0.
+        table = [56] * fixtures.MOT_TABLE_LEN
+        table[-1] = 0
+        header = parse_mot(chunk_of(_mot_chunk(table)))
+        self.assertEqual(header.table, table)
+        self.assertEqual(header.header_size, fixtures.MOT_HEADER_SIZE)
+        self.assertEqual(header.header_size, 0x22 + 2 * len(header.table))
+
+    def test_real_variant_shapes_parse(self):
+        for table in (
+            [504] * 22 + [0],        # Crimson overlay mods (newJudgementCut_*, …)
+            [58] * 22 + [0],         # pl000_00_20.pac slot 2, pl000_00_9.pac slot 6
+            [56] * 21 + [0, 0],      # pl002_00_0.pac (there +0x1C == 23)
+        ):
+            header = parse_mot(chunk_of(_mot_chunk(table)))
+            self.assertEqual(header.table, list(table))
+            self.assertEqual(header.header_size, 0x22 + 2 * len(header.table))
+
+    def test_table_entries_span_full_u16_range(self):
+        header = parse_mot(chunk_of(_mot_chunk([0xFFFF, 0x8000, 0x7FFF] + [0] * 20)))
+        self.assertEqual(header.table[:3], [0xFFFF, 0x8000, 0x7FFF])
 
 
 if __name__ == "__main__":

@@ -1261,5 +1261,55 @@ unit tests on synthetic fixtures.
 
 
 
+---
 
+## E-032 — MOT `+0x22` table: 23 u16 entries, dominated by a constant (F5, bounded slice)
 
+**Observation.** Scanned every MOT chunk in all 161 PAC containers in the asset
+root (840 chunks total) and read the `u16` table at header `+0x22`, whose length
+is `(header_size - 0x22) / 2` — 23 entries for the common `0x50` header, 31 for
+the single `0x60`-header chunk (`pl000_00_8.pac` slot 1). The length relation
+held for all 840 chunks.
+
+Raw bytes, `pl021_00_9.pac` slot 0 (file offset `0x10`; chunk-relative `+0x22`,
+the worked example from E-026/E-029):
+
+```
+file +0x32  38 00 38 00 38 00  ... (22 x u16 = 56 / 0x38) ...  00 00
+            chunk +0x22 .. +0x4D: twenty-two 56s, then a 0
+```
+
+Install-wide table census over all 840 chunks:
+
+| Table shape | Chunks | Examples |
+|---|---|---|
+| `56 x 22, then 0` (dominant) | **703** | every `pl021_*.pac` chunk (Vergil), `pl000_00_0/1`, `demo_pl000_00_3.pac` slot 0 |
+| `56 x 12, 0 x 10, 56, 0` | 71 | `pl000_00_8.pac` slots 8-29, `pl000_00_9.pac`, `pl000_00_10.pac`, `pl000_00_11.pac` |
+| 504-based (`504 x 22 + 0`, `504 x 21 + 0 + 0`, one `480` variant) | 28 | Crimson overlays: `newJudgementCut_*`, `newYamatoHighTime_*`, `newBackslide_*`, `newTaunt*`, `newStyleSwitching*`, `newBaseDanteAnims_*`, `newDrivePart*` |
+| `58 x 22, then 0` | 2 | `pl000_00_20.pac` slot 2, `pl000_00_9.pac` slot 6 |
+| `56 x 21, then 0, 0` | 18 | `pl002_00_0.pac`, `pl002_00_2.pac` (these chunks have `+0x1C == 23`) |
+| `56 x 22, then N` (N varies: 29 … 26755) | 17 | `demo_pl000_00_3.pac` slots 2,3,5-9,15-21,23,29,31 |
+| `56 x 31` (header `0x60`) | 1 | `pl000_00_8.pac` slot 1 |
+
+Notes: `504 == 56 * 9`. Within any one chunk the table entries are constant —
+nothing varies per table index. For 751/840 chunks the count of non-zero
+entries equals `+0x1C - 2` (e.g. `+0x1C == 24` → 22 non-zero entries), but the
+mixed 56/0 chunks (71) and the `demo_pl000_00_3.pac` family (17) break that
+relation, so it is an observation, not a rule.
+
+**Inference.** The table is **not** per-bone data: the inferred bone count
+`+0x1C` (24 in 821/840 chunks) does not match 23 entries, and no entry varies
+per index, so the entries cannot be per-bone indices, flags, or offsets. A
+per-chunk constant plus a final zero looks like reserved/padded space or a
+per-chunk default; `56` was also tested as a record size (`8 * (groups + 4)` for
+`groups == 3`) but `pl021_00_9.pac` slot 0 has zero size-56 records, so that
+reading fails on real data. The correlation `unknown_1e`/`unknown_20` ∈ {0,
+448 = 56 × 8, 504 = 56 × 9} is noted but unexplained.
+
+**Unknown.** What the table denotes; what `56` / `504` / `58` denote; what the
+final entry (usually `0`, sometimes a larger value) denotes. Not decodable from
+bytes alone — marked [UNKNOWN] in `docs/FORMATS.md` §3.
+
+**Consequence.** `tools/dmc3/mot.py` `parse_mot` already returns the table
+(`MotHeader.table`) and enforces `header_size == 0x22 + 2 * len(table)`; no code
+change is needed beyond unit tests locking the observed shapes.

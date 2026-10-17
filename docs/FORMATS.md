@@ -182,6 +182,37 @@ preamble == first keyframe groups in 0/7,659 records (E-029).
 `pl021_00_9.pac`). Across the install the ratio is 3.0 in only 193/840 chunks.
 
 
+### 3.2 MOT header: the `+0x22` table
+
+**Status: [PARTIAL] structure, [UNKNOWN] semantics.** Evidence E-032 — a census
+of the table over all 840 MOT chunks in the install.
+
+```
++0x22  u16[len] table        len == (header_size - 0x22) / 2; 23 entries for the
+                              common 0x50 header, 31 for the single 0x60 header
+```
+
+* `len(table)` is exactly `(header_size - 0x22) / 2` in all 840 chunks
+  (E-003, E-032).
+* Table entries are constant within a chunk. The dominant shape — 703/840
+  chunks, including every `pl021_*.pac` (Vergil) chunk — is twenty-two `u16`
+  values of `56` (`0x38`) followed by a single `0`. Other shapes: `504`-based
+  (`504 × 22 + 0`, or `504 × 21 + 0 + 0`, one `480` variant; 28 chunks, the
+  Crimson overlay mods), `58 × 22 + 0` (2 chunks), `56 × 12 + 0 × 10 + 56 + 0`
+  (71 chunks), `56 × 21 + 0 + 0` (18 chunks; these have `+0x1C == 23`), and a
+  `demo_pl000_00_3.pac` family whose final entry varies (29 … 26755; 17
+  chunks). The single `0x60`-header chunk has 31 × 56.
+* `504 == 56 * 9`; where non-zero, `unknown_1e`/`unknown_20` are multiples of
+  56 (0, 448 = 56 × 8, 504 = 56 × 9). For 751/840 chunks the non-zero entry
+  count equals `+0x1C - 2`; the remaining 89 chunks break that relation.
+
+**[UNKNOWN]** what the table denotes. It is **not** per-bone data: the inferred
+bone count `+0x1C` (24 in 821/840 chunks) does not match 23 entries, and no
+entry varies per index, so the entries cannot be per-bone indices, flags, or
+offsets. Whether `56` is a stride, a default record size, or reserved padding,
+and what the final entry (usually `0`) marks, is not established from bytes
+alone.
+
 ---
 
 ## 4. TM2 textures (`.tm2`) — HD Collection
