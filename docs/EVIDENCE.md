@@ -1419,3 +1419,62 @@ texture format/dimensions. Needs more TM2 samples or engine ground truth.
 the pre-header census, all fields marked [UNKNOWN], and E-005's pre-header
 claim corrected. A synthetic fixture locking the observed bytes is added to
 `tests/fixtures.py` with a matching test in `tests/test_tm2.py`.
+
+
+---
+## E-035 — Vergil motion-slot census from real bytes (F7, bounded slice)
+
+**Observation.** Enumerated every MOT chunk in all ten real
+`pl021_00_*.pac` files on the install
+(`G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\`), reading each
+chunk's header duration (`+0x0C`/``+0x14``) and the stored record count (u32 at
+the track payload start) via `mot_summary()`, then validating the record layer
+with `try_walk_records()`. All 108 occupied MOT slots walk cleanly
+(0 walk failures). Per group (file → occupied `slot: duration`):
+
+| Group | File | Occupied slots (duration in frames) | Count |
+|---|---|---|---|
+| 0 | `pl021_00_0.pac` | 0:105 1:61 2:48 3:350 4:69 5:69 6:15 7:60 8:60 9:69 14:103 16:6 17:5 18:4 19:115 20:61 21:61 22:61 30:26 31:105 50:45 51:26 58:60 | 23 |
+| 1 | `pl021_00_1.pac` | 0:50 1:45 2:95 3:74 4:81 5:104 6:102 7:80 9:90 11:154 13:50 14:77 15:50 16:115 | 14 |
+| 2 | `pl021_00_2.pac` | 0:340 1:200 2:250 3:72 4:110 | 5 |
+| 3 | `pl021_00_3.pac` | 0:105 1:115 3:83 4:122 5:131 6:70 7:110 8:29 9:37 10:125 11:152 12:174 13:65 14:90 15:152 16:189 | 16 |
+| 4 | `pl021_00_4.pac` | 0:62 1:115 3:98 4:106 5:149 6:25 7:79 8:24 9:36 10:117 11:85 | 11 |
+| 5 | `pl021_00_5.pac` | 0:180 1:123 3:83 4:122 5:252 6:82 7:54 8:45 9:10 10:19 11:99 12:165 13:83 14:135 | 14 |
+| 6 | `pl021_00_6.pac` | 0:10 1:10 | 2 |
+| 7 | `pl021_00_7.pac` | 0:150 1:123 3:94 4:110 5:145 6:82 7:54 8:45 9:119 10:95 11:71 | 11 |
+| 8 | `pl021_00_8.pac` | 0:150 1:115 3:98 4:106 5:136 6:25 7:79 8:77 9:99 10:95 11:71 | 11 |
+| 9 | `pl021_00_9.pac` | 0:100 | 1 |
+
+Worked example — `pl021_00_9.pac`, slot 0 at file offset **0x10** (the same
+chunk E-026/E-029 used): size-prefixed `MOT\0`, `header_size` `0x50`, duration
+`100.0`, `+0x1C` bone count `24`, stored `record_count` `69`; all 69 records
+walk and the stored count is reached (consistent with E-026).
+
+**Inference.** E-009's group → occupied-slot-count table is confirmed against
+real bytes for all ten groups (23/14/5/16/11/14/2/11/11/1). The census above is
+**LOCAL evidence**: durations and counts come from shipped bytes, not from the
+community thread.
+
+**Overlay anchors (locally confirmed slot targeting).** Comparing the Crimson
+overlay `.pac` files to their base files (E-007):
+
+* `newTauntVergilAnims1_pl021_00_2.pac` vs `pl021_00_2.pac`: only slot 1's
+  duration differs (200 → 211); slot 0 is 340.0 in both. Overlay filename
+  "Taunt" targets **group 2, slot 0** (340 frames).
+* `newJudgementCut_pl021_00_3.pac` (and the `Air`/`AirJF` variants) vs
+  `pl021_00_3.pac`: the *only* slot whose duration differs is slot 13
+  (base 65 → overlay 5 / 11 / 3 across the three variants). The Judgement Cut
+  overlays target **group 3, slot 13**.
+* `newYamatoHighTime_pl021_00_5.pac` vs `pl021_00_5.pac`: slots 7 (54 → 150)
+  and 8 (45 → 51) differ. Targets **group 5, slots 7–8**.
+
+**Unknown.** The mapping from group-local slots to the community thread's
+global motion numbers (000–044) and to human-readable move names; every move
+name in `docs/ANIMATIONS.md` remains **[EXTERNAL]** (not verified here) until
+a clip is exported and compared to in-game footage — that is the F9 move-set
+work, which needs the MOT keyframe encoding (F4, blocked on engine ground
+truth).
+
+**Consequence.** `tools/dmc3/mot.py` gains `mot_summary()` (duration +
+record_count from real bytes) with a unit test on a synthetic fixture; no game
+data is read by the test suite. The full census is recorded here as E-035.

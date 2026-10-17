@@ -3,7 +3,7 @@ import struct
 import unittest
 
 import fixtures
-from dmc3 import Chunk, MotError, parse_mot, parse_mot_from_bytes
+from dmc3 import Chunk, MotError, mot_summary, parse_mot, parse_mot_from_bytes
 from dmc3.mot import TABLE_MAX, maybe_track_payload
 
 
@@ -47,6 +47,13 @@ class TestMotHeader(unittest.TestCase):
         track = maybe_track_payload(chunk_of(payload))
         self.assertIsNotNone(track)
         self.assertEqual(len(track), 128)
+
+    def test_mot_summary_reads_duration_and_record_count(self):
+        """mot_summary reports the header duration and stored record count (E-035)."""
+        chunk = chunk_of(fixtures.motion_chunk_with_records(record_groups=(4, 2, 6)))
+        summary = mot_summary(chunk)
+        self.assertAlmostEqual(summary.duration, 100.0, places=4)
+        self.assertEqual(summary.record_count, 3)
 
     def test_smaller_table_is_tolerated(self):
         # A 0x50-header chunk whose table is shorter must not crash the parser.

@@ -337,3 +337,41 @@ def keyframe_groups(record: MotRecord) -> List[bytes]:
     (positions 1..3) mean — see E-028 and docs/FORMATS.md §3.1.
     """
     return record.group_bytes()[record.field_a:]
+
+
+# ---------------------------------------------------------------------------
+# Motion summary: duration + record count read from real bytes (issue F7)
+# ---------------------------------------------------------------------------
+#
+# A MOT chunk's header carries the animation duration (duplicated at +0x0C and
+# +0x14, verified equal in 840/840 chunks) and its track payload opens with a
+# stored u32 record count (E-019).  Reading just those two fields gives a cheap
+# per-clip summary without walking every record.  Neither field's semantics
+# beyond "animation length / record count" is proven; they are reported as
+# observations.  Used by issue F7 to census Vergil's motion slots.
+
+@dataclass(frozen=True)
+class MotSummary:
+    """A one-line summary of a MOT chunk read from real bytes.
+
+    ``duration`` is the header's duplicated frame count; ``record_count`` is the
+    stored u32 at the start of the track payload.  Both are observations
+    (evidence E-003, E-019); their deeper semantics are [UNKNOWN].
+    """
+
+    duration: float
+    record_count: int
+
+
+def mot_summary(chunk: Chunk) -> MotSummary:
+    """Return the duration and stored record count of a MOT chunk.
+
+    Does not walk the records; use :func:`walk_records` for that.  Raises
+    :class:`MotError` when the chunk is not a MOT or its payload is too short
+    to hold a record count.
+    """
+    header = parse_mot(chunk)
+    payload = chunk.data[header.payload_offset:]
+    if len(payload) < 4:
+        raise MotError("MOT payload too short to hold a record count")
+    return MotSummary(duration=header.duration, record_count=u32(payload, 0))
