@@ -1,9 +1,10 @@
 """Reader for God of War III Remastered ``R_*.WAD`` archives (partial).
 
-Status (evidence E-016, E-022): the **header** and the **naming scheme** are
-verified; the record directory that binds a name to its bytes is **not** decoded
-yet, so this module deliberately stops at reconnaissance. It never claims to
-extract asset payloads.
+Status (evidence E-016, E-022, E-025): the **header**, the **record directory**
+(``parse_directory``), and the ``DC_`` footer chunks (``data_chunks``) are
+decoded. What remains unknown is how directory resource names bind to their bulk
+data offsets — see E-027 (the ``DC_`` id `0x10` offset table). This module
+deliberately stops at reconnaissance and never claims to extract asset payloads.
 
 Verified layout::
 
@@ -11,10 +12,10 @@ Verified layout::
     0x04  u32        always 8
     0x08  char[]     banner, zero-padded, e.g. "WAD_R_Hercules"
 
-Inside the file there is a ``DC_<banner>`` marker, present **exactly 6 times** in
-every WAD examined, preceded by a fixed prefix::
+Inside the file there are ``DC_<banner>`` footer chunks, present **0 or 6 times**
+per WAD (not always 6), each preceded by a 16-byte prefix::
 
-    00 00 00 00 00 00 00 00  0B 00 09 00  04 00 00 00  "DC_WAD_<name>"
+    00 00 00 00 00 00 00 00  u16 id  u16 0x0009  u32 size  "DC_WAD_<name>"
 
 WADs also carry many named objects. Their families are the useful reconnaissance
 signal (E-022) — in particular ``hfsm*`` identifies an **AI** WAD, while entity

@@ -1012,6 +1012,37 @@ groups at positions 0–2 that precede the keyframes, the value scale, and wheth
 `0x8000` is a base offset or a flag bit. The non-Vergil minority is a candidate
 follow-up issue.
 
+---
+
+## E-027 — `DC_` id `0x10` chunk holds a sorted bulk-offset table (G9 name→bytes binding)
+
+**Observation.** In `R_SWORD00.WAD` (87,840 bytes), the `DC_` footer chunk with id
+`0x10` sits at offset 0x14AE8, size 3064 (0xBF8). Its payload (766 u32s)
+contains, from array index ~226 to ~364 in steps of 3, 47 entries of the shape
+`[0x9F|0xA4, bulk_offset, ascending_value]` where each `bulk_offset` is a sorted
+file offset into the bulk region (0xD80..0x12FA8):
+`0xD84, 0xDAC, 0xDE4, 0xE0C, …, 0x1654`. After the table the payload transitions
+into ASCII strings (`CRT_`, `Sword00`, `FX_…`). The same chunk exists in
+`BAS500AI3ARG00.WAD` (13,040 bytes, id `0x10` size 1611) with a similarly
+non-zero payload. Pure-directory WADs (`R_I_ICE0/1/2`, 3,456 bytes) have no `DC_`
+chunks at all (0 markers), while data WADs have 6.
+
+**Inference.** `DC_` id `0x10` is an offset/index table that binds directory
+resources to their bulk data offsets — the missing name→bytes binding for the WAD
+directory. The alternating `0x9F`/`0xA4` field and the ascending third field are
+not yet understood. The 47 entries exceed the 16 typed resources, so one entry does
+not simply equal one resource (a resource may span multiple blocks, or the table
+covers non-resource structures too).
+
+**Unknown.** Exact entry alignment and field meanings; how entries map to directory
+resource names; whether the table is complete and consistent across all WADs; how
+to update it when repacking. A WAD writer remains blocked until the name→offset
+mapping is resolved.
+
+**Tooling impact.** `wad.parse_directory()` (exact), `data_chunks()`, `DataChunk`,
+`DIRECTORY_RECORDS_STANDARD` are unchanged and correct. No writer function is added
+yet, because the mapping is unknown.
+
 
 
 

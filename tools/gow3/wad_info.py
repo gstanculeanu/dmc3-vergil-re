@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Report on a GoW3R ``R_*.WAD`` archive: header, DC_ markers, name families, AI.
 
-Reconnaissance only -- the record directory that binds names to bytes is not yet
-decoded (see docs/EVIDENCE.md E-016/E-022), so this prints structure, not assets.
+Reconnaissance only -- the record directory is decoded (``wad.parse_directory``,
+E-025) but how directory resource names bind to their bulk data offsets is not
+yet resolved (see docs/EVIDENCE.md E-027), so this prints structure, not assets.
 
 Usage::
 

@@ -52,6 +52,12 @@ class TestDcMarkers(unittest.TestCase):
         info = wad.inspect_bytes(fixtures.wad_bytes("WAD_R_Hercules"))
         self.assertTrue(all(m.name == "DC_WAD_R_Hercules" for m in info.dc_markers))
 
+    def test_dc_count_can_be_zero(self):
+        # E-022/E-025: DC_ markers are 0 or 6 per WAD, not always 6.
+        info = wad.inspect_bytes(fixtures.wad_bytes("WAD_R_Sword00", dc_count=0))
+        self.assertEqual(len(info.dc_markers), 0)
+        self.assertFalse(info.dc_count_ok)
+
 
 class TestClassTable(unittest.TestCase):
     def test_known_ids(self):
