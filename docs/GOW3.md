@@ -85,31 +85,90 @@ Open questions that follow, tracked as issues **G6** and **G7**:
 4. Does the port's own in-game menu's "enemy health bar" option interact with,
    or duplicate, the boss bar? See `gow3_pc`'s Game tab.
 
-## Dump layout observed locally
+## Dump layout — assets located (G1 answered, E-016)
 
-`C:\Users\GigelCastel\Desktop\gow3\CUSA01715`:
+`C:\Users\GigelCastel\Desktop\gow3\CUSA01715` is **complete: 50.5 GB**.
 
 ```
-eboot.bin            4,581,119 bytes
+eboot.bin            4,581,119 bytes     (code only — no art)
 sce_discmap.plt       3,288,792 bytes
-sce_module/
-sce_sys/
-DUTCH/ ENGLISH/ FRENCH/ GERMAN/ ITALIAN/ POLISH/ PORTUGUESE/ RUSSIAN/ SPANISH/
+sce_module/  sce_sys/
+ENGLISH/ DUTCH/ FRENCH/ GERMAN/ ITALIAN/ POLISH/ PORTUGUESE/ RUSSIAN/ SPANISH/   ~640 MB each
+EXEC/               45.9 GB
+  ├─ WAD\PS4_LE\    417 *.WAD, 21.5 GB   <-- ALL game asset archives
+  ├─ CINEMATICS\    *.BSF (bonus videos, up to 4.1 GB each)
+  ├─ SOUNDS\  ICONS\  INTRO\  photomode\  DEV\  DLC\
 ```
 
-The language folders are the only bulky payload at the top level, so the game's
-art assets are almost certainly **inside `eboot.bin`** or in a container the port
-mounts as `dvdroot_ps4`. Locating them is issue **G1**.
+Every WAD begins with a banner like `"WAD_R_Hercules"`. The layout is
+**per-entity**:
+
+| What | Archive(s) |
+|---|---|
+| Bosses | `R_HERCULES`, `R_ZEUS00..60`, `R_HADES`, `R_HELIOS`, `R_HERMES`, `R_POSEIDON00`, `R_POSMAIN00` |
+| Regular enemies | `R_GRUNT00..20`, `R_CYCLOPS00..40`, `R_MINOTAUR00..20`, `R_SIREN00`, … |
+| Kratos | `R_KRATOSFEAR`, `R_SOULKRATOS` |
+| **Weapons** | `R_SWORD00`, `R_SHIELD00`, `R_SPEAR00`, `R_AXE00`, `R_CESTUS0..4` |
+| **UI** (health bar art) | `R_UI.WAD` |
+| **Text**, 16 languages | `R_LANG_EN.WAD`, `R_LANG_DE.WAD`, … |
+| Effects | `R_FX.WAD`, `R_W_*` |
+| Levels | `HDS###`, `OLY###`, `CAV###`, `BAS###`, `GAZ###`, `POS###` |
+| **Per-enemy AI/encounter** | `<LEVEL>AI#<Name>.WAD` — e.g. `HDS675AI1HADES`, `BAS400AI4HELI`, `GAZ100AI1PANDZEUS` |
+| Manifest | `DEPENDENCYGRAPH.IFF` (contains `"WadGraph"`) |
+
+The existence of tiny per-enemy `*AI*.WAD` files is the single most encouraging
+finding for this project: it suggests **enemy behaviour is data-driven**, not
+compiled into `eboot.bin`.
+
+## New boss, or replacement?
+
+The owner asked whether Vergil could be an entirely **new** boss rather than a
+replacement. Evidence-based answer: **plausible, and more plausible than it first
+looked — but strictly harder, and it hinges on three unknowns.**
+
+What the mod system allows (from `gow3_pc` `docs/MODS.md`):
+
+* Mods may **replace** game files *and* **add** files — the load log reports
+  `"Mods: N game files replaced, M added"`. So dropping a new `R_VERGIL.WAD` is
+  not blocked by the loader.
+* Mods **may not** replace `eboot.bin`, `sce_module` or `sce_sys`, and may not use
+  DLL injectors or script plugins. (In-memory *patches* to `eboot.bin` are
+  possible via signature-matched XML, but authoring new behaviour in machine code
+  is not realistic.)
+
+What a new boss additionally needs, and what is unknown:
+
+| Requirement | Known? | Where it would live |
+|---|---|---|
+| The game loads the new WAD | **Unknown** | `DEPENDENCYGRAPH.IFF` (`WadGraph`). If the runtime enumerates WADs from it, a mod can register one. Issue G8. |
+| Something spawns the entity in a level | **Unknown** | level WAD (`HDS###`, …) spawn/encounter data. Issue G8. |
+| The game treats it as a **boss** (health bar, intro, phases) | **Unknown** | either a flag in encounter/AI data, or hardcoded. Issue G8/G7. |
+| Its name shows on the bar | **Likely yes** | `R_LANG_*.WAD` — a text file a mod can replace (G7). |
+| Arena / camera / intro | **Unknown** | level + encounter data |
+
+By contrast, **replacement** needs none of those: the existing boss already has the
+health bar, arena, phases, camera and spawn. It only needs the entity's WAD
+contents swapped.
+
+**Recommendation.** Do **replacement first** — it is the shortest path to exactly
+what was asked (Vergil, as a boss, with a health bar on screen). Investigate the
+new-boss route in parallel (G8); if `WadGraph` and the spawn data turn out to be
+editable, promoting to a new boss later costs nothing extra, because the Vergil
+assets and converters are identical either way.
 
 ## Open questions (tracked as issues)
 
-1. **G1** — Where do GoW3R character meshes/materials live, and in what container?
-2. **G2** — What is that container's format (geometry, skinning, textures)?
-3. **G3** — Kratos's rig is not Vergil's rig. Retarget Vergil's animations onto
-   Kratos's skeleton, or replace the whole skinned mesh and keep the animation
-   set? Trade-offs are unknown until G1/G2 land.
-4. **G5** — Does the port accept an added (not replaced) asset, and how are
-   in-game references made? If not, a mod must replace an existing character.
+1. ~~**G1** — Where do GoW3R character meshes/materials live?~~ **ANSWERED**
+   (E-016): per-entity `R_*.WAD` in `EXEC/WAD/PS4_LE/`.
+2. **G2** — What is the internal format of a `R_*.WAD` (directory, mesh, texture)?
+3. **G9** — Decode the WAD container and the `WadGraph` manifest.
+4. **G8** — Can a *new* entity be added: does `WadGraph` register WADs at runtime,
+   and is level spawn/encounter data editable?
+5. **G7** — Does the boss health bar read its name from `R_LANG_*.WAD`, and can it
+   read "Vergil"?
+6. **G3** — Kratos's rig is not Vergil's rig. Retarget, or replace the whole
+   skinned mesh? (Bosses like `R_HERCULES` are humanoid, which helps.)
+
 
 ## Method
 

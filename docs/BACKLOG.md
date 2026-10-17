@@ -49,13 +49,15 @@ Labels used: `re`, `tooling`, `format`, `phase-1`, `phase-2`, `phase-3`, `blocke
 
 | # | Title | Status |
 |---|---|---|
-| G1 | Locate GoW3R character asset containers in `CUSA01715` | open |
-| G2 | Reverse GoW3R's model/material container | blocked by G1 |
+| G1 | Locate GoW3R character asset containers in `CUSA01715` | **answered** (E-016): per-entity `R_*.WAD` in `EXEC/WAD/PS4_LE/` |
+| G9 | Decode the `R_*.WAD` container and the `WadGraph` manifest | open — **critical path** |
+| G8 | Can a **new** entity be added, or must Vergil replace a boss? | open — **critical path** |
+| G2 | Reverse GoW3R's model/material container | blocked by G9 |
 | G3 | Decide retarget vs standalone mesh for the replaced boss's rig | open |
 | G4 | Build the GoW3R exporter | blocked by G2, G3 |
 | G5 | Package as a `gow3_pc` mod and verify the encounter in the port | blocked by G4 |
 | G6 | Choose the sword-wielding **boss** Vergil replaces (inherits the health bar) | open |
-| G7 | Confirm the boss health bar, and try to rename it to "Vergil" | open |
+| G7 | Confirm the boss health bar, and try to rename it to "Vergil" | open — name likely in `R_LANG_*.WAD` |
 
 ## Research / hygiene
 

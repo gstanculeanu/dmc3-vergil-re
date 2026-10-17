@@ -144,5 +144,41 @@ gow3."*
 - Next: **T7b** — parse FLVER (or drive an external tool) for Vergil's body, and
   **F4** — MOT keyframes.
 
+---
+
+## 2026-10-17 — G1 answered: found every GoW3R asset container
+
+- Did: checked whether the GoW3 dump even contains the art assets, then mapped
+  them. Recorded E-016 (WAD layout) and E-017 (FLVER header, partial). Updated
+  `GOW3.md` with the real asset map and a new "new boss vs replacement" section.
+  Filed **G8** (#35) and **G9** (#36); commented the answer onto **G1** (#17).
+- Found:
+  - **The dump is complete: 50.5 GB**, of which `EXEC/` is 45.9 GB. The art is
+    **not** in `eboot.bin`.
+  - **All assets are per-entity WADs**: 417 files, 21.5 GB, in
+    `EXEC/WAD/PS4_LE/`. Each begins `u32 0x14 / u32 8 / "WAD_<Name>"`.
+  - Bosses are named files: `R_HERCULES`, `R_ZEUS00..60`, `R_HADES`, `R_HELIOS`,
+    `R_HERMES`, `R_POSEIDON00`. Weapons: `R_SWORD00` (87 KB), `R_SHIELD00`,
+    `R_SPEAR00`, `R_AXE00`. UI: `R_UI.WAD`. Text: `R_LANG_*.WAD` (16 languages).
+    Effects: `R_FX.WAD`, `R_W_*`. Manifest: `DEPENDENCYGRAPH.IFF` (`"WadGraph"`).
+  - **Per-enemy `*AI*.WAD` files exist** (e.g. `HDS675AI1HADES`,
+    `BAS400AI4HELI`) — evidence that enemy behaviour is *data-driven*, which is
+    the single most encouraging result for the boss goal.
+  - `BD_M_10100.flver` header: floats at 0x28–0x3F give a box with a **1.79 m
+    vertical extent** — the height of a humanoid, so the body file is the right
+    one. Full FLVER decoding remains open (T7b).
+- **Answer to the owner's question ("new boss instead of replacement?"):**
+  *plausible, more than expected, but strictly harder and gated on three unknowns.*
+  Mods may **add** files (the loader logs "N replaced, M added"), and entities are
+  individually addressable, so a new `R_VERGIL.WAD` could in principle be dropped
+  in. But it additionally needs the runtime to load it (`WadGraph`), something to
+  spawn it (level/encounter data), and the game to treat it as a boss (health bar,
+  intro, phases) — none of which is understood yet. Replacement needs none of
+  that. **Recommendation: replacement first, investigate new-boss in parallel via
+  G8.** The Vergil assets are identical for both routes, so nothing is wasted.
+- Next: **G9** — decode the `R_*.WAD` container starting from the small ones
+  (`R_SWORD00.WAD` 87,840 B; `HDS675AI1HADES.WAD` 47,136 B), then `WadGraph`.
+
+
 
 

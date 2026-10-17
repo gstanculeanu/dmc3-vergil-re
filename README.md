@@ -149,6 +149,7 @@ This is why the target is a *boss replacement*, not a from-scratch enemy. See
 | Move set / enemy behaviour | **Not started** | Moves are as important as the mesh for an enemy |
 | Export to glTF | **Not started** | Blocked on `MOD ` payload RE |
 | Import to DMC3 | **Not started** | Validation gate for phase 2 |
+| GoW3R asset location | **Located** | 417 per-entity `R_*.WAD` in `EXEC/WAD/PS4_LE/`, incl. bosses, weapons, UI, 16 languages, per-enemy AI (E-016) |
 | Import to GoW3 Remastered | **Not started** | Blocked on GoW3 model-format RE |
 
 ## Repository layout

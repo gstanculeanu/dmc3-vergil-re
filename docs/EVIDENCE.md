@@ -370,5 +370,98 @@ confirms that `WP_A_1063` is Yamato (E-014's bone names already suggested it).
 only as FLVER and still needs a parser or an external tool. Assets stay outside the
 repository, enforced by `tools/priorart/convert.py`.
 
+---
+
+## E-016 — G1 answered: GoW3R assets are per-entity `R_*.WAD` files
+
+**Observation.** The local dump `C:\Users\GigelCastel\Desktop\gow3\CUSA01715` is
+**complete**: 50.5 GB total, of which `EXEC\` is 45.9 GB. Character art is not in
+`eboot.bin` at all; it lives in
+
+```
+EXEC\WAD\PS4_LE\     417 *.WAD files, 21.5 GB
+```
+
+Each WAD begins with a name banner:
+
+```
+R_HERCULES.WAD     63,144,480  14 00 00 00 08 00 00 00  "WAD_R_Hercules"
+R_HERCULES10.WAD   15,315,776  14 00 00 00 08 00 00 00  "WAD_R_Hercules10"
+R_ZEUS00.WAD       57,315,616  14 00 00 00 08 00 00 00  "WAD_R_Zeus00"
+R_KRATOSFEAR.WAD   38,703,104  14 00 00 00 08 00 00 00  "WAD_R_KratosFear"
+R_SWORD00.WAD          87,840  14 00 00 00 08 00 00 00  "WAD_R_Sword00"
+R_LANG_EN.WAD         456,432  14 00 00 00 08 00 00 00  "WAD_R_Lang"
+R_UI.WAD           27,792,080  14 00 00 00 08 00 00 00  "WAD_R_UI"
+HDS675AI1HADES.WAD     47,136  14 00 00 00 08 00 00 00  "WAD_Hds675AI1Hades"
+```
+
+So a WAD is a container with `u32` 0x14 / `u32` 8 / a zero-padded name string at
+0x08. (The internal directory format is not yet decoded — issue G9.)
+
+**The naming scheme** (417 files):
+
+| Prefix | Meaning | Examples |
+|---|---|---|
+| `R_<Name>.WAD` | **one per entity / resource** | `R_KRATOSFEAR`, `R_GRUNT00`, `R_CYCLOPS00` |
+| `R_<Boss>.WAD` | **bosses are named entities** | `R_HERCULES`, `R_ZEUS00..60`, `R_HADES`, `R_HELIOS`, `R_HERMES`, `R_POSEIDON00`, `R_POSMAIN00` |
+| `R_SWORD00`, `R_SHIELD00`, `R_SPEAR00`, `R_AXE00`, `R_CESTUS` | **weapon meshes** — `R_Sword00` is only 87,840 bytes | |
+| `R_UI.WAD` | UI (the boss health bar's art lives here) | |
+| `R_FX.WAD`, `R_W_*` | effects | |
+| `R_LANG_<CC>.WAD` | **16 languages of text** | `R_LANG_EN`, `R_LANG_DE`, … |
+| `<LVL>###.WAD` | level / region | `HDS###`, `OLY###`, `CAV###`, `BAS###`, `GAZ###`, `POS###` |
+| `<LVL>###AI#<Name>.WAD` | **per-enemy AI/encounter data** | `HDS675AI1HADES`, `GAZ100AI1PANDZEUS`, `BAS400AI4HELI` |
+| `DEPENDENCYGRAPH.IFF` | 265,776 bytes, contains `"WadGraph"` at 0x08 | the WAD manifest |
+| `REGION.TXT` | 12 bytes: `BCES00510` | region code (the PS3 disc ID) |
+
+**Inference.** G1 is answered. Entities are individually addressable WADs, weapons
+are separated from characters, UI and text are separate, and **enemy AI lives in
+its own small `*AI*.WAD` files** — strong evidence that enemy behaviour is
+**data-driven rather than compiled into `eboot.bin`**.
+
+**Consequences.**
+
+* The target of a mod is a specific `R_<Entity>.WAD` — replacement is concrete.
+* Because entity, weapon, UI, text and AI are separate WADs, a port can mix and
+  match: Vergil's mesh from one file, an existing boss's AI from another.
+* `R_LANG_*.WAD` is where a boss's displayed **name** most likely lives, which is
+  where "Vergil" would go on the health bar (issue G7).
+* Whether a **new** entity can be added depends on `WadGraph` and level spawn data
+  — issue G8.
+
+**Unknown.** The internal WAD directory format; whether `DEPENDENCYGRAPH.IFF` is
+read at runtime; whether level spawn/encounter data is editable.
+
+---
+
+## E-017 — FLVER header of Vergil's body (partial)
+
+**Observation.** `BD_M_10100.flver` (467,008 bytes), first 128 bytes:
+
+```
+0x00  "FLVER\0"
+0x0C  u32 0x0000F030 (61,488)
+0x10  u32 0x00063010 (405,520)
+0x18  u32 6          0x1C u32 334        0x20 u32 6        0x24 u32 12
+0x28  f32 -0.7157    0x2C f32 0.0000
+0x30  f32 -0.1980    0x34 f32  0.7180
+0x38  f32  1.7909    0x3C f32  0.2405
+0x40  u32 28,062     0x44 u32 28,062     0x48 u32 256      0x4C u32 0
+0x50  u32 36         0x54 u32 10
+```
+
+**Inference.** Bytes 0x28–0x3F read as six floats in the range
+`(-0.72, 0.00, -0.20)` … `(0.72, 1.79, 0.24)`, which has a **vertical extent of
+1.79 m** — the expected height of a humanoid. That is a plausible bounding box and
+a strong sanity signal that this is Vergil's body and not a prop. `28,062` appears
+twice at 0x40/0x44 and is consistent with a vertex count in the tens of thousands.
+
+**Unknown.** The version field, the meaning of the counts, the vertex declaration
+layout and the buffer offsets. Full decoding is issue **T7b**.
+
+**Why partial is fine.** The weapon was obtained through the Source interchange
+formats instead (E-015); the body has no such shortcut, so FLVER must be read
+directly. This entry records the starting point.
+
+
 
 
