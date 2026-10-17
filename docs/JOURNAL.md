@@ -526,7 +526,7 @@ moves and health bar and everything."*
 - Did: read every `MOD ` chunk in `pl021.pac` (slots 1/12/23/25) and scanned all
   286 `MOD ` chunks across the install; implemented `tools/dmc3/mod.py`
   (`ModHeader` reader), a synthetic `mod_chunk` fixture, and `tests/test_mod.py`
-  (8 new tests). Full suite: **125 tests, all green**. Committed the slice.
+  (8 new tests). Full suite: **125 tests, all green**. Committed as 3a8ceb4.
 - Found (**E-030**): header is a fixed 0x24-byte block — `+0x04` f32 =
   1.0099999904632568 (`0x3F8147AE`) in 285/286 chunks (one is 1.0); `+0x0C` and
   `+0x1C` are `0` in all 286; `+0x08`/`+0x18` are `0` in the pl021.pac samples;
@@ -538,13 +538,26 @@ moves and health bar and everything."*
   the values live at `+0x10`/`+0x20`. `docs/EVIDENCE.md` gained E-030 with the
   raw bytes and distributions; `docs/BACKLOG.md` F1 marked open with header
   decoded, payload [UNKNOWN], cross-check vs prior art (E-014/E-015).
-- Next: decide the F1 follow-up — decode the first vertex field at `+0x24` in
-  another bounded slice, or record that the payload layout needs engine ground
-  truth and move to F9/F10/F11 (moves/audio/VFX), now the technical critical
-  path per E-014.
 
+## 2026-10-18 — F1 bounded slice: MOD payload body prefix decoded
 
-
-
+- Did: read real bytes from `pl021.pac` (G:\Games\...\GData.afs\pl021.pac),
+  slots 1/12/23/25, at file offsets 0x039880 / 0x078350 / 0x811E0 / 0x838C0;
+  implemented `ModBodyPrefix` in `tools/dmc3/mod.py`, extended `mod_body()`
+  fixture and `tests/test_mod.py` (7 new tests). Full suite: **132 tests, all
+  green**.
+- Found (**E-031**): body prefix (chunk +0x24) = 28 zero bytes, then body+0x1C
+  u16 marker `0x8001` (constant), body+0x1E u16 count (474/300/182/182),
+  body+0x24 u32 (768/192/128/128), four f32s at body+0x4C..+0x58, body+0x5C u32
+  which equals count only for the byte-identical slots 23/25. All field
+  meanings are [UNKNOWN]. Verified `body+0x5C == count` for slots 23/25 and
+  `!= count` for slots 1/12 on real bytes.
+- Docs: `docs/EVIDENCE.md` E-031 (raw bytes + table); `docs/FORMATS.md` §5.1
+  (body prefix spec, [PARTIAL]/[UNKNOWN] marking); `docs/BACKLOG.md` F1 row
+  updated to E-030/E-031 with payload body beyond +0x5C [UNKNOWN].
+- Next: the vertex/index/normal/UV/weight layout beyond body+0x5C is the
+  remainder of F1; this slice stops at the decoded prefix per the bounded-slice
+  rule. F4's remaining unknowns (u16[1..3] scale/zero point) need engine ground
+  truth and are not decodable from bytes alone.
 
 

@@ -27,7 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from .pac import Chunk, f32, u32
+from .pac import Chunk, f32, u16, u32
 
 TAG_MODEL = b"MOD "
 """The plain chunk tag that identifies a ``MOD `` chunk."""
@@ -99,4 +99,86 @@ def maybe_mod_header(chunk: Chunk) -> Optional[ModHeader]:
     try:
         return ModHeader.parse(chunk)
     except (ValueError, IndexError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Payload body (the part of issue F1 that is still [UNKNOWN])
+# ---------------------------------------------------------------------------
+
+BODY_PREFIX_SIZE = 0x60
+"""Size of the decoded body prefix (through ``repeat`` at body +0x5C)."""
+
+
+@dataclass(frozen=True)
+class ModBodyPrefix:
+    """Decoded prefix of a ``MOD `` payload body (evidence E-031).
+
+    The body starts at chunk +0x24, immediately after the :class:`ModHeader`.
+    Every field below is an **observation**: its bytes are consistent across the
+    four ``MOD `` chunks in ``pl021.pac``, but its *meaning* is [UNKNOWN] and is
+    deliberately not named beyond its offset.  This is the first decoded field
+    of the payload body; the vertex/index/weight layout beyond it remains open
+    (issue F1).
+    """
+
+    marker: int
+    """Body +0x1C (chunk +0x40): u16, observed 0x8001 in every pl021.pac MOD
+    chunk.  Coincides with the 0x8000 zero base used for MOT frame times
+    (E-026); any relationship is [UNKNOWN]."""
+
+    count: int
+    """Body +0x1E (chunk +0x42): u16, varies per mesh (474, 300, 182, 182 in
+    pl021.pac slots 1/12/23/25).  Reappears verbatim at ``repeat`` for the
+    byte-identical slots 23/25, which supports reading it as a stored count.
+    What it counts (vertices, primitives, bones, …) is [UNKNOWN]."""
+
+    field_24: int
+    """Body +0x24 (chunk +0x48): u32, varies per mesh (768, 192, 128, 128).
+    Meaning [UNKNOWN]."""
+
+    field_2c: int
+    """Body +0x2C (chunk +0x50): u32, varies per mesh.  In slot 23 the bytes
+    read as ``02 00 12 00`` (either one u32 or two u16s); meaning [UNKNOWN]."""
+
+    vector: tuple[float, float, float, float]
+    """Body +0x4C (chunk +0x70): four little-endian f32s, vector/quaternion-like
+    (e.g. slot 23: -0.196, 0.0, 42.07, 73.57).  Meaning [UNKNOWN]."""
+
+    repeat: int
+    """Body +0x5C (chunk +0x80): u32.  Equals ``count`` for slots 23/25 but not
+    for slot 1 (0x01418002) or slot 12 (0x012D8001), so it is an independent
+    field.  Meaning [UNKNOWN]."""
+
+    @classmethod
+    def parse(cls, body: bytes) -> "ModBodyPrefix":
+        """Parse the body prefix of a ``MOD `` chunk.
+
+        ``body`` is the payload starting at chunk +0x24
+        (``chunk.data[ModHeader.HEADER_SIZE:]``).
+        """
+        if len(body) < BODY_PREFIX_SIZE:
+            raise ValueError(
+                f"MOD body only {len(body)} bytes, need {BODY_PREFIX_SIZE} for the prefix"
+            )
+        return cls(
+            marker=u16(body, 0x1C),
+            count=u16(body, 0x1E),
+            field_24=u32(body, 0x24),
+            field_2c=u32(body, 0x2C),
+            vector=(
+                f32(body, 0x4C),
+                f32(body, 0x50),
+                f32(body, 0x54),
+                f32(body, 0x58),
+            ),
+            repeat=u32(body, 0x5C),
+        )
+
+
+def maybe_mod_body_prefix(body: bytes) -> Optional[ModBodyPrefix]:
+    """Like :meth:`ModBodyPrefix.parse` but returns ``None`` on short input."""
+    try:
+        return ModBodyPrefix.parse(body)
+    except ValueError:
         return None

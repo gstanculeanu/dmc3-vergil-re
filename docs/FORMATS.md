@@ -218,8 +218,38 @@ files**; evidence E-030), all little-endian:
 +0x24  ...     payload body (vertices, indices, normals, UVs, skin weights)  [UNKNOWN layout]
 ```
 
-* The payload body begins at `+0x24` and its layout is **not** decoded — that
-  is the remainder of issue F1 (vertex/index/normal/UV/skin-weight layout).
+### 5.1 `MOD ` payload body prefix — first decoded fields [E-031]
+
+**Status: [PARTIAL]** — evidence E-031. The body begins at `+0x24` (immediately
+after the header). Its first decoded prefix, body-relative (all little-endian):
+
+```
+body +0x00..+0x1B  zero bytes (28 bytes)
+body +0x1C  u16    marker            0x8001 in all four pl021.pac MOD chunks  [UNKNOWN]
+body +0x1E  u16    count            varies per mesh (474/300/182/182)        [UNKNOWN what it counts]
+body +0x20  u32    0 in all observed chunks                                   [UNKNOWN]
+body +0x24  u32    varies per mesh (768/192/128/128)                          [UNKNOWN]
+body +0x28  u32    0 in all observed chunks                                   [UNKNOWN]
+body +0x2C  u32    varies per mesh                                            [UNKNOWN]
+body +0x30..+0x4B zero bytes
+body +0x4C  f32    vector-like (tens to ~113)                                [UNKNOWN]
+body +0x50  f32    vector-like                                                [UNKNOWN]
+body +0x54  f32    vector-like                                                [UNKNOWN]
+body +0x58  f32    vector-like                                                [UNKNOWN]
+body +0x5C  u32    equals ``count`` for the duplicated slots 23/25 only       [UNKNOWN]
+```
+
+* `body +0x1E` (the count) reappears verbatim at `body +0x5C` for the two
+  byte-identical slots 23/25, which supports reading it as a stored count; what
+  it counts is an inference, not an observation.
+* `marker == 0x8001` coincides with the `0x8000` zero base used for MOT frame
+  times (E-026); any relationship is [UNKNOWN].
+* `tools/dmc3/mod.py` exposes `ModBodyPrefix` decoding exactly this prefix;
+  the vertex/index/normal/UV/skin-weight layout beyond it remains the remainder
+  of issue F1.
+
+The payload body layout beyond `+0x5C` is **not** decoded — that is the
+remainder of issue F1 (vertex/index/normal/UV/skin-weight layout).
 * `+0x14 == 0xF4240` (1,000,000) in 187/286 chunks suggests one field may be a
   byte size or vertex count, but that is an inference, not an observation.
 

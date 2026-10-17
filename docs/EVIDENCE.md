@@ -1204,6 +1204,62 @@ values (e.g. `0x0003180B`, `0x00029B30`) at `+0x0C`/`+0x1C`; real bytes show
 actually appear at `+0x10`/`+0x20`. The spec is corrected below.
 
 
+---
+## E-031 — `MOD ` payload body prefix: first decoded fields (F1, bounded slice)
+
+**Observation.** Read the body (chunk +0x24 onward) of every `MOD ` chunk in
+`pl021.pac` (slots 1, 12, 23, 25). Slot 1 at file offset `0x039880` (span
+204,384 bytes); header bytes as recorded in E-030. Body prefix, body-relative
+(all little-endian):
+
+```
+file +0x0398A4 (chunk +0x24): 00 00 00 00 00 00 00 00   body +0x00..+0x07: zero
+file +0x0398AC (chunk +0x2C): 00 00 00 00 00 00 00 00   body +0x08..+0x0F: zero
+file +0x0398B4 (chunk +0x34): 00 00 00 00 00 00 00 00   body +0x10..+0x17: zero
+file +0x0398BC (chunk +0x3C): 00 00 00 00                body +0x18..+0x1B: zero
+file +0x0398C0 (chunk +0x40): 01 80 da 01                body +0x1C: u16=0x8001
+                                                           body +0x1E: u16=474
+file +0x0398C4 (chunk +0x44): 00 00 00 00                body +0x20: u32=0
+file +0x0398C8 (chunk +0x48): 00 03 00 00                body +0x24: u32=768
+file +0x0398CC (chunk +0x4C): 00 00 00 00                body +0x28: u32=0
+...
+file +0x0398F0 (chunk +0x70): 00 00 40 b8                body +0x4C: f32=-4.58e-05 (~0)
+file +0x0398F4 (chunk +0x74): 68 fe e2 42                body +0x50: f32=113.497
+file +0x0398F8 (chunk +0x78): 80 1e e1 3d                body +0x54: f32=0.1099
+file +0x0398FC (chunk +0x7C): 2d 94 68 42                body +0x58: f32=58.1447
+file +0x039900 (chunk +0x80): 02 80 41 01                body +0x5C: u32=0x01418002
+```
+
+The other `pl021.pac` `MOD ` chunks (body-relative):
+
+| slot | file offset | body+0x1C u16 | body+0x1E u16 count | body+0x24 u32 | body+0x4C f32 | body+0x50 f32 | body+0x54 f32 | body+0x58 f32 | body+0x5C u32 |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 0x039880 | 0x8001 | 474 | 768 | -4.58e-05 | 113.497 | 0.1099 | 58.1447 | 0x01418002 |
+| 12 | 0x078350 | 0x8001 | 300 | 192 | -0.0440 | -55.273 | -9.947 | 80.069 | 0x012D8001 |
+| 23 | 0x811E0 | 0x8001 | 182 | 128 | -0.1962 | ~0.0 | 42.071 | 73.569 | 182 |
+| 25 | 0x838C0 | 0x8001 | 182 | 128 | -0.1962 | ~0.0 | 42.071 | 73.569 | 182 |
+
+Slots 23 and 25 are byte-identical (E-030), including `body+0x5C == count`.
+
+**Inference.** The payload body begins with a fixed prefix: twenty-eight zero
+bytes, then a `u16` marker that is constantly `0x8001`, then a `u16` count that
+varies per mesh. The count's reappearance at `body+0x5C` for the two identical
+small meshes supports reading `body+0x1E` as a stored count; what it counts
+(vertices, primitives, bones, …) is not established. `body+0x4C..+0x5B` reads as
+four f32s with a vector-like magnitude (tens to ~113) but its meaning is not
+established. The `0x8001` marker coincides with the `0x8000` zero base used for
+MOT frame times (E-026); any relationship is [UNKNOWN].
+
+**Unknown.** The payload body layout beyond this prefix (vertices, indices,
+normals, UVs, skin weights — the remainder of issue F1); the semantics of the
+marker, the count, `body+0x24`/`body+0x2C`, the four f32s, and `body+0x5C`.
+Whether `body+0x1E` is a vertex count is an inference, not an observation.
+
+**Consequence.** `tools/dmc3/mod.py` now exposes `ModBodyPrefix` (with
+`BODY_PREFIX_SIZE`) decoding exactly this prefix from real bytes, exercised by
+unit tests on synthetic fixtures.
+
+
 
 
 

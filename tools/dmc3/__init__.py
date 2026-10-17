@@ -3,7 +3,7 @@
 Read-only tooling.  Nothing here writes to a game installation.
 """
 
-from .mod import ModHeader
+from .mod import BODY_PREFIX_SIZE, ModBodyPrefix, ModHeader
 from .pac import (
     ALIGNMENT,
     MAGIC,
@@ -57,6 +57,8 @@ __all__ = [
     "MotRecord",
     "MAX_TAIL_BYTES",
     "RECORD_HEADER_SIZE",
+    "BODY_PREFIX_SIZE",
+    "ModBodyPrefix",
     "ModHeader",
     "is_mot",
     "parse_mot",
