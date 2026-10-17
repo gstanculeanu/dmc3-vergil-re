@@ -179,6 +179,37 @@ gow3."*
 - Next: **G9** — decode the `R_*.WAD` container starting from the small ones
   (`R_SWORD00.WAD` 87,840 B; `HDS675AI1HADES.WAD` 47,136 B), then `WadGraph`.
 
+---
+
+## 2026-10-17 — Fast boss test loop (no playthrough)
+
+Owner: *"replacement first, but I want it testable each time I enter the game —
+don't want to play through the game."*
+
+- Did: built the harness. `tools/gow3/savedata.py` + `save_list.py` read save
+  labels; `scripts/boss-test.ps1` stages a pre-boss save, installs a mod and
+  launches; `docs/TESTING.md` documents the loop. 17 new tests (69 total).
+- Found:
+  - **E-018** — `param.bin` (1,328 bytes) has three fixed 0x80-byte UTF-8 fields:
+    `0x000` title, `0x080` **location**, `0x100` **`Difficulty:` + `Play time:`**.
+    It is *not* the standard SFO format.
+  - The seven local saves now label themselves, so the boss test point can be
+    chosen by location instead of guessed: `Tomb of Ares` (0:14), `Entrance to
+    Ares Tomb` (0:31), `Realm of Hades` (0:38), `The Depths of Hades` (0:52),
+    `The Three Judges` (1:00), `The Forge` (1:19), `AUTOSAVE` Hephaestus.
+  - Save thumbnails (`icon0.png`) are too dark/generic to identify arenas, so the
+    text field is the reliable route.
+- **Design choice:** the harness **stashes** the other slots rather than renaming
+  the target, because whether the load list sorts by folder name or payload is
+  unverified. Stashing is correct either way. Saves are backed up first and
+  `-Restore` reverses it.
+- **Next, and it needs the owner:** which of the observed saves is *immediately*
+  before a boss? That decides the replacement target (G6) and makes the loop
+  one click. Then run the **retexture smoke test** (tint the boss green) to prove
+  mod install + WAD replacement + the boss health bar before feeding Vergil's mesh
+  through.
+
+
 
 
 

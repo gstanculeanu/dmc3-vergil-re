@@ -150,16 +150,18 @@ This is why the target is a *boss replacement*, not a from-scratch enemy. See
 | Export to glTF | **Not started** | Blocked on `MOD ` payload RE |
 | Import to DMC3 | **Not started** | Validation gate for phase 2 |
 | GoW3R asset location | **Located** | 417 per-entity `R_*.WAD` in `EXEC/WAD/PS4_LE/`, incl. bosses, weapons, UI, 16 languages, per-enemy AI (E-016) |
+| Boss test loop | **Ready** | `scripts/boss-test.ps1` stages a pre-boss save, installs a mod, launches — one click to the boss (E-018, `docs/TESTING.md`) |
 | Import to GoW3 Remastered | **Not started** | Blocked on GoW3 model-format RE |
 
 ## Repository layout
 
 ```
 docs/           RE notes, format specs, evidence ledger, roadmap, prior art, animation map
+docs/TESTING.md  the no-playthrough boss test loop
 tools/dmc3/     Library: PAC/MOT/TM2 parsers, entity table
-tools/          CLI: inventory + extract
-tests/          Unit tests (run on synthetic fixtures — no game files needed)
-scripts/        The 10-minute autonomous agent loop
+tools/priorart/ Source .smd/.ascii parsers + OBJ converter (Vergil's mesh)
+tools/gow3/     GoW3R save-slot reader (location + play time)
+scripts/        Agent loop and the boss test harness
 ```
 
 ## Quick start

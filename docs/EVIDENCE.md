@@ -462,6 +462,52 @@ layout and the buffer offsets. Full decoding is issue **T7b**.
 formats instead (E-015); the body has no such shortcut, so FLVER must be read
 directly. This entry records the starting point.
 
+---
+
+## E-018 — `param.bin` names each save's location, enabling a no-playthrough test loop
+
+**Observation.** Each save in the port's savedata folder has a sibling
+`<slot>.sce_sys/param.bin`, 1,328 bytes, with three fixed 0x80-byte NUL-padded
+UTF-8 fields:
+
+```
+0x000  char[0x80]  title      "God of War\u00ae III Remastered"
+0x080  char[0x80]  location   "The Depths of Hades"
+0x100  char[0x80]  details    "Difficulty: God (Normal)\nPlay time: 0:52:29"
+0x180  ...         0x3B0 bytes, zero in every sample
+```
+
+Read from `SD-261013185858.sce_sys/param.bin` (magic is the title text itself —
+this is **not** the standard PS3/PS4 SFO, whose magic is `\0PSF`).
+
+The seven slots present locally resolve to:
+
+| Slot | Location | Play time |
+|---|---|---|
+| `AUTOSAVE` | `(Auto Save) Hephaestus` | 1:19:33 |
+| `SD-261013182124` | `Tomb of Ares` | 0:14:44 |
+| `SD-261013183736` | `Entrance to Ares Tomb` | 0:31:09 |
+| `SD-261013184508` | `Realm of Hades` | 0:38:30 |
+| `SD-261013185858` | `The Depths of Hades` | 0:52:29 |
+| `SD-261015184106` | `The Three Judges` | 1:00:50 |
+| `SD-261015185945` | `The Forge` | 1:19:39 |
+
+**Inference.** Save slots are self-labelling, so tooling can pick the save that
+sits just before the target boss automatically. Combined with *stashing* the other
+slots (rather than renaming, which would assume an unverified load order), loading
+a boss fight becomes one click — satisfying the owner's "testable each time I
+enter the game, don't want to play through it".
+
+**Unknown.** Whether the load list is ordered by folder name or by payload
+contents (hence stashing, which is order-independent). Whether `SAVEDATA` carries
+a checksum that would reject a hand-edited save — relevant later, since a
+hand-authored "boss test" save would be ideal.
+
+**Consequence.** `tools/gow3/savedata.py` + `tools/gow3/save_list.py` read the
+labels; `scripts/boss-test.ps1` drives the loop;
+`docs/TESTING.md` documents it. No game asset is copied into the repository.
+
+
 
 
 
