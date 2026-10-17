@@ -50,7 +50,7 @@ Labels used: `re`, `tooling`, `format`, `phase-1`, `phase-2`, `phase-3`, `blocke
 | # | Title | Status |
 |---|---|---|
 | G1 | Locate GoW3R character asset containers in `CUSA01715` | **answered** (E-016): per-entity `R_*.WAD` in `EXEC/WAD/PS4_LE/` |
-| G9 | Decode the `R_*.WAD` container and the `WadGraph` manifest | open — **critical path** |
+| G9 | Decode the `R_*.WAD` container and the `WadGraph` manifest | **partly decoded** (E-022): named-object archive; entity vs AI split found. Record/directory binding open — **critical path** |
 | G8 | Can a **new** entity be added, or must Vergil replace a boss? | open — **critical path** |
 | G2 | Reverse GoW3R's model/material container | blocked by G9 |
 | G3 | Decide retarget vs standalone mesh for the replaced boss's rig | open |

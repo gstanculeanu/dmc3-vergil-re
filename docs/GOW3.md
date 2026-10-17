@@ -47,6 +47,30 @@ GoW3R character asset files that live under `dvdroot_ps4/` inside the game dump,
 reproducing their format, and shipping them as a mod folder. Nothing about the
 executable is touched.
 
+## Correction: AI *is* data (E-022)
+
+An earlier version of this document argued that because a mod cannot use DLL
+injectors or script plugins, "a mod cannot author new AI". That is **too
+pessimistic**, and the evidence now says so.
+
+`R_*.WAD` files are named-object archives. A `R_<Name>.WAD` (the entity) holds the
+model, textures, animation and object pools, while the small per-enemy
+`<LEVEL>AI#<Name>.WAD` files hold **`hfsm*` — the behaviour state machines**:
+
+| WAD | `hfsm*` state-machine names |
+|---|---|
+| `HDS675AI1HADES.WAD` (47,136 bytes) | `hfsmBreakable`, `hfsmEnemy1`, `hfsmIO_Misc` |
+| `R_SWORD00.WAD`, `R_HERCULES.WAD`, `R_HERCULES10.WAD` | **none** |
+
+So behaviour is **data in a replaceable file**, not compiled logic. The entity/AI
+split is exactly the seam a boss port wants: Vergil's **model** can come from one
+WAD while the **behaviour** comes from the existing boss's AI WAD — or from an
+authored one.
+
+What remains genuinely impossible via mods is adding **new UI** (the health bar
+widget itself) — which is precisely why replacing an existing boss is still the
+right first target: it inherits the bar.
+
 ## The health bar, and why Vergil must replace a boss
 
 You asked for Vergil to be a boss **with a health bar**. That single requirement

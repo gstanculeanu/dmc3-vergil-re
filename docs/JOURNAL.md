@@ -273,6 +273,40 @@ Owner: focus on **F4/F9** (Vergil's move set from the MOT bitstream) and the
 - Next: **G10** (registry binding) and the 8-byte MOT group encoding; the loop
   should also decode the `R_*.WAD` container (G9) to unblock the staged tests.
 
+---
+
+## 2026-10-17 — G9 advanced: the WAD is a named-object archive, and AI is a separate data file
+
+- Did: characterised the `R_*.WAD` container by dumping and comparing four WADs
+  ranging from 47 KB to 63 MB, then checked the entity/AI split. Recorded **E-022**
+  and corrected a too-pessimistic claim in `docs/GOW3.md`.
+- Found:
+  - Header: `u32 20`, `u32 8`, then a zero-padded banner (`"WAD_R_Hercules"`).
+  - Records of the shape `u32, u32, char name[<=0x38]`, e.g.
+    `(2, 0, "GroupStart")`, `(1, 0x18, "WAD_R_Sword00")`.
+  - **A `DC_<banner>` marker, exactly 6 times per WAD**, preceded by a fixed
+    16-byte prefix `00*8, u16 0x0B, u16 0x09, u32 4`.
+  - Name families: `go*` game objects/FX, `tGOPool_N`, `tMemoryPool_N`,
+    `t*System` (`tAnimSystem`, `tFightSystem`, `tHandleSystem`,
+    `tStandardEffectSystem`), `ms::*` (`ms::tMove`, `ms::tCollisionInfo`),
+    `attachment::*`, and **`hfsm*`**.
+  - **The decisive one:** `hfsm*` AI state machines (`hfsmEnemy1`,
+    `hfsmBreakable`, `hfsmIO_Misc`) appear in **`HDS675AI1HADES.WAD`** — an AI WAD —
+    and in **none** of the entity WADs (`R_HERCULES`, `R_HERCULES10`, `R_SWORD00`).
+- **Consequence — this changes the plan for the better.** AI is a **data file**,
+  not compiled logic. Entity WADs hold model/textures/animation; AI WADs hold the
+  behaviour state machines. So Vergil's model can come from one WAD while the
+  behaviour comes from the replaced boss's AI WAD, or from an authored one. The
+  earlier "a mod cannot author new AI" claim in `docs/GOW3.md` was corrected.
+  What genuinely cannot be added by a mod is **new UI** — which is exactly why
+  inheriting an existing boss's health bar remains the right first target.
+- Also noted: the container is a **serialized object graph**, not a zip of named
+  files, so G9 is bigger than first assumed — but the naming is legible and the
+  entity/AI seam is the one a boss port needs.
+- Next: **G10/G9** — the record directory that binds a name to its bytes; then
+  Stage 1 of the test plan (tint `R_UI.WAD`) needs a WAD reader/writer.
+
+
 
 
 

@@ -646,6 +646,65 @@ names is issue **G10**.
 An earlier check in this journal that compared `R_Hercules` to `R_HERCULES`
 case-sensitively reported a false "0 matches".
 
+---
+
+## E-022 — A `R_*.WAD` is a named-object archive, and AI lives in a **different** WAD
+
+**Observation.** Dumping the printable names of four WADs of very different sizes.
+
+Each WAD begins `u32 20, u32 8, char banner[]` (zero-padded), then repeated
+records of the shape `u32, u32, char name[≤0x38]`, e.g. from `R_SWORD00.WAD`:
+
+```
++0x50  02 00 00 00  00 00 00 00  "GroupStart"
++0x90  01 00 00 00  18 00 00 00  "WAD_R_Sword00"
++0xF0  02 00 00 00  00 00 00 00  "GroupStart"
+```
+
+Every WAD also contains a **`DC_<banner>`** marker, exactly **6 times per file**,
+preceded by a fixed 16-byte prefix:
+
+```
+00 00 00 00 00 00 00 00  0B 00 09 00  04 00 00 00  "DC_WAD_R_Sword00"
+```
+
+Name families across the four files:
+
+| Family | Meaning | `HDS675AI1HADES` | `R_SWORD00` | `R_HERCULES10` | `R_HERCULES` |
+|---|---|---|---|---|---|
+| `go*` | game objects / effects (`goFireTrail`, `goSoulKratos`) | 372 | 5 | 153 | 342 |
+| `tGOPool_N` | object pools | 367 | – | – | – |
+| `tMemoryPool_N` | memory pools | 92 | – | – | – |
+| `t*System` | `tAnimSystem`, `tFightSystem`, `tHandleSystem`, `tStandardEffectSystem` | 5 | – | – | – |
+| `ms::*` | mob system (`ms::tMove`, `ms::tCollisionInfo`, `ms::tSynchPartner`) | 4 | – | – | – |
+| `attachment::*` | `attachment::tSys`, `attachment::tChained` | 2 | – | – | – |
+| **`hfsm*`** | **AI state machines** | **3** | 0 | **0** | **0** |
+
+The `hfsm*` names in the AI WAD are `hfsmBreakable`, `hfsmEnemy1`,
+`hfsmIO_Misc`. Entity WADs contain **none**.
+
+**Inference — and this one changes the plan.** A WAD is a **serialized object
+graph**, not an archive of named files. More importantly, the split is:
+
+* **entity WAD** (`R_<Name>.WAD`) — model, textures, animation, object pools;
+* **AI WAD** (`<LEVEL>AI#<Name>.WAD`) — the `hfsm*` behaviour state machines.
+
+Therefore **Vergil's behaviour is a data file, not code**. That materially
+improves the outlook recorded in `GOW3.md`: the earlier worry that "a mod cannot
+author new AI" is too pessimistic — the state machines are data and the AI WADs
+are small (47,136 bytes for `HDS675AI1HADES`) and separable. A boss port could
+combine *Vergil's model* from one WAD with *an existing or authored AI* from
+another.
+
+**Unknown.** The full record/directory structure that binds a name to its bytes
+(G9/G10); what the `0x000B / 0x0009 / 4` triple before `DC_` means; whether the
+`hfsm*` definitions can be re-authored safely.
+
+**Consequence.** G9 is larger than "unzip and repack": the container is an object
+graph. But the naming is legible and the entity/AI split is exactly the seam a
+boss port needs.
+
+
 
 
 
