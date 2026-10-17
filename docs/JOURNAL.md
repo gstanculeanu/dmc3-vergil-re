@@ -659,3 +659,28 @@ moves and health bar and everything."*
 - Next: F1/F4 remain blocked on engine ground truth (per earlier slices). With the
   critical path blocked, pick another resolved-dependency slice such as H1/H2/H3
   research, or revisit WAD record length (G9/G10).
+
+---
+
+## 2026-10-18 — F2 bounded slice: SHW shader-chunk header decoded from real bytes
+
+- Did: decoded the `SHW ` chunk header from all four real `SHW ` chunks in
+  `pl021.pac` (slots 8/14/24/26; slots 24/26 byte-identical), added
+  `tools/dmc3/shw.py` (`ShwHeader` reader), synthetic fixture `shw_chunk()`,
+  and `tests/test_shw.py` (11 new tests asserting only observed values).
+  Committed as d319ab4, pushed to origin main; commented issue #3 (left open).
+- Found (**E-036**): header layout verified on real bytes — tag `SHW `, f32
+  0.5 at +0x04 (4/4 chunks), zero u32s at +0x08/+0x0C/+0x18/+0x1C/+0x24/
+  +0x28/+0x2C, varying u32s at +0x10/+0x14, varying u16 pair at +0x20/+0x22,
+  and four varying u32s at +0x30/+0x38/+0x40/+0x48 each followed by a zero
+  u32. **+0x30 is verified as a sub-table offset** (slot 8: 0x460, slot 14:
+  0x1E0, slots 24/26: 0x60) landing on 16-byte entries `[i0, i1, i2, 0]` of
+  small u32 indices in all four chunks; +0x38/+0x40/+0x48 point at further
+  sub-tables (i16 pairs, f32 data, byte data). Every field meaning and the
+  texture binding itself remain **[UNKNOWN]**; F2 stays open.
+- Correction: an earlier draft placed the 0x460/0x1E0/0x60 values at +0x28;
+  real bytes show +0x28 is 0 in all four chunks and the values live at +0x30.
+  Code, E-036, FORMATS.md §5 and BACKLOG.md F2 all reflect the corrected
+  offsets.
+- Next: F1/F4 remain blocked on engine ground truth; pick another
+  resolved-dependency slice (H1/H2/H3 research, or similar).
