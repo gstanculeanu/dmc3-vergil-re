@@ -642,3 +642,20 @@ moves and health bar and everything."*
 - Next: pick the next bounded slice whose dependencies are resolved (e.g. T3 PAC
   writer round-trip test, or H1/H2/H3 research); F1/F4/F3 remain blocked on engine
   ground truth.
+
+## 2026-10-18 — T3 PAC writer hardened; byte-exact round-trip test added (issue #11)
+
+- Did: hardened `build_pac` in `tools/dmc3/pac.py` (rejects non-bytes payloads with a
+  clear `TypeError`) and added `test_build_pac_round_trip_is_byte_exact` plus
+  `test_build_pac_rejects_non_bytes_payload` in `tests/test_pac.py`. The round-trip
+  test rebuilds a PAC from each chunk's full span (payload + 16-byte inter-chunk and
+  trailing padding) and asserts byte-exact reproduction of the whole file and
+  identical re-parsed chunks (entries, offsets, spans, data, tags). Updated
+  `docs/BACKLOG.md` T3 row. Committed 6d6a85d, pushed to origin main; closed issue
+  #11 with a comment summarizing findings.
+- Found: 145 tests, all green (143 baseline + 2 new). `build_pac` is verified as the
+  inverse of `PacArchive` for self-describing chunks on synthetic fixtures; no game
+  data committed. This is the property Phase 2 re-encoding of MOD/MOT chunks relies on.
+- Next: F1/F4 remain blocked on engine ground truth (per earlier slices). With the
+  critical path blocked, pick another resolved-dependency slice such as H1/H2/H3
+  research, or revisit WAD record length (G9/G10).
