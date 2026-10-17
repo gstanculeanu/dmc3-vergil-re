@@ -28,16 +28,23 @@ formats, plus a written spec of each DMC3 structure. Because the goal is an
 
 | Milestone | Depends on | Gate |
 |---|---|---|
-| 1.1 `MOD ` mesh payload → vertices/indices/normals/UVs | E-008 work | a mesh loads in Blender and looks like Vergil |
-| 1.2 Skeleton + bind pose | 1.1 | 24 bones recovered, hierarchy matches the MOT bone count |
-| 1.3 `SHW ` material/shader → texture binding | 1.1 | every submesh maps to a named `.tm2` texture |
+| 1.0 **Acquire Vergil's mesh from prior art** (FLVER → SMD/ASCII → glTF) | — | Vergil's body + Yamato import into Blender and look correct |
+| 1.1 `MOD ` mesh payload → vertices/indices/normals/UVs *(now a cross-check)* | E-008 work | the decoded DMC3 mesh agrees with the prior-art mesh |
+| 1.2 Skeleton + bind pose | 1.0 | bone hierarchy recovered and matches the MOT bone count |
+| 1.3 `SHW ` material/shader → texture binding *(cross-check)* | 1.1 | every submesh maps to a named `.tm2` texture |
 | 1.4 Texture export `.tm2` → `.dds` → `.png` | E-005 ✅ | correct colour/alpha when decoded |
 | 1.5 MOT keyframes → per-bone TRS tracks | E-003 work | an animation replays on the skeleton without drift |
-| 1.6 glTF 2.0 exporter | 1.1–1.5 | one `.glb` with mesh + skin + all animations |
-| 1.7 `plwp_vergilsword` (Yamato) | E-006 work | weapon mesh exported too |
+| 1.6 glTF 2.0 exporter | 1.0–1.5 | one `.glb` with mesh + skin + all animations |
+| 1.7 `plwp_vergilsword` (Yamato) *(largely covered by 1.0)* | E-006 work | weapon mesh exported too |
 | 1.8 **Move set** — clip + timing + hit windows + state transitions | 1.5 | every named move (Judgement Cut, High Time, …) is described |
 | 1.9 **Audio** — Vergil's voice/SFX extracted and labelled | — | `docs/AUDIO.md` map, assets on disk |
 | 1.10 **VFX** — effects inventoried and format-identified | — | `docs/VFX.md`, conversion path stated |
+
+**Note on 1.0.** A third-party Bloodborne mod already ships Vergil's mesh as FLVER
+with Source SMD/ASCII and DDS textures (`docs/PRIOR-ART.md`, E-014). Starting
+there removes the biggest unknown from Phase 1. The DMC3 decoders remain, but as
+verification rather than a prerequisite. Check the mod's permissions before
+reusing anything (issue H4).
 
 **Gate:** exported `.glb` opens in Blender with mesh, rig and animations, and the
 move list in `docs/MOVES.md` covers a usable enemy move set.

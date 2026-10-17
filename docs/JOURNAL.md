@@ -76,3 +76,40 @@ part of the deliverable, not optional extras.
   path. In parallel, **H4** (assess the Bloodborne mod) and **G6** (pick the
   replaced enemy) are cheap and de-risk the plan.
 
+---
+
+## 2026-10-17 — Prior art located on disk: Vergil's mesh is already decompiled
+
+The owner pointed at `C:\Users\GigelCastel\Desktop\vergil`, the downloaded Nexus
+(Bloodborne) Vergil mod, and asked for it to be taken into account.
+
+- Did: inspected the package directly and wrote `docs/PRIOR-ART.md`. Recorded
+  evidence **E-014**. Updated the README (mesh status + prior-art callout),
+  the roadmap (new milestone 1.0; 1.1/1.7/1.3 demoted to cross-checks) and the
+  backlog (F1/F6 restated).
+- Found (E-014):
+  - It is a **FromSoftware PS4** mod package. Magics observed: `FLVER`, `TPF\0`
+    (platform header `PS4`), `BND4`, `DCX\0`, HKX `57 E0 E0 57`, `CLM2`, `DDS `,
+    and Source **`version 1` SMD**.
+  - **Vergil's mesh exists in interchange format.** `WP_A_10100.smd` (628 KB) and
+    `WP_A_10100.ascii` (181 KB), plus `_1`/`_2` variants — Blender-readable.
+  - Weapon identity is **Yamato**: `WP_A_1063`, 8 nodes with `B_Root` →
+    `B_Blade_00/01/02`, 1852 verts, material `m0_WP_A_1063`, textures
+    `WP_A_1063_a/_r/_s/_n`.
+  - Body is a Bloodborne **FullBody** part `BD_M_10100`, whose TPF shrank
+    19,929,900 → 2,190,896 vs its `.bak` — Vergil's textures replaced the original.
+  - Manifests (Witchy) expose the original PS4 build tree:
+    `N:\SPRJ\data\INTERROOT_ps4\parts\FullBody\BD_M_10100`.
+  - Nothing in the text files says "Vergil"/"Yamato" — the armour-name FMG just
+    sets entries to `NOT NEEDED`.
+- **Strategic consequence:** decoding the DMC3 `MOD ` mesh (F1) and `PNST`
+  weapon container (F6) is no longer on the critical path; they become
+  cross-checks. The critical path is **animations and moves** (F4, F9) — the
+  package's `.anibnd`/`.hkx` are Bloodborne's, not Vergil's. This matches the
+  owner's "the moves and things are left".
+- **Licensing:** third-party assets, kept outside the repo, never committed.
+  Reuse is gated on the mod page's permissions (H4).
+- Next: **T7** — convert the prior-art mesh to glTF/OBJ and verify it renders.
+  Then **F4** — MOT keyframes, now the top technical risk.
+
+

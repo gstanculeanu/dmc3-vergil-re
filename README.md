@@ -95,6 +95,26 @@ proof that the decompile is faithful, so it acts as the validation gate before G
 | **VFX** (Judgement Cut, trails, DT) | `Crimson/vfx/*.efkefc` (Effekseer) | located only | F11 |
 | Textures | `*.tm2` (wraps DDS) | decoded | F8, T2 |
 
+### Prior art: the mesh is already decompiled
+
+Someone has already decompiled Vergil and ported him into **Bloodborne** (another
+PS4 game). The package sits in `C:\Users\GigelCastel\Desktop\vergil` and contains
+Vergil's **body** and **Yamato** as FLVER models **plus Source `.smd`/`.ascii`
+interchange meshes** and DDS albedo/normal/roughness/specular textures — details
+in `docs/PRIOR-ART.md` (evidence E-014).
+
+Consequences, stated plainly:
+
+* Vergil's **mesh and textures are solved**; they do not need to be decoded out of
+  the DMC3 `MOD ` payload. Blender reads SMD/ASCII directly.
+* Decoding `MOD ` (F1) and `PNST` (F6) is now a **cross-check**, not a blocker.
+* The package's animation data is **Bloodborne's**, not Vergil's moves — which is
+  exactly why the owner says *"the moves and things are left"*.
+* The critical path therefore moves to **animations and moves** (F4, F9).
+* Those files are third-party assets: **never committed here**, and only reusable
+  if the mod's permissions allow it (issue H4).
+
+
 ### A constraint that shapes Phase 3
 
 `gow3_pc` mods replace data files under `dvdroot_ps4/` and **may not** replace
@@ -114,6 +134,7 @@ audio and VFX are Vergil's. See `docs/GOW3.md` and issue G6.
 | TM2 texture → DDS | **Decoded** | HD-era TM2 wraps a plain DDS blob |
 | Vergil's audio location | **Located** | `Versil_01..03.ogg`; ownership unconfirmed |
 | Vergil's VFX location | **Located** | Effekseer `.efkefc` in the Crimson tree |
+| Vergil's mesh (prior art) | **Available** | Already decompiled into a Bloodborne mod: FLVER + SMD/ASCII + DDS. See `docs/PRIOR-ART.md` |
 | `MOT` animation payload | **Partial** | Header parsed; frame encoding open |
 | `MOD ` mesh payload | **Open** | Header fields known, vertex/index layout open |
 | `SHW ` material payload | **Open** | Header fields known, texture binding open |
@@ -125,7 +146,7 @@ audio and VFX are Vergil's. See `docs/GOW3.md` and issue G6.
 ## Repository layout
 
 ```
-docs/           RE notes, format specs, evidence ledger, roadmap, animation map
+docs/           RE notes, format specs, evidence ledger, roadmap, prior art, animation map
 tools/dmc3/     Library: PAC/MOT/TM2 parsers, entity table
 tools/          CLI: inventory + extract
 tests/          Unit tests (run on synthetic fixtures — no game files needed)

@@ -285,3 +285,40 @@ verification by exporting each clip.
 **Unknown.** The thread's slot numbering relative to this install's group/slot
 pairing is unconfirmed.
 
+---
+
+## E-014 — Vergil's mesh already exists, decompiled, in a Bloodborne mod package
+
+**Observation.** `C:\Users\GigelCastel\Desktop\vergil` is a FromSoftware **PS4**
+(Bloodborne) mod package for Vergil, downloaded from Nexus mod 229. Direct
+inspection of its files:
+
+| Observation | Detail |
+|---|---|
+| Magics present | `FLVER` (model), `TPF\0` (textures, platform header says `PS4`), `BND4` (binders), `DCX\0` (compression), HKX binary `57 E0 E0 57` (Havok), `CLM2` (cloth), `DDS ` (textures), `version 1` (Source **SMD**) |
+| Source interchange meshes | `WP_A_10100.smd` (628,257 B), `WP_A_10100.ascii` (181,648 B), plus `_1`, `_2` variants |
+| Weapon identity | `WP_A_1063`: 8 nodes — `WP_A_1063_Grip`, `Model_Dummy`, `SFX_Dummy`, `WP_A_1063_0`, `B_Root`, `B_Blade_00/01/02` (parents 4→5→6→7); 1852 verts; material `m0_WP_A_1063`; textures `WP_A_1063_a/_r/_s/_n` |
+| Body identity | `BD_M_10100`, a Bloodborne **FullBody** part, replaced by Vergil's body; its TPF shrank 19,929,900 → 2,190,896 bytes versus the `.bak` original |
+| Build paths in manifests | `N:\SPRJ\data\INTERROOT_ps4\parts\FullBody\BD_M_10100`, `N:\SPRJ\data\Model\parts\Weapon\WP_A_1063\tex\…` |
+| Toolchain manifests | `_witchy-bnd4.xml`, `_witchy-tpf.xml` — Witchy (Blender add-on) |
+| Text | `msg/enggb/item-msgbnd-dcx/*.fmg` with Japanese names (`防具名` armour, `武器名` weapon); the armour-name file sets entries to `NOT NEEDED` rather than renaming |
+| Extension census | 21 `.dds`, 17 `.fmg`, 14 `.dcx`, 11 `.bak`, 6 `.xml`, 4 `.flver`, 3 `.smd`, 3 `.ascii`, 2 `.tpf`, 2 `.hkx`, 2 `.clm2`, 2 `.anibnd`, 3 `.prev` |
+
+**Inference.** Vergil's **mesh and textures have already been extracted and
+converted** — the model problem is solved, in an interchange format (SMD/ASCII)
+that Blender reads natively. Decoding DMC3's `MOD ` payload (F1) is therefore a
+*cross-check*, not a prerequisite.
+
+The animation data present (`.anibnd`, `.hkx`) is **Bloodborne's**, not Vergil's
+DMC3 moves, which matches the owner's description that "the moves and things are
+left".
+
+**Unknown.** Whether the package's files are licensed for reuse (permissions live
+on the mod page); whether Bloodborne's and GoW3R's asset formats share anything.
+Assume *learn from*, not *reuse*, until #31 (H4) resolves it.
+
+**Consequence.** The Phase 1 critical path shifts from mesh decoding to
+**animations/moves** (F4, F9) — which is also what an enemy needs most.
+See `docs/PRIOR-ART.md`.
+
+
