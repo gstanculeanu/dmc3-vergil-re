@@ -620,3 +620,25 @@ moves and health bar and everything."*
   before any field can be assigned meaning.
 
 
+## 2026-10-18 — F7 bounded slice: Vergil motion-slot census from real bytes
+
+- Did: bounded slice on F7 (map (group, slot) to human-readable animation names,
+  issue #7). Added mot_summary() to tools/dmc3/mot.py (duration + record_count read
+  straight from a MOT chunk's real bytes), exported it from dmc3/__init__, and added
+  a unit test on a synthetic fixture (tests/test_mot.py). Recorded E-035 from the ten
+  real pl021_00_*.pac files. Updated docs/ANIMATIONS.md ([LOCAL] group table plus
+  three Crimson-overlay anchors) and docs/BACKLOG.md (F7 row). Full suite: 143 tests,
+  all green. Committed as 98386af, pushed to origin main; commented issue #7.
+- Found (E-035):
+  - Slot counts match E-009 exactly for all ten groups (23/14/5/16/11/14/2/11/11/1);
+    all 108 occupied MOT slots walk cleanly with the stored record count reached.
+  - Overlay anchors [LOCAL]: taunt -> group 2 slot 0 (340 frames), Judgement Cut ->
+    group 3 slot 13, Yamato High Time -> group 5 slots 7-8 (overlay-vs-base byte
+    diffs on the real Crimson overlay .pac files).
+- Remaining: move names and the group/slot -> global-motion-number (000-044) mapping
+  are [EXTERNAL]/[UNKNOWN]; confirming them needs exported clips compared to in-game
+  footage (F9) and the MOT keyframe encoding (F4, blocked on engine ground truth).
+- Issue #7 left open (not decodable from bytes alone).
+- Next: pick the next bounded slice whose dependencies are resolved (e.g. T3 PAC
+  writer round-trip test, or H1/H2/H3 research); F1/F4/F3 remain blocked on engine
+  ground truth.
