@@ -450,6 +450,30 @@ moves and health bar and everything."*
 
 ---
 
+## 2026-10-17 — F4 keyframe census: preamble/keyframe split recorded, u16[1..3] left [UNKNOWN]
+
+- Did: bounded slice on F4. Read real bytes from all ten `pl021_*.pac` files
+  (G:\Games\...\GData.afs) and walked every MOT chunk: 7,659 records, 110,639
+  eight-byte groups, 87,662 keyframe groups, 0 record-layer failures.
+- Found:
+  - **E-028** — each record = `field_a` preamble groups + `groups` keyframe
+    groups: `len(group_bytes()) == field_a + groups` for 7,656/7,659 records;
+    `field_a == 3` for 7,656/7,659 (3 exceptions break the size relation).
+    Keyframe group u16[0] = offset-binary frame time reconfirmed on real bytes
+    (`frame = u16[0] - 0x8000`). u16[1..3] as signed 16-bit span [-32768,
+    32767], vary per keyframe, cluster at +/-0x3FFF (~0.5 Q15), 0, 0xFFFF;
+    only ~5% near zero. Channel meaning, scale and zero point are NOT
+    established from bytes alone — recorded as [UNKNOWN], not inference.
+  - Committed 6d49d88 (refs #2): `keyframe_groups()` in
+    `tools/dmc3/mot.py` (re-exported from `dmc3.__init__`), 2 new unit tests,
+    E-028 in docs/EVIDENCE.md, docs/FORMATS.md §3.1 and docs/BACKLOG.md F4
+    updated. 114 tests, all green. Pushed to origin main.
+  - Commented issue #2 with findings and what remains; issue left open.
+- Next: file a follow-up issue for the u16[1..3] encoding (scale, zero point,
+  channel assignment, preamble contents) or continue F4 via the +0x22 table;
+  F1/F5 remain alternatives on the Phase 1 critical path.
+
+
 ## 2026-10-17 — F4 first field decoded: keyframe group u16[0] = frame time
 
 - Did: bounded slice on F4 (MOT keyframe encoding). Read real bytes from
