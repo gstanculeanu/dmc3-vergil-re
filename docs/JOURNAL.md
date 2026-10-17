@@ -490,7 +490,33 @@ moves and health bar and everything."*
 - Next: the remaining three u16s per keyframe group and the per-record header
   groups (positions 0–2) — file a follow-up issue for those.
 
+## 2026-10-17 — F4 keyframe remainder bounded (issue #2)
 
+- Did: walked every MOT chunk in all ten real `pl021_*.pac` files (7,659
+  records, ~87.7k keyframe groups, 0 walk failures) and ran three bounded
+  byte-level hypotheses: preamble-group content, per-record channel constancy,
+  and preamble-as-base-pose.
+- Found:
+  - **E-029** — each record = `field_a` preamble groups + `groups` keyframe
+    groups; `field_a == 3` in 7,656/7,659 records. Every preamble group reads as
+    a pair of finite little-endian f32s with |v| ≤ 1e6 (22,974/22,974 groups;
+    97.4% with both |v| ≤ 10; worked example recorded: pl021_00_9.pac record 0
+    preamble `(6.446631, 0.993246)`, `(-0.023649, 0.089923)`,
+    `(-0.234987, 0.939949)`). Preamble semantics unknown.
+  - u16[1..3] vary per keyframe — NOT per-record constants (only 458/269/258 of
+    7,659 records have a channel constant, dominated by trivial single-keyframe
+    records). Modal values ±0x3FFF (~5,500 hits/channel of 87,662); full signed
+    range [-32768, 32767].
+  - Preamble is NOT a stored base pose: preamble == first keyframe groups in
+    0/7,659 records.
+  - Channel meaning, scale, zero point, record→bone mapping cannot be
+    established from bytes alone → marked **[UNKNOWN]** in E-029 /
+    FORMATS.md §3.1 so they are not retried; both disproven hypotheses marked
+    **[DISPROVEN]**.
+- Committed `9d60b66` (refs #2), pushed to origin main. 117 unit tests, all
+  green. Commented issue #2; issue left open (engine ground truth needed).
+- Next: F1 (MOD mesh payload) is the remaining Phase 1 critical-path decoder,
+  or file a dedicated follow-up issue for the u16[1..3] encoding.
 
 
 
