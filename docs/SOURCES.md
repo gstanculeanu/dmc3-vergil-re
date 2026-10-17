@@ -7,10 +7,30 @@
   <https://github.com/FelipePrado0/gow3_pc>
 * **REA — Reverse Engineer Anything (`morluto/rea`)** — methodological inspiration
   for this repository: route the target, work evidence-first, keep observation
-  apart from inference, maintain a finding ledger.
+  apart from inference, and maintain a finding ledger.
   <https://github.com/morluto/rea/>
+* **Bloodborne — Vergil (Nexus mod 229)** — Vergil already decompiled and ported
+  into a different PS4 game. The model side is solved elsewhere; per the owner,
+  "the moves and things are left". <https://www.nexusmods.com/bloodborne/mods/229>
 
-## Referenced by the above
+## DMC3 reverse-engineering and modding references
+
+* **Infernal Works — File ID / Motion Identification thread** —
+  <https://infernalwarks.boards.net/thread/248/file-motion-identfication-thread>
+  (community motion-ID → move-name map; feeds `docs/ANIMATIONS.md`)
+* **DDMK (Style Switcher) by serpentiem** — <https://github.com/serpentiem/ddmk>
+  (DMC3 HD mod loader; explains the loose `GData.afs` folder, E-011)
+* **Devil Sword Vergil Yamato — DMC3 HD Collection (Nexus 25)** —
+  <https://www.nexusmods.com/devilmaycryhdcollection/mods/25>
+  (worked model port *into* DMC3 HD; notes a vertex/file-size stability budget)
+* **DMC4SE — DMC3 Vergil moves + Nero Angelo moves** —
+  <https://devilmaycry.org/threads/dmc4se-mod-dmc3-vergil-moves-nero-angelo-moves.21869/>
+  (prior art for moving Vergil's move set between games)
+* **Bloodborne modding (PSX-Place)** —
+  <https://www.psx-place.com/threads/bloodborne-modding.35980/>
+  (playable-NPC mods with full move sets)
+
+## Referenced by `gow3_pc` and the GoW3 port
 
 * **shadPS4** — PS4 emulator; its Vulkan video core renders GoW III in the port.
   <https://github.com/shadps4-emu/shadPS4>

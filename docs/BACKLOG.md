@@ -15,11 +15,15 @@ Labels used: `re`, `tooling`, `format`, `phase-1`, `phase-2`, `phase-3`, `blocke
 | F1 | Reverse the `MOD ` mesh payload (vertices, indices, normals, UVs, skin weights) | E-008 | open — **critical path** |
 | F2 | Reverse the `SHW ` material payload and its texture binding | FORMATS §5 | open |
 | F3 | Reverse the untagged chunks in `pl021.pac` (bone transforms, UV tables, primitive groups) | E-008 | open |
-| F4 | Recover the MOT keyframe encoding after the header | E-003 | open |
+| F4 | Recover the MOT keyframe encoding after the header | E-003 | open — **critical path** |
 | F5 | Determine the 23-entry `+0x22` MOT table's meaning | E-003 | open |
 | F6 | Reverse the `PNST` weapon container (`plwp_*`) | E-006 | open |
-| F7 | Map `(group, slot)` → human-readable animation names | E-009 | open |
+| F7 | Map `(group, slot)` → human-readable animation names | E-009, E-013 | started — `docs/ANIMATIONS.md` seeded from E-013 |
 | F8 | Explain the TM2 pre-header fields | E-005 | open |
+| F9 | Decompile Vergil's **move set** (clip + timing + hit windows + state transitions) | E-013 | open — **critical path for the enemy goal** |
+| F10 | Decompile Vergil's **sounds and voice** | E-010 | open |
+| F11 | Decompile Vergil's **VFX** (Yamato trails, DT aura, Judgement Cut) | E-007 | open |
+| F12 | Recover Vergil's **enemy behaviour / AI** parameters | — | open |
 
 ## Tooling
 
@@ -40,23 +44,25 @@ Labels used: `re`, `tooling`, `format`, `phase-1`, `phase-2`, `phase-3`, `blocke
 | R2 | Re-encode a `MOD ` chunk and load it in-game | blocked by F1 |
 | R3 | Re-encode a `MOT ` chunk and load it in-game | blocked by F4 |
 
-## Phase 3 — God of War III Remastered
+## Phase 3 — Vergil as an enemy in God of War III Remastered
 
 | # | Title | Status |
 |---|---|---|
 | G1 | Locate GoW3R character asset containers in `CUSA01715` | open |
 | G2 | Reverse GoW3R's model/material container | blocked by G1 |
-| G3 | Decide retarget-vs-standalone mesh for Kratos's rig | open |
+| G3 | Decide retarget vs standalone mesh for the replaced enemy's rig | open |
 | G4 | Build the GoW3R exporter | blocked by G2, G3 |
 | G5 | Package as a `gow3_pc` mod and verify in the port | blocked by G4 |
+| G6 | Choose the sword-wielding GoW3R enemy Vergil replaces (mods cannot author AI) | open |
 
 ## Research / hygiene
 
 | # | Title | Status |
 |---|---|---|
 | H1 | Confirm `pl021` = Vergil against a second build (no `pl019.pac` locally) | open |
-| H2 | Record whether Crimson (or loose-file support) is required for overlays | open |
+| H2 | Confirm DDMK/Crimson creates the loose `GData.afs` folder (E-011) | partially answered |
 | H3 | Track the retail packed `GData.afs` format (this install is unpacked) | open |
+| H4 | Assess the Bloodborne Vergil mod for what is reusable vs merely learnable (E-012) | open |
 
 ---
 

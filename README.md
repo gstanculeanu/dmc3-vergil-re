@@ -8,41 +8,101 @@ This is a reverse-engineering project first and a port second. Every format clai
 tied to a byte-level observation from a real shipped artifact, and the line between what we
 **observed**, what we **infer**, and what we still **do not know** is kept explicit.
 
-## Reference links
+## Links, inspiration and prior art
 
-Given by the project owner:
+**Supplied by the project owner:**
 
-- **`FelipePrado0/gow3_pc`** — God of War III Remastered PC port. The reference for how GoW3 was
-  brought to PC, and the target runtime for the final stage of this project.
+- **`FelipePrado0/gow3_pc`** — God of War III Remastered PC port. The reference for
+  how GoW3 was brought to PC, and the target runtime for the final stage.
   <https://github.com/FelipePrado0/gow3_pc>
-- **REA — Reverse Engineer Anything (`morluto/rea`)** — the methodological inspiration for this
-  repository: route the target, work evidence-first, separate observation from inference, and keep
-  a finding ledger. <https://github.com/morluto/rea/>
+- **REA — Reverse Engineer Anything (`morluto/rea`)** — the methodological
+  inspiration for this repository: route the target, work evidence-first, separate
+  observation from inference, keep a finding ledger.
+  <https://github.com/morluto/rea/>
+- **Bloodborne — Vergil (Nexus mod 229)** — <https://www.nexusmods.com/bloodborne/mods/229>
+  — prior art proving Vergil has **already been decompiled and dropped into a
+  different PS4 game** (Bloodborne). The model side is therefore largely solved by
+  someone else; per the owner, *"the moves and things are left"*. Bloodborne is
+  also the same port lineage as `gow3_pc`, and Bloodborne mods use the same
+  `dvdroot` folder-replacement convention GoW3R does — so what is learned there
+  transfers.
 
-Referenced by the above (not supplied directly, listed for completeness):
+**Prior art discovered while investigating:**
 
-- **shadPS4** — PS4 emulator whose Vulkan video core the GoW3 port uses.
-  <https://github.com/shadps4-emu/shadPS4>
-- **`cuesta4/shadPS4` (`eltutz` branch)** — God of War III rendering fixes used by the port.
-  <https://github.com/cuesta4/shadPS4/tree/eltutz>
-- **`Supermedo/bloodborne_pc`**, **`deadinside28/bloodborne_pc`** — lineage of the GoW3 port.
+- **Infernal Works — File ID / Motion Identification thread** —
+  <https://infernalwarks.boards.net/thread/248/file-motion-identfication-thread> —
+  community mapping of DMC3 PAC motion IDs to move names, including Vergil's
+  Yamato Combo, Rapid Slash, Judgement Cut, Judgement Cut Storm, Round Trip, Air
+  Trick, Stinger and taunts. Seeds `docs/ANIMATIONS.md` and largely unblocks F7.
+- **DDMK (Style Switcher) by serpentiem** — <https://github.com/serpentiem/ddmk> —
+  the DMC3 HD mod loader that unpacks `GData.afs` into a folder of loose `.pac`
+  files and overlays replacements. Explains this install's layout (E-007, E-011).
+- **Devil Sword Vergil Yamato (DMC3 HD, Nexus 25)** —
+  <https://www.nexusmods.com/devilmaycryhdcollection/mods/25> — a worked example of
+  porting a model *into* DMC3 HD, including the warning that too many / too
+  high-vertex model swaps destabilise the game.
+- **DMC4SE — DMC3 Vergil moves + Nero Angelo moves** —
+  <https://devilmaycry.org/threads/dmc4se-mod-dmc3-vergil-moves-nero-angelo-moves.21869/>
+  — prior art for porting DMC3 Vergil's move set to another game.
+- **Bloodborne modding (PSX-Place)** —
+  <https://www.psx-place.com/threads/bloodborne-modding.35980/> — playable-NPC mods
+  with full move sets; the kind of "moves" work Vergil still needs.
+- **shadPS4** — <https://github.com/shadps4-emu/shadPS4> ·
+  **`cuesta4/shadPS4` (`eltutz`)** —
+  <https://github.com/cuesta4/shadPS4/tree/eltutz> ·
+  **`Supermedo/bloodborne_pc`** —
+  <https://github.com/Supermedo/bloodborne_pc> ·
+  **`deadinside28/bloodborne_pc`** —
+  <https://github.com/deadinside28/bloodborne_pc>
 
 ## Goal
 
+**Vergil as an enemy in God of War III Remastered.** That is the destination, and
+it sets the scope: an enemy is not just a mesh. It is a model, a rig, a move set,
+behaviour, a weapon, voices and effects. All of it has to come out of DMC3 and go
+back in.
+
 ```
- DMC3 HD Collection                neutral interchange              God of War III Remastered
- ┌──────────────────┐   decompile   ┌──────────────────┐  import   ┌────────────────────────┐
- │ pl021.pac        │ ────────────► │ glTF 2.0 + PNG   │ ────────► │ mods/<Vergil>/         │
- │ plwp_vergilsword │               │ FBX (optional)   │           │   dvdroot_ps4/...      │
- │ *.tm2 textures   │               │ JSON sidecars    │           │ (gow3_pc mod system)   │
- └──────────────────┘               └──────────────────┘           └────────────────────────┘
-        phase 1                          phase 2                        phase 3
-                                              │
-                                              └──► re-import into DMC3 as a sanity round-trip
+                      decompile                        import
+ DMC3 HD Collection ─────────────► neutral form ─────────────► God of War III Remastered
+ ┌──────────────────┐              ┌──────────────────┐        ┌──────────────────────────┐
+ │ pl021.pac        │  mesh/rig    │ glTF 2.0 (.glb)  │        │ mods/Vergil/             │
+ │   MOD / SHW      │  materials   │ PNG textures     │        │   dvdroot_ps4/...        │
+ │ pl021_00_0..9    │  moves       │ move/hit tables  │        │ (gow3_pc mod system)     │
+ │ plwp_vergilsword │  weapon      │ FBX / OBJ (opt)  │        │                          │
+ │ Versil_*.ogg     │  audio       │ WAV/OGG          │        │ replaces an existing     │
+ │ snd_*.pac        │  sfx         │ effect data      │        │ enemy — see docs/GOW3.md │
+ │ *.tm2            │  textures    │ JSON sidecars    │        └──────────────────────────┘
+ └──────────────────┘              └──────────────────┘
+        phase 1                          phase 2/3
+                                             │
+                                             └──► re-import into DMC3 as a sanity round-trip
 ```
 
 Primary goal is **both**: export now, import later. A correct re-import into DMC3 is the cheapest
 proof that the decompile is faithful, so it acts as the validation gate before GoW3 work begins.
+
+### What has to be decompiled
+
+| Asset class | Source in DMC3 | Status | Issue |
+|---|---|---|---|
+| Mesh + rig + materials | `pl021.pac` (`MOD `, `SHW `, 9 raw chunks) | container decoded, payloads open | F1, F2, F3 |
+| Animations (poses) | `pl021_00_0..9.pac` (~108 MOT chunks) | header decoded, encoding open | F4, F5 |
+| **Move set** (attack/state definitions) | `pl021.pac` tables + MOT clips | not started | F7, F9 |
+| **Enemy behaviour / AI** | unknown — may not be data-driven | not started | F12, G6 |
+| Weapon (Yamato) | `plwp_vergilsword.pac` (`PNST`) | container not decoded | F6 |
+| **Sounds / voice** | `afs/sound/Versil_01..03.ogg`, `snd_*.pac` | located only | F10 |
+| **VFX** (Judgement Cut, trails, DT) | `Crimson/vfx/*.efkefc` (Effekseer) | located only | F11 |
+| Textures | `*.tm2` (wraps DDS) | decoded | F8, T2 |
+
+### A constraint that shapes Phase 3
+
+`gow3_pc` mods replace data files under `dvdroot_ps4/` and **may not** replace
+`eboot.bin`, `sce_module` or `sce_sys`, nor use DLL injectors or script plugins.
+So a mod cannot author new AI. Realistically Vergil **replaces an existing
+sword-wielding GoW3R enemy** and inherits its behaviour, while its mesh, animations,
+audio and VFX are Vergil's. See `docs/GOW3.md` and issue G6.
+
 
 ## Status
 
@@ -52,9 +112,12 @@ proof that the decompile is faithful, so it acts as the validation gate before G
 | Chunk tagging (`MOD `, `SHW `, `MOT\0`) | **Decoded** | Tag + observed header fields |
 | Vergil asset map (`pl021`, `pl019`, weapons) | **Decoded** | See `docs/ENTITIES.md` |
 | TM2 texture → DDS | **Decoded** | HD-era TM2 wraps a plain DDS blob |
+| Vergil's audio location | **Located** | `Versil_01..03.ogg`; ownership unconfirmed |
+| Vergil's VFX location | **Located** | Effekseer `.efkefc` in the Crimson tree |
 | `MOT` animation payload | **Partial** | Header parsed; frame encoding open |
 | `MOD ` mesh payload | **Open** | Header fields known, vertex/index layout open |
 | `SHW ` material payload | **Open** | Header fields known, texture binding open |
+| Move set / enemy behaviour | **Not started** | Moves are as important as the mesh for an enemy |
 | Export to glTF | **Not started** | Blocked on `MOD ` payload RE |
 | Import to DMC3 | **Not started** | Validation gate for phase 2 |
 | Import to GoW3 Remastered | **Not started** | Blocked on GoW3 model-format RE |
@@ -62,7 +125,7 @@ proof that the decompile is faithful, so it acts as the validation gate before G
 ## Repository layout
 
 ```
-docs/           Reverse-engineering notes, format specs, evidence ledger, roadmap
+docs/           RE notes, format specs, evidence ledger, roadmap, animation map
 tools/dmc3/     Library: PAC/MOT/TM2 parsers, entity table
 tools/          CLI: inventory + extract
 tests/          Unit tests (run on synthetic fixtures — no game files needed)

@@ -38,3 +38,41 @@ Format per entry:
 - Next: **F1** — decode the `MOD ` mesh payload (critical path). Start with the
   header fields at `+0x0C`, `+0x10` and `+0x1C` across the four `MOD ` chunks in
   `pl021.pac`, then look for the vertex stride.
+
+---
+
+## 2026-10-17 — Scope clarified: Vergil is an **enemy**, not just a model
+
+The owner clarified the destination: Vergil must appear in God of War III
+Remastered **as an enemy**, so his **move set, weapon, sounds and effects** are
+part of the deliverable, not optional extras.
+
+- Did: expanded the roadmap (Phase 1 milestones 1.8–1.10 for moves/audio/VFX;
+  Phase 3 reframed as an enemy port), added `docs/ANIMATIONS.md`, filed issues
+  **F9** (move set), **F10** (audio), **F11** (VFX), **F12** (enemy AI) and
+  **G6** (choose the enemy Vergil replaces), and recorded the mod-system
+  constraint that shapes all of Phase 3.
+- Found:
+  - **E-010** Vergil's audio is present as `Versil_01..03.ogg` in
+    `data/dmc3/afs/sound/`; ownership of the `snd_*.pac` banks is still unknown.
+  - **E-011** the loose `GData.afs` **folder** is created by the mod loader
+    (DDMK/Crimson), not by the retail game. Our tooling reads a loader-generated
+    tree; H3 tracks the retail packed `.afs`.
+  - **E-012** prior art: Vergil has already been decompiled and ported into
+    **Bloodborne**, another PS4 game, via the same `dvdroot` replacement
+    convention GoW3R uses. Per the owner, the model is done there and "the moves
+    and things are left" — which matches our F9/F10/F11 backlog.
+  - **E-013** the community has already named most of Vergil's motion slots
+    (Infernal Works motion-ID thread). Transcribed into `docs/ANIMATIONS.md`;
+    needs local verification (F7).
+  - The DMC3 HD model-port community warns that too many / too high-vertex model
+    swaps destabilise the game — relevant to Phase 2's import budget.
+- **Key constraint recorded:** `gow3_pc` mods may replace data files under
+  `dvdroot_ps4/` but may not replace `eboot.bin`, nor use DLL injectors or script
+  plugins. A mod therefore **cannot author new AI**: Vergil must replace an
+  existing sword-wielding GoW3R enemy and inherit its behaviour (G6). This is on
+  the critical path because it decides what "Vergil as an enemy" can mean.
+- Next: **F1** (mesh) and **F4** (MOT keyframes) remain the technical critical
+  path. In parallel, **H4** (assess the Bloodborne mod) and **G6** (pick the
+  replaced enemy) are cheap and de-risk the plan.
+

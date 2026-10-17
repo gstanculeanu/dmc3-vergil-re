@@ -162,6 +162,9 @@ the other slots differ.
 **Unknown.** Whether Crimson is required for the overlay to load, or whether the
 engine reads loose files automatically in this build.
 
+**Refinement (E-011).** The loose `GData.afs` folder is almost certainly created by
+the mod loader, not by the retail game — see E-011.
+
 ---
 
 ## E-008 — Untagged chunks in `pl021.pac`
@@ -194,3 +197,91 @@ index selects the animation within it. Total ≈ 108 Vergil motions observed.
 **Unknown.** The mapping from `(group, slot)` to the action names a player would
 recognise (taunt, Judgement Cut, …). Recovering it needs either engine inspection
 or a name table.
+
+---
+
+## E-010 — Vergil's audio assets are present and named `Versil_*`
+
+**Observation.** `data/dmc3/afs/sound/` contains 140 loose `.ogg` files in this
+install. Three are Vergil-branded:
+
+```
+Versil_01.ogg   1,106,594 bytes
+Versil_02.ogg   3,089,634 bytes
+Versil_03.ogg   3,041,239 bytes
+```
+
+By contrast, `Lady.ogg`, `Jester.ogg`, `Nero.ogg`-style single files and
+`Staffroll.ogg`, `Result.ogg` exist for other purposes. Sound banks are separate
+`*.pac` files (`snd_com*`, `snd_em*`, `snd_wp*`, `snd_sty*`).
+
+**Inference.** `Versil` is this localisation's romanisation of "Vergil", so these
+are Vergil's audio. **[UNKNOWN]** whether each is a battle theme, a voice bank, or
+a melee of cues; and which `snd_*.pac` banks hold his weapon/voice effects.
+
+**Why it matters.** An enemy needs audio. This maps directly to issue F10.
+
+---
+
+## E-011 — The loose `GData.afs` folder comes from the mod loader (DDMK/Crimson)
+
+**Observation (external documentation, not local bytes).** The install
+instructions for DMC3 HD Collection model mods state:
+
+> "After running DMC 3 with DDMK installed it will add a new folder in your game
+> directory. Go to Devil May Cry HD Collection/data/dmc3/Gdata.afs … Drop the
+> .pacs you want to use into GData.afs and replace the original files."
+
+Sources: `serpentiem/ddmk` (<https://github.com/serpentiem/ddmk>) and the DMC3 HD
+model-port mod page (<https://www.nexusmods.com/devilmaycryhdcollection/mods/25>).
+
+**Inference.** The retail game ships a packed `GData.afs`; **DDMK** (and this
+install's Crimson, which derives from it) unpacks it into a directory and overlays
+replacement `.pac` files by name. This explains the layout observed in this
+install (E-007), and it means the extraction tooling here is reading a
+*loader-generated* tree, not the retail container.
+
+**Consequence.** Tooling must not assume the folder layout exists on a vanilla
+install. Issue H3 tracks decoding the retail packed `.afs`.
+
+**Unknown.** Whether Crimson alone is sufficient, or DDMK must be present.
+
+---
+
+## E-012 — Prior art: Vergil already ported into another PS4 game
+
+**Observation (external).** A public Bloodborne mod adds Vergil from DMC3 to
+Bloodborne (another PS4 title):
+<https://www.nexusmods.com/bloodborne/mods/229>. The project owner reports that
+the **model is done there and "the moves and things are left."**
+
+Bloodborne mods are installed by dropping files into the game's `dvdroot` folder —
+the same replacement convention `gow3_pc` uses for GoW3R (`dvdroot_ps4/`, see
+`docs/GOW3.md`). Bloodborne is also the same port lineage as `gow3_pc`.
+
+**Inference.** (a) Vergil's mesh has already been extracted and converted to a
+PS4-native asset format by a third party, so the *asset-conversion* problem is
+demonstrably solvable. (b) The unmet work — moves, and by extension audio and
+effects — matches this project's backlog (F9, F10, F11). (c) Because the mod
+delivery mechanism is the same family, the approach may transfer, even though
+GoW3R's engine differs from Bloodborne's.
+
+**Unknown — important.** Whether the Bloodborne mod's intermediate/asset files are
+licensable or reusable at all, and whether Bloodborne's and GoW3R's asset formats
+share anything. Do not assume reuse; assume *learn from*.
+
+---
+
+## E-013 — Community motion-ID map exists
+
+**Observation (external).** Infernal Works' *File ID / Motion Identification
+thread* documents DMC3 motion slots by name, including Vergil's moves:
+<https://infernalwarks.boards.net/thread/248/file-motion-identfication-thread>
+
+**Inference.** Most of issue F7 (naming Vergil's animations) is already answered by
+the community. Transcribed into `docs/ANIMATIONS.md`; still needs local
+verification by exporting each clip.
+
+**Unknown.** The thread's slot numbering relative to this install's group/slot
+pairing is unconfirmed.
+
