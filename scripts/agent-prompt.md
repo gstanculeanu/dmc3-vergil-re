@@ -35,15 +35,52 @@ Your job is to move the project one small, verifiable step forward, then stop.
 
 ## Hard rules
 
+These are absolute. This loop runs unattended overnight and nobody is watching;
+violating any of them can destroy the owner's data.
+
+* **The game installations are READ-ONLY.** Never write, move, rename or delete
+  anything under `G:\Games\Devil May Cry HD Collection\` or
+  `C:\Users\GigelCastel\Desktop\gow3\`. Reading them is the whole point; writing to
+  them is never acceptable.
+* **Never run `scripts/boss-test.ps1`.** It *moves the owner's save files* to stage
+  a boss test. Only the owner runs it, with the game closed.
 * **Never commit game assets.** No `.pac`, `.tm2`, `.nbz`, `.dds`, `.glb`, textures,
   or anything extracted from a game. Only tooling, notes and metadata.
 * **Never write inside the repo from an extraction tool.** Output goes to a
   directory outside the tree.
+* **No destructive git.** Never `push --force`, `reset --hard`, `clean -fdx`,
+  `checkout`/`restore` files you did not change, or rewrite pushed history.
+* **Never delete or weaken a test to make it pass.** A failing test is a finding.
 * **Do not rewrite the whole project.** Small, reviewable commits.
 * **Do not invent format fields.** If unsure, mark `[UNKNOWN]` and file/refresh an
   issue.
 * **Disproving a hypothesis is success.** Correct the docs and code and record it.
-* Keep the working tree clean and the test suite green before you finish.
+* **Finish clean:** the working tree committed and pushed, and the test suite green.
+  If you cannot finish, revert your own edits and say so in the journal.
+
+## Do not spin (10-minute cadence, running overnight)
+
+* **One bounded slice per iteration.** Aim to finish well under 20 minutes. The
+  task is killed at 45 minutes, so a long experiment wastes the whole slot.
+* **Read `docs/JOURNAL.md` first** so you do not repeat a slice that was already
+  attempted — including one that failed.
+* **Never re-run an identical command that already failed.** Change the input or
+  the approach, or stop.
+* **If an item has had 2 iterations without a new result, stop retrying it.**
+  Record the dead end in `docs/EVIDENCE.md`, comment it on the issue, and pick a
+  different item next time.
+* Prefer *recording a dead end precisely* over thrashing. A documented failure is
+  progress; a repeated one is waste.
+
+## If the critical path is blocked
+
+Never idle. These are always available and need no WAD writer:
+
+* `F2` `SHW ` material payload · `F3` untagged `pl021.pac` chunks · `F5` the
+  `+0x22` MOT table · `F6` `PNST` weapon container · `F8` TM2 pre-header fields
+* `T5` PAC-diff CLI · `T2` `.tm2` → `.dds` → `.png` · `T6` CI workflow
+* Keep `[UNKNOWN]` markings honest and the evidence ledger current.
+
 
 ## Useful commands
 

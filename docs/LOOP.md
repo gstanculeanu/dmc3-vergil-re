@@ -44,6 +44,47 @@ powershell -ExecutionPolicy Bypass -File scripts/unregister-loop.ps1
 | resume | `schtasks /Change /TN dmc3-vergil-re-loop /ENABLE` |
 | several iterations back to back | `scripts/agent-loop.ps1 -Iterations 3` |
 
+## Overnight hardening (2026-10-18)
+
+Two changes so an unattended night is safe and productive.
+
+**Task settings** (applied with `Set-ScheduledTask`):
+
+| Setting | Value | Why |
+|---|---|---|
+| `StartWhenAvailable` | `True` | a missed trigger is caught up instead of skipped |
+| `ExecutionTimeLimit` | `PT45M` | **was `PT72H`** — one hung iteration would have held the lock and blocked *every* tick for the rest of the night |
+| `MultipleInstances` | `IgnoreNew` | no overlap (the script's own lock is the second layer) |
+| trigger | repeat every `PT10M` | unchanged |
+
+Sleep is already disabled on this machine (`STANDBYIDLE`/`HIBERNATEIDLE` = 0 on both
+AC and DC), so no wake setting is needed.
+
+**Prompt hardening** in `scripts/agent-prompt.md`, because the loop has repo write
+access and nobody is watching:
+
+* the game installations are **read-only** — never write to
+  `G:\Games\Devil May Cry HD Collection\` or `...\Desktop\gow3\`;
+* **never run `scripts/boss-test.ps1`** — it moves the owner's save files, so only
+  the owner runs it;
+* no destructive git (`push --force`, `reset --hard`, `clean -fdx`, rewriting
+  pushed history);
+* never delete or weaken a test to make it pass;
+* must finish committed, pushed and green, or revert its own edits and say so.
+
+**Anti-spin rules**, because a 10-minute cadence overnight will happily repeat a
+failed approach forever:
+
+* read `docs/JOURNAL.md` first so an already-attempted slice is not repeated;
+* never re-run an identical command that already failed;
+* **if an item has had 2 iterations without a new result, stop retrying it** —
+  record the dead end and move on;
+* a documented dead end is progress; a repeated one is waste.
+
+A "if the critical path is blocked" list was added too, so there is always
+available work (`F2`, `F3`, `F5`, `F6`, `F8`, `T2`, `T5`, `T6`) that needs no WAD
+writer.
+
 ## Fixed: the loop exited 1 and never ran (2026-10-17)
 
 **Symptom.** The scheduled task fired every 10 minutes but reported `Last Result: 1`
