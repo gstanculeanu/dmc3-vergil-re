@@ -26,6 +26,7 @@ from .mot import (
     parse_mot_from_bytes,
     try_walk_records,
     walk_records,
+    keyframe_groups,
 )
 from .tm2 import (
     DdsInfo,
@@ -60,6 +61,7 @@ __all__ = [
     "parse_mot_from_bytes",
     "try_walk_records",
     "walk_records",
+    "keyframe_groups",
     "DdsInfo",
     "Tm2Error",
     "Tm2File",

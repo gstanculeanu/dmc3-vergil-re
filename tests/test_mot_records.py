@@ -4,7 +4,12 @@ import unittest
 
 import fixtures
 from dmc3 import Chunk, MotError, try_walk_records, walk_records
-from dmc3.mot import KEYFRAME_TIME_BASE, RECORD_HEADER_SIZE, keyframe_time
+from dmc3.mot import (
+    KEYFRAME_TIME_BASE,
+    RECORD_HEADER_SIZE,
+    keyframe_groups,
+    keyframe_time,
+)
 
 
 def chunk_of(payload: bytes) -> Chunk:
@@ -85,6 +90,32 @@ class TestMotRecordWalkRejects(unittest.TestCase):
         self.assertIsNotNone(
             try_walk_records(chunk_of(fixtures.motion_chunk_with_records((4,))))
         )
+
+
+class TestMotKeyframeSplit(unittest.TestCase):
+    """The record splits into ``field_a`` preamble groups + ``groups`` keyframes.
+
+    Verified structure on real data (E-028): ``len(group_bytes()) ==
+    field_a + groups`` for 7,656/7,659 walked records; ``field_a == 3`` for
+    7,656/7,659.  What the preamble groups encode is unknown (issue F4).
+    """
+
+    def test_group_bytes_splits_into_preamble_and_keyframes(self):
+        payload = walk_records(chunk_of(fixtures.motion_chunk_with_records((4, 2, 6))))
+        self.assertEqual([r.groups for r in payload.records], [4, 2, 6])
+        for record in payload.records:
+            all_groups = record.group_bytes()
+            self.assertEqual(len(all_groups), record.field_a + record.groups)
+            self.assertTrue(all(len(g) == 8 for g in all_groups))
+
+    def test_keyframe_groups_skip_the_field_a_preamble(self):
+        payload = walk_records(chunk_of(fixtures.motion_chunk_with_records((4, 2, 6))))
+        for record in payload.records:
+            keyframes = keyframe_groups(record)
+            self.assertEqual(len(keyframes), record.groups)
+            # every keyframe's first u16 is an offset-binary frame time (E-026)
+            for group in keyframes:
+                self.assertGreaterEqual(keyframe_time(group), 0)
 
 
 class TestMotKeyframeTime(unittest.TestCase):

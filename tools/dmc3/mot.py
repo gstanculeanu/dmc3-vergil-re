@@ -321,3 +321,19 @@ def keyframe_time(group: bytes) -> int:
     [INFERRED] — the remaining three u16s of the group are undecoded.
     """
     return u16(group, 0) - KEYFRAME_TIME_BASE
+
+
+def keyframe_groups(record: MotRecord) -> List[bytes]:
+    """Return the keyframe 8-byte groups of one record, skipping its preamble.
+
+    A record's data splits into ``field_a`` preamble groups followed by
+    ``groups`` keyframe groups, so ``len(group_bytes()) == field_a + groups``.
+    Verified on 7,656/7,659 records walked across every ``pl021_*.pac`` MOT
+    chunk in the install (evidence E-028); the three exceptions are records
+    whose declared size breaks the ``size == 8 * (groups + 4)`` relation.
+
+    Confidence: [INFERRED] for the split itself; [UNKNOWN] for what the
+    preamble groups encode and what the keyframe group's remaining three u16s
+    (positions 1..3) mean — see E-028 and docs/FORMATS.md §3.1.
+    """
+    return record.group_bytes()[record.field_a:]

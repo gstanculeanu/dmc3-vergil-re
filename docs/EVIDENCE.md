@@ -1043,6 +1043,40 @@ mapping is resolved.
 `DIRECTORY_RECORDS_STANDARD` are unchanged and correct. No writer function is added
 yet, because the mapping is unknown.
 
+---
+
+## E-028 — MOT keyframe groups: the preamble/keyframe split and a u16[1..3] census (F4 remainder)
+
+**Observation.** Read every MOT chunk in all ten `pl021_*.pac` files in the
+install and walked the record layer with `walk_records()` (0 walk failures;
+7,659 records, 110,639 eight-byte groups, 87,662 keyframe groups):
+
+* Each record's data splits into `field_a` preamble groups followed by
+  `groups` keyframe groups: `len(group_bytes()) == field_a + groups` for
+  7,656/7,659 records; `field_a == 3` for 7,656/7,659 (the other 3 records have
+  `field_a == 2`). The three exceptions are records whose declared size breaks
+  the `size == 8 * (groups + 4)` relation from E-019.
+* The keyframe group's first u16 is the offset-binary frame time (E-026).
+* Its remaining three u16s, read as signed 16-bit, span the full
+  `[-32768, 32767]` range (max absolute 32768) and differ from keyframe to
+  keyframe within a record. Frequency of the most common values, out of
+  87,662 values per channel: 0x3FFF (+16,383 ≈ +0.5 Q15) ~5,500–5,600 hits;
+  0xBFFF (−16,383 ≈ −0.5 Q15) ~5,500–5,600 hits; 0x0000 ~2,400–2,800 hits;
+  0xFFFF (−1) ~950–1,100 hits. Only ~5% of values are near zero (|v| < 256).
+* The preamble groups carry similarly ranged values; no field in them matches a
+  bone index (0–23) directly.
+
+**Inference.** u16[1..3] are three quantized 16-bit channels per keyframe —
+consistent with per-bone position or rotation components in Q15 fixed point,
+given the ±0x3FFF/+0x4000 clustering — but channel assignment, scale and zero
+point are not established from bytes alone. The preamble (field_a groups) is
+per-record header data whose contents are unknown.
+
+**Unknown.** Semantics of u16[1..3] (which axis/channel, position vs rotation),
+their scale and zero point, the preamble group contents, field_b (0 observed
+everywhere), and how a record maps to a skeleton bone (no bone index found in
+the bytes read so far).
+
 
 
 

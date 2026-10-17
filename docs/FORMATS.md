@@ -143,11 +143,26 @@ the `+0x0C`/`+0x14` duration.  Verified on every Vergil `pl021_*.pac` chunk
 (thousands of keyframes, 0 violations) and present in all 840 install chunks.
 `0x8000` is the encoding's zero point.
 
-**[UNKNOWN]** the group's remaining three u16s (position/rotation values), the
-per-record groups at positions 0–2 that precede the keyframes, the value scale,
-and whether `0x8000` is a base offset or a flag bit.  Their u16 quadruples cluster
-near `0x8000`, `0x3FFF` and `0xBFFF`; high bytes varying by ±3 point at a
-bit-packed stream rather than a plain quaternion array, but that is unproven.
+**[UNKNOWN]** the group's remaining three u16s (u16[1..3]), the per-record
+preamble groups at positions 0..field_a-1, the value scale and zero point, and
+whether `0x8000` is a base offset or a flag bit.
+
+Observations on u16[1..3] across every `pl021_*.pac` MOT chunk (evidence
+E-028): read as signed 16-bit they span the full `[-32768, 32767]` range
+(max abs 32768) and differ from keyframe to keyframe within a record. Frequency
+of the most common values, out of 87,662 values per channel: `0x3FFF`
+(+16,383 ≈ +0.5 in Q15) and `0xBFFF` (−16,383 ≈ −0.5 in Q15) about 5,500 hits
+each; `0x0000` about 2,400–2,800 hits; `0xFFFF` (−1) about 950–1,100 hits.
+Only ~5% of values are near zero (|v| < 256).  This is consistent with three
+quantized float channels per keyframe (position or rotation components in Q15
+fixed point), but channel assignment, scale and zero point are not established
+from bytes alone.  A bit-packed stream rather than plain channels remains
+possible.
+
+The record preamble (field_a groups at positions 0..field_a-1) is verified
+structure: `len(group_bytes()) == field_a + groups` for 7,656/7,659 walked
+records and `field_a == 3` for 7,656/7,659.  Its contents carry the same ranged
+values and no field matches a bone index directly — meaning unknown.
 
 **[DISPROVEN]** `record_count == 3 × bone_count` (suggested by 69 = 3 × 23 in
 `pl021_00_9.pac`). Across the install the ratio is 3.0 in only 193/840 chunks.
