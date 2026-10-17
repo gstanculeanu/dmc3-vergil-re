@@ -234,10 +234,26 @@ def is_wad(data: bytes) -> bool:
 # 16 bytes and tries again. It is reliable enough to *inventory* a WAD's typed
 # resources; it is **not** yet a writer, and it must never be used to repack.
 
-RECORD_START = 0x40
+RECORD_START = 0x50
 NAMED_RECORD_SIZE = 0x40
-MARKER_STRIDE = 0x10
+NAME_FIELD = 0x38
 ALIGNMENT = 0x10
+
+#: The directory is a variable-length record stream. In the standard layout it is
+#: 64 records (ending at 0xD80) and a WAD with an extra resource group is longer
+#: (``R_HADES.WAD`` is 65 records, ending at 0xDC0). It ends where the next u32 is
+#: no longer a valid record type.
+DIRECTORY_RECORDS_STANDARD = 64
+
+#: Data region: six ``DC_<banner>`` chunks with consecutive ids 0x0B..0x10.
+#: NOTE (E-025): these form a **footer** near the end of the file, not the whole
+#: data region -- in ``R_HADES.WAD`` they occupy only ~249 KB of an 85.7 MB file,
+#: and the bulk lies between the directory and this footer.
+DC_PREFIX_SIZE = 0x10
+DC_NAME_FIELD = 0x34
+DC_CHUNK_OVERHEAD = DC_PREFIX_SIZE + DC_NAME_FIELD      # 0x44
+DC_IDS = (0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10)
+DC_MARKER = 0x0009
 
 COMMAND_NAMES = {
     1: "resource",
@@ -328,30 +344,126 @@ def _looks_like_record(data: bytes, offset: int) -> Optional[WadRecord]:
     return None
 
 
-def scan_records(data: bytes, max_unknown_run: int = 24) -> List[WadRecord]:
-    """Best-effort inventory of a WAD's record stream (see the note above)."""
-    records: List[WadRecord] = []
+def parse_directory(data: bytes) -> List[WadRecord]:
+    """Walk the record stream exactly (E-025).
+
+    Named records are 0x40 bytes. A ``0x80000000 | class`` marker takes
+    ``round_up(size_of_the_preceding_resource, 16)`` bytes. The stream ends where
+    the next u32 is not a valid record type — that is the start of the data
+    region.
+
+    Unlike the earlier best-effort scanner this walk is **exact**: on the 87 WADs
+    under 1.5 MB it always stopped at a plausible stream end (0xD80 for the
+    standard 64-record directory, 0xDC0 for `R_HADES.WAD`'s 65).
+    """
     offset = RECORD_START
-    unknowns = 0
+    records: List[WadRecord] = []
+    pending_size: Optional[int] = None
 
     while offset + 8 <= len(data):
-        record = _looks_like_record(data, offset)
-        if record is None:
-            unknowns += 1
-            if unknowns > max_unknown_run:
+        type_code = int.from_bytes(data[offset:offset + 4], "little")
+        size = int.from_bytes(data[offset + 4:offset + 8], "little")
+
+        if type_code in COMMAND_NAMES:
+            name = _read_name(data, offset + 8)
+            if type_code == 1 and not name:
                 break
-            offset += ALIGNMENT
+            records.append(
+                WadRecord(offset=offset, type_code=type_code, size=size,
+                          name=name, kind="command",
+                          class_id=20 if type_code == 0x12 else None)
+            )
+            if type_code == 1:
+                pending_size = size
+            offset += NAMED_RECORD_SIZE
             continue
 
-        unknowns = 0
-        records.append(record)
-        if record.kind == "command":
-            offset += NAMED_RECORD_SIZE
-        else:
-            # a marker: skip its (unknown-length) body until the next plausible
-            # record boundary
-            offset += MARKER_STRIDE
+        if type_code & MARKER_FLAG:
+            body = pending_size if pending_size else ALIGNMENT
+            total = max((body + ALIGNMENT - 1) & ~(ALIGNMENT - 1), ALIGNMENT)
+            records.append(
+                WadRecord(offset=offset, type_code=type_code, size=total,
+                          name="", kind="marker",
+                          class_id=type_code & ~MARKER_FLAG)
+            )
+            pending_size = None
+            offset += total
+            continue
+
+        break
+
     return records
+
+
+def scan_records(data: bytes, max_unknown_run: int = 24) -> List[WadRecord]:
+    """Alias for :func:`parse_directory` (kept for callers of the earlier name)."""
+    return parse_directory(data)
+
+
+@dataclass(frozen=True)
+class DataChunk:
+    """A ``DC_<banner>`` chunk in a WAD's data region (E-025)."""
+
+    index: int
+    offset: int
+    chunk_id: int
+    marker: int
+    size: int
+    name: str
+
+    @property
+    def payload_offset(self) -> int:
+        return self.offset + DC_CHUNK_OVERHEAD
+
+    @property
+    def end(self) -> int:
+        return self.payload_offset + self.size
+
+    def payload(self, data: bytes) -> bytes:
+        return data[self.payload_offset:self.payload_offset + self.size]
+
+
+def data_chunks(data: bytes) -> List[DataChunk]:
+    """Find the ``DC_<banner>`` footer chunks of a WAD.
+
+    Each is preceded by a 16-byte prefix ``u64 zero, u16 id, u16 0x0009,
+    u32 size`` and a 0x34-byte name field. Ids are consecutive ``0x0B..0x10``.
+
+    Note (E-025): these chunks sit near the end of the file and are small relative
+    to it — treat them as a **footer/index**, not as the bulk data.
+    """
+    banner = _banner(data)
+    if not banner:
+        return []
+    needle = ("DC_" + banner).encode("latin-1")
+
+    chunks: List[DataChunk] = []
+    start = 0
+    while True:
+        index = data.find(needle, start)
+        if index < 0:
+            break
+        prefix_at = index - DC_PREFIX_SIZE
+        if prefix_at < 0:
+            start = index + 1
+            continue
+        chunk_id = int.from_bytes(data[prefix_at + 8:prefix_at + 10], "little")
+        marker = int.from_bytes(data[prefix_at + 10:prefix_at + 12], "little")
+        size = int.from_bytes(data[prefix_at + 12:prefix_at + 16], "little")
+        chunks.append(
+            DataChunk(index=len(chunks), offset=prefix_at, chunk_id=chunk_id,
+                      marker=marker, size=size,
+                      name=data[index:index + len(needle)].decode("latin-1", "replace"))
+        )
+        start = index + 1
+    return chunks
+
+
+def _banner(data: bytes) -> str:
+    try:
+        return parse_header(data).banner
+    except WadError:
+        return ""
 
 
 def resources(records: List[WadRecord]) -> List[WadRecord]:

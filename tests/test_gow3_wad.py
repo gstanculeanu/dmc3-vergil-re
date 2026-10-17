@@ -125,6 +125,49 @@ class TestRecordScan(unittest.TestCase):
                             for r in records))
 
 
+class TestDirectoryAndData(unittest.TestCase):
+    def test_parse_directory_is_exact(self):
+        data = fixtures.wad_records_bytes()
+        records = wad.parse_directory(data)
+        self.assertTrue(records)
+        self.assertEqual(records[-1].command, "root")
+        # directory ends where the data region would start
+        end = records[-1].offset + wad.NAMED_RECORD_SIZE
+        self.assertEqual(end, len(data))
+
+    def test_marker_size_follows_the_resource_size(self):
+        records = wad.parse_directory(fixtures.wad_records_bytes())
+        markers = [r for r in records if r.kind == "marker"]
+        by_id = {m.class_id: m.size for m in markers}
+        # WAD/root declares 0x18 -> marker 0x20; others declare 0x10 -> marker 0x10
+        self.assertEqual(by_id[20], 0x20)
+        self.assertEqual(by_id[13], 0x10)
+        self.assertEqual(by_id[7], 0x10)
+
+    def test_data_chunks_are_found_with_sizes(self):
+        data = fixtures.wad_with_data_chunks(sizes=(4, 0x40, 8, 4, 0x30, 0x20))
+        chunks = wad.data_chunks(data)
+        self.assertEqual(len(chunks), 6)
+        self.assertEqual([c.chunk_id for c in chunks], [0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10])
+        self.assertEqual([c.size for c in chunks], [4, 0x40, 8, 4, 0x30, 0x20])
+        self.assertEqual(chunks[1].marker, 0x0009)
+
+    def test_data_chunk_payload_round_trips(self):
+        data = fixtures.wad_with_data_chunks(sizes=(4, 0x40, 8, 4, 0x30, 0x20))
+        chunk = wad.data_chunks(data)[1]
+        payload = chunk.payload(data)
+        self.assertEqual(len(payload), 0x40)
+        self.assertEqual(payload, bytes((2,)) * 0x40)
+
+    def test_data_chunk_end_is_inside_the_file(self):
+        data = fixtures.wad_with_data_chunks()
+        for chunk in wad.data_chunks(data):
+            self.assertLessEqual(chunk.end, len(data))
+
+    def test_no_chunks_when_absent(self):
+        self.assertEqual(wad.data_chunks(fixtures.wad_records_bytes()), [])
+
+
 class TestNameFamilies(unittest.TestCase):
     def test_classification(self):
         cases = {

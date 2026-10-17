@@ -189,7 +189,7 @@ def wad_records_bytes(
     blob = bytearray()
     blob += struct.pack("<II", 20, 8)
     blob += banner.encode("latin-1")
-    blob += b"\x00" * (0x40 - len(blob))
+    blob += b"\x00" * (0x50 - len(blob))       # records start at 0x50 (E-025)
 
     for prefix, class_id in resource_classes:
         blob += _named_record(2, 0, "GroupStart")
@@ -201,3 +201,27 @@ def wad_records_bytes(
     blob += _named_record(0x15, 0, "PopHeap")
     blob += _named_record(0x12, 0, banner)
     return bytes(blob)
+
+
+def dc_chunk(banner: str, chunk_id: int, payload: bytes) -> bytes:
+    """One ``DC_`` data chunk: 16-byte prefix + 0x34 name field + payload."""
+    prefix = (b"\x00" * 8 + struct.pack("<HH", chunk_id, 0x0009)
+              + struct.pack("<I", len(payload)))
+    name = ("DC_" + banner).encode("latin-1")
+    blob = prefix + name + b"\x00" * (0x34 - len(name)) + payload
+    pad = (-len(blob)) % 0x10
+    return blob + b"\x00" * pad
+
+
+def wad_with_data_chunks(banner: str = "WAD_R_Sword00",
+                         sizes=(4, 0x40, 8, 4, 0x30, 0x20)) -> bytes:
+    """A synthetic WAD: directory then six ``DC_`` data chunks (E-025)."""
+    blob = bytearray(fixtures_records(banner))
+    for index, size in enumerate(sizes):
+        payload = bytes((index + 1,)) * size
+        blob += dc_chunk(banner, 0x0B + index, payload)
+    return bytes(blob)
+
+
+def fixtures_records(banner: str = "WAD_R_Sword00") -> bytes:
+    return wad_records_bytes(banner)

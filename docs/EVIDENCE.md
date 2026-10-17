@@ -903,6 +903,74 @@ recorded rather than hidden.
 `wad.CLASS_NAMES`, `wad.STANDARD_RESOURCE_SET`, and `wad_info.py --resources`.
 15 tests cover the scanner and the class table.
 
+---
+
+## E-025 — The directory is decoded exactly; `DC_` chunks are a footer, not the data
+
+**Observation.** A walk using the rule
+``marker record size = round_up(the preceding resource's size, 16)`` was run over
+the 90 WADs under 2 MB.
+
+| Measurement | Result |
+|---|---|
+| Files scanned | **90** |
+| DC chunks overrunning their file | **0** |
+| Directory record count | **64** (82 files) or **65** (8 files) |
+| Directory end offset | **0xD80** (82 files) or **0xDC0** (8 files) |
+| `DC_` chunk count | **0** (17 files) or **6** (73 files) |
+
+So the directory is a **variable-length record stream** that ends where the next
+u32 is no longer a valid record type. In the standard layout it is exactly
+**64 records / 3,456 bytes**, which is why `R_I_ICE0/1/2.WAD` are 3,456 bytes
+exactly — they are *pure directories* with no data at all.
+
+`R_HADES.WAD` has **65** records, ending at 0xDC0.
+
+**The `DC_` chunks are a footer.** Correcting an earlier reading of this evidence:
+
+| Region in `R_HADES.WAD` (85,727,632 B) | Extent |
+|---|---|
+| header + directory | `0x0000 .. 0x0DC0` |
+| **bulk data** | `0x0DC0 .. 0x5184D28` (~85.6 MB) |
+| **`DC_` footer** | `0x5184D28 .. 0x51C198C` (~249 KB) — the six chunks |
+| tail | to `0x51C0A90` |
+
+So the six `DC_` chunks hold only ~249 KB of an 85 MB file. They are **not** the
+data region; the bulk sits *between* the directory and this footer.
+
+The chunk prefix format is confirmed:
+
+```
+00*8  |  u16 id  |  u16 0x0009  |  u32 size  |  "DC_<banner>"  |  size bytes
+```
+
+with ids consecutive `0x0B 0x0C 0x0D 0x0E 0x0F 0x10` and sizes, e.g. for
+`R_SWORD00.WAD`: `4, 5756, 44, 4, 788, 3064`; for `R_HADES.WAD`:
+`4, 111216, 228, 5914, 15330, 115824`. Every chunk's computed `end` lands inside
+its file.
+
+**Inference.** The container is:
+
+```
+0x0000  u32 20 ; u32 8 ; char banner[0x38]
+0x0050  record stream (directory): named 0x40, markers round_up(declared,16)
+        ends at 0xD80 (64 records) or later (R_HADES: 0xDC0)
+        -> 16 typed resource groups: root TXRX WPTX CXT ANMX LGTX SCRX BHVX
+           MDLX PRTX CAMX SNDX COLX FX OCCX MATX
+then    bulk data
+then    six DC_ footer chunks (ids 0x0B..0x10) with explicit sizes
+```
+
+**Still unknown (the remaining blocker).** How the directory binds to the bulk
+data — the resource records declare only 16/24/32, far too small to be byte sizes
+of a model, so the offsets or the binding must live in the bulk or in the footer.
+Until that is resolved a **writer** is not possible.
+
+**Tooling.** `parse_directory()` (exact), `data_chunks()`, `DataChunk`,
+`DIRECTORY_RECORDS_STANDARD`; `scan_records()` now delegates to the exact walk.
+6 further tests (108 total).
+
+
 
 
 
