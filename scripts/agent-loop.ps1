@@ -69,25 +69,46 @@ if (-not (Test-Path -LiteralPath $PromptFile)) {
 $prompt = Get-Content -LiteralPath $PromptFile -Raw
 
 for ($i = 1; $i -le $Iterations; $i++) {
-    if (-not (Test-StaleLock)) { exit 0 }
+
+    # Create the log FIRST. Every tick must leave evidence: a failure that
+    # happens before this point is invisible, which is exactly what made the
+    # lock-existence and $PSScriptRoot bugs so hard to see. The lock is acquired
+    # only after the log exists, and failing to get it is reported, not thrown.
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $log = Join-Path $logDir "loop-$stamp.log"
+
+    function Write-LoopNote([string] $message) {
+        $line = "[$stamp] $message"
+        Add-Content -LiteralPath $log -Value $line -ErrorAction SilentlyContinue
+        Write-Host $line
+    }
+
+    if (-not (Test-StaleLock)) {
+        Write-LoopNote 'another iteration is already running; skipping this tick'
+        exit 0
+    }
 
     Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
-    $lockHandle = [System.IO.File]::Open(
-        $lockPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+    try {
+        $lockHandle = [System.IO.File]::Open(
+            $lockPath, [System.IO.FileMode]::CreateNew,
+            [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+    } catch {
+        Write-LoopNote "could not acquire the lock ($($_.Exception.Message)); skipping this tick"
+        exit 0
+    }
+
     $payload = @{ pid = $PID; started = (Get-Date).ToString('o'); iteration = $i } | ConvertTo-Json -Compress
     $writer = New-Object System.IO.StreamWriter($lockHandle)
     $writer.Write($payload)
     $writer.Flush()
-
-    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $log = Join-Path $logDir "loop-$stamp.log"
 
     try {
         $cliArgs = @('run', '--auto')
         if ($Model) { $cliArgs += @('--model', $Model) }
         $cliArgs += $prompt
 
-        Write-Host "[$stamp] starting iteration $i (log: $log)"
+        Write-LoopNote "starting iteration $i (agent log follows)"
         Push-Location -LiteralPath $RepoDir
         $agentExit = 1
         try {
@@ -102,7 +123,7 @@ for ($i = 1; $i -le $Iterations; $i++) {
             $savedPreference = $ErrorActionPreference
             $ErrorActionPreference = 'Continue'
             try {
-                & opencode @cliArgs 2>&1 | Tee-Object -FilePath $log
+                & opencode @cliArgs 2>&1 | Tee-Object -FilePath $log -Append
                 $agentExit = $LASTEXITCODE
             } finally {
                 $ErrorActionPreference = $savedPreference
