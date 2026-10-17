@@ -1148,6 +1148,62 @@ vary per keyframe. (b) "the preamble encodes the first keyframe / base pose" —
 false: 0/7,659 records match.
 
 
+---
+## E-030 — `MOD ` mesh-chunk header: verified bytes, unknown payload layout (F1, bounded slice)
+
+**Observation.** Read every `MOD ` chunk in `pl021.pac` (4 occupied slots:
+1, 12, 23, 25) and then every `MOD ` chunk across the install (286 chunks in
+194 PAC files). Slot 1 of `pl021.pac` at file offset `0x039880` (span
+204,384 bytes):
+
+```
+file +0x039880  4d 4f 44 20 ae 47 81 3f  "MOD "  f32=1.0099999904632568
+file +0x039888  00 00 00 00 00 00 00 00  u32=0  u32=0
+file +0x039890  0b 18 03 01 12 fe 0a 00  u32=0x0103180B  u32=0x000AFE12
+file +0x039898  00 00 00 00 00 00 00 00  u32=0  u32=0
+file +0x0398A0  30 9b 02 00 00 00 00 00  u32=0x00029B30  u32=0
+file +0x0398A8  ...                       (payload body begins at +0x24)
+```
+
+The other `pl021.pac` `MOD ` chunks:
+- slot 12: `+0x10 = 0x00032702`, `+0x14 = 0x000AFE12`, `+0x20 = 0x00005140`
+- slot 23: `+0x10 = 0x00030101`, `+0x14 = 0x000AFE12`, `+0x20 = 0x00001920`
+- slot 25: byte-identical to slot 23 (a duplicated mesh, consistent with E-005's
+  inference of two render variants)
+
+Install-wide statistics over **286 `MOD ` chunks** (all PAC files in the asset
+root, non-`PAC\0` archives such as `PNST` weapon containers skipped):
+
+| Offset | Field | Value distribution |
+|---|---|---|
+| `+0x04` | f32 scale | `1.0099999904632568` x285, `1.0` x1 |
+| `+0x08` | u32 | `0` (observed in all 4 pl021.pac MOD chunks; not scanned install-wide) |
+| `+0x0C` | u32 | `0` x286 |
+| `+0x10` | u32 | varies per mesh (e.g. `0x10101` x59, `0x103180B` x2, `0x30101` x5, …) |
+| `+0x14` | u32 | varies per mesh (`0xF4240` x187, `0xAF258` x7, `0x384` x7, …) |
+| `+0x18` | u32 | `0` (observed in all 4 pl021.pac MOD chunks; not scanned install-wide) |
+| `+0x1C` | u32 | `0` x286 |
+| `+0x20` | u32 | varies per mesh (e.g. `0x160` x61, `0x29B30` x2, `0x1920` x6, …) |
+
+**Inference.** The `MOD ` header is a fixed 0x24-byte block: a scale-like f32
+(`1.0099…`, i.e. `0x3F8147AE`, in 285/286 chunks), u32 fields that are always
+zero where observed (`+0x0C`, `+0x1C` install-wide; `+0x08`, `+0x18` in the
+pl021.pac samples), and three varying u32s at `+0x10`, `+0x14`, `+0x20` whose
+meanings are not established. `+0x14 == 0xF4240`
+(1,000,000) in 187/286 chunks suggests one field may be a byte size or vertex
+count, but that is an inference, not an observation.
+
+**Unknown.** The payload body layout starting at `+0x24` (vertices, indices,
+normals, UVs, skin weights — issue F1). The semantics of the varying fields
+`+0x10`/`+0x14`/`+0x20`. Whether the single `scale == 1.0` chunk is a different
+mesh variant or a parsing edge case.
+
+**Correction.** Earlier revisions of `docs/FORMATS.md` §5 placed the varying
+values (e.g. `0x0003180B`, `0x00029B30`) at `+0x0C`/`+0x1C`; real bytes show
+`+0x0C` and `+0x1C` are `0` in every `MOD ` chunk checked, and those values
+actually appear at `+0x10`/`+0x20`. The spec is corrected below.
+
+
 
 
 

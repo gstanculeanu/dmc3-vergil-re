@@ -95,6 +95,37 @@ def motion_chunk_with_records(record_groups=(4, 2, 6), tail: int = 0) -> bytes:
     return bytes(blob) + payload
 
 
+def mod_chunk(
+    scale: float = 1.0099999904632568,
+    field_08: int = 0,
+    field_0c: int = 0,
+    field_10: int = 0x10101,
+    field_14: int = 0xAF258,
+    field_18: int = 0,
+    field_1c: int = 0,
+    field_20: int = 0x160,
+    body: bytes = b"",
+) -> bytes:
+    """A synthetic plain-tagged ``MOD `` chunk mirroring pl021.pac (E-030).
+
+    Header: ``MOD `` tag, f32 scale (1.0099… in 285/286 real chunks), then
+    seven u32 fields whose meanings are still [UNKNOWN].  The body follows at
+    +0x24 and is stored verbatim.
+    """
+    blob = bytearray(b"\x00" * 0x24)
+    blob[0:4] = b"MOD "
+    struct.pack_into("<f", blob, 0x04, scale)
+    struct.pack_into("<I", blob, 0x08, field_08)
+    struct.pack_into("<I", blob, 0x0C, field_0c)
+    struct.pack_into("<I", blob, 0x10, field_10)
+    struct.pack_into("<I", blob, 0x14, field_14)
+    struct.pack_into("<I", blob, 0x18, field_18)
+    struct.pack_into("<I", blob, 0x1C, field_1c)
+    struct.pack_into("<I", blob, 0x20, field_20)
+    blob += body
+    return bytes(blob)
+
+
 def cloth_text() -> bytes:
     return b";pl021_02.clt\r\n\r\nClothNum\t1\r\n\r\nClothNo     0\r\nClothId     0\r\n"
 

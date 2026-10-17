@@ -200,20 +200,31 @@ Collection build only.
 
 ---
 
-## 5. Model / shader payloads — [UNKNOWN]
+## 5. Model / shader payloads — header [VERIFIED], payload [UNKNOWN]
 
-`MOD ` chunk header (verified bytes, unknown semantics):
+`MOD ` chunk header (verified bytes across **286 `MOD ` chunks in 194 PAC
+files**; evidence E-030), all little-endian:
 
 ```
 +0x00  char[4] "MOD "
-+0x04  f32     constant 1.0099… (0x3F8147AE) in every observed MOD chunk
-+0x08  u32     0
-+0x0C  u32     varies   e.g. 0x0003180B, 0x00032702, 0x00010103
-+0x10  u32     varies   e.g. 0x000AFE12, 0x000000D9
-+0x1C  u32     varies   e.g. 0x00029B30, 0x00005140, 0x00001920
++0x04  f32     scale-like constant: 1.0099… (0x3F8147AE) x285, 1.0 x1
++0x08  u32     0 where observed (pl021.pac)
++0x0C  u32     0 x286           [purpose UNKNOWN]
++0x10  u32     varies per mesh  e.g. 0x10101 x59, 0x103180B x2, 0x30101 x5  [meaning UNKNOWN]
++0x14  u32     varies per mesh  e.g. 0xF4240 (1,000,000) x187, 0xAF258 x7   [meaning UNKNOWN]
++0x18  u32     0 where observed (pl021.pac)
++0x1C  u32     0 x286           [purpose UNKNOWN]
++0x20  u32     varies per mesh  e.g. 0x160 x61, 0x29B30 x2, 0x1920 x6        [meaning UNKNOWN]
++0x24  ...     payload body (vertices, indices, normals, UVs, skin weights)  [UNKNOWN layout]
 ```
 
-`SHW ` chunk header (verified bytes, unknown semantics):
+* The payload body begins at `+0x24` and its layout is **not** decoded — that
+  is the remainder of issue F1 (vertex/index/normal/UV/skin-weight layout).
+* `+0x14 == 0xF4240` (1,000,000) in 187/286 chunks suggests one field may be a
+  byte size or vertex count, but that is an inference, not an observation.
+
+`SHW ` chunk header (verified bytes, unknown semantics) — unchanged from prior
+observations:
 
 ```
 +0x00  char[4] "SHW "
@@ -227,5 +238,11 @@ Collection build only.
 Notable: **`pl021.pac` slots 23 and 25 are byte-identical `MOD ` chunks**, as are
 slots 24 and 26 (`SHW `) — a duplicated mesh/shader pair. **[INFERRED]** these are
 the two Vergil render variants (with/without the Devil Trigger / coat layers).
+
+> **Correction.** Earlier revisions of this section placed varying values
+> (e.g. `0x0003180B`, `0x00029B30`) at `+0x0C`/`+0x1C`. Real bytes show
+> `+0x0C` and `+0x1C` are `0` in every `MOD ` chunk checked (286/286), and
+> those values actually appear at `+0x10`/`+0x20`. The spec above reflects the
+> corrected offsets; see `docs/EVIDENCE.md` E-030 for the raw bytes.
 
 Open issues: mesh vertex/index layout, material→texture binding, skeleton.

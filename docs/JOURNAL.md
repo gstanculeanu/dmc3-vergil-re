@@ -519,6 +519,29 @@ moves and health bar and everything."*
   or file a dedicated follow-up issue for the u16[1..3] encoding.
 
 
+---
+
+## 2026-10-18 — F1 bounded slice: MOD header decoded from real bytes
+
+- Did: read every `MOD ` chunk in `pl021.pac` (slots 1/12/23/25) and scanned all
+  286 `MOD ` chunks across the install; implemented `tools/dmc3/mod.py`
+  (`ModHeader` reader), a synthetic `mod_chunk` fixture, and `tests/test_mod.py`
+  (8 new tests). Full suite: **125 tests, all green**. Committed the slice.
+- Found (**E-030**): header is a fixed 0x24-byte block — `+0x04` f32 =
+  1.0099999904632568 (`0x3F8147AE`) in 285/286 chunks (one is 1.0); `+0x0C` and
+  `+0x1C` are `0` in all 286; `+0x08`/`+0x18` are `0` in the pl021.pac samples;
+  varying u32s at `+0x10`/`+0x14`/`+0x20` (e.g. `+0x14 == 0xF4240` = 1,000,000
+  in 187/286 — an inference, not an observation). Payload body at `+0x24`
+  remains **[UNKNOWN]**.
+- Docs corrected: `docs/FORMATS.md` §5 — an earlier revision wrongly placed the
+  varying values at `+0x0C`/`+0x1C`; real bytes show those offsets are `0` and
+  the values live at `+0x10`/`+0x20`. `docs/EVIDENCE.md` gained E-030 with the
+  raw bytes and distributions; `docs/BACKLOG.md` F1 marked open with header
+  decoded, payload [UNKNOWN], cross-check vs prior art (E-014/E-015).
+- Next: decide the F1 follow-up — decode the first vertex field at `+0x24` in
+  another bounded slice, or record that the payload layout needs engine ground
+  truth and move to F9/F10/F11 (moves/audio/VFX), now the technical critical
+  path per E-014.
 
 
 

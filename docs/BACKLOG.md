@@ -12,7 +12,7 @@ Labels used: `re`, `tooling`, `format`, `phase-1`, `phase-2`, `phase-3`, `blocke
 
 | # | Title | Evidence | Status |
 |---|---|---|---|
-| F1 | Reverse the `MOD ` mesh payload (vertices, indices, normals, UVs, skin weights) | E-008, E-014 | open — **cross-check**, mesh already available (E-014) |
+| F1 | Reverse the `MOD ` mesh payload (vertices, indices, normals, UVs, skin weights) | E-008, E-014, E-030 | open — header decoded (E-030: `+0x04` f32 scale 1.0099… x285/286, `+0x0C`/`+0x1C` = 0 x286, varying u32s at `+0x10`/`+0x14`/`+0x20`); **payload body [UNKNOWN]** — cross-check against prior-art mesh (E-014/E-015) |
 | F2 | Reverse the `SHW ` material payload and its texture binding | FORMATS §5 | open |
 | F3 | Reverse the untagged chunks in `pl021.pac` (bone transforms, UV tables, primitive groups) | E-008 | open |
 | F4 | Recover the MOT keyframe encoding after the header | E-003, E-019, E-026, E-028, E-029 | **record layer decoded** (840/840 chunks, 59,269 records); first field decoded — group u16[0] = offset-binary frame time, frame = u16[0] − 0x8000 (E-026). u16[1..3]: NOT per-record constants; channels vary per keyframe, signed range [-32768, 32767], modal values ±0x3FFF (~±0.5 Q15) (~5,500 hits/channel of 87,662), channel meaning/scale/zero point [UNKNOWN] (E-028/E-029). Preamble: field_a == 3 in 7656/7659 records; each preamble group = pair of finite f32s with |v| ≤ 1e6, 97.4% with both |v| ≤ 10 — [UNKNOWN] semantics (E-029). preamble != first keyframe (0/7659 records) — base-pose hypothesis disproven. Remaining unknowns cannot be established from bytes alone; need engine ground truth. |
