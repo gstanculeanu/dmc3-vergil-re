@@ -31,7 +31,7 @@ Labels used: `re`, `tooling`, `format`, `phase-1`, `phase-2`, `phase-3`, `blocke
 |---|---|---|
 | T1 | glTF 2.0 exporter (`MOD ` mesh + skeleton + `MOT ` animations) | blocked by F1, F2, F4 |
 | T2 | Texture pipeline `.tm2` → `.dds` → `.png` with alpha handling | ready |
-| T3 | PAC writer for import (currently `build_pac` is minimal) | ready |
+| T3 | PAC writer for import (currently `build_pac` is minimal) | ready — `build_pac` hardened (rejects non-bytes payloads) and byte-exact round-trip test added (refs #11) |
 | T4 | Extract/verify `plwp_vergilsword` once F6 lands | blocked by F6 |
 | T5 | CLI to diff two PAC files slot-by-slot (mod comparison) | ready |
 | T6 | CI running the unit tests on push | ready |

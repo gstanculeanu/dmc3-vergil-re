@@ -281,6 +281,11 @@ def build_pac(chunks: Sequence[Optional[bytes]], alignment: int = ALIGNMENT) -> 
     for index, payload in enumerate(chunks):
         if payload is None:
             continue
+        if not isinstance(payload, (bytes, bytearray)):
+            raise TypeError(
+                f"chunks[{index}] must be bytes or None, "
+                f"got {type(payload).__name__}"
+            )
         offsets[index] = cursor
         body += payload
         cursor += len(payload)

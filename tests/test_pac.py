@@ -65,6 +65,41 @@ class TestPacContainer(unittest.TestCase):
         self.assertTrue(archive.chunk(0).data.startswith(original[0]))
         self.assertEqual(archive.chunk(2).data[:4], b"MOD ")
 
+    def test_build_pac_round_trip_is_byte_exact(self):
+        # Mixed chunk kinds, an empty slot, a chunk whose span carries
+        # inter-chunk padding (motion_chunk is 140 bytes, not 16-aligned), and
+        # trailing padding after the last chunk.  Rebuilding from each chunk's
+        # full span (payload + padding) must reproduce the file byte-for-byte.
+        payloads = [
+            fixtures.plain_chunk(b"MOD ", b"\x01" * 10),   # 80 bytes
+            None,
+            fixtures.motion_chunk(track_bytes=60),         # 140 bytes -> pad before slot 3
+            fixtures.cloth_text(),                          # 61 bytes -> trailing pad
+        ]
+        built = build_pac(payloads)
+        archive = PacArchive.from_bytes(built)
+
+        roundtrip = [
+            None if archive.chunk(index) is None else archive.chunk(index).data
+            for index in range(len(archive))
+        ]
+        rebuilt = build_pac(roundtrip)
+
+        self.assertEqual(rebuilt, built)
+
+        again = PacArchive.from_bytes(rebuilt)
+        self.assertEqual(again.entries, archive.entries)
+        for first, second in zip(archive.chunks(), again.chunks()):
+            self.assertEqual(first.index, second.index)
+            self.assertEqual(first.offset, second.offset)
+            self.assertEqual(first.span, second.span)
+            self.assertEqual(first.data, second.data)
+            self.assertEqual(first.tag, second.tag)
+
+    def test_build_pac_rejects_non_bytes_payload(self):
+        with self.assertRaises(TypeError):
+            build_pac([b"MOD " + b"\x00" * 4, 123])  # type: ignore[arg-type]
+
 
 class TestPacRejectsBadInput(unittest.TestCase):
     def test_bad_magic(self):
