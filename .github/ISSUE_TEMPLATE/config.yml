@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: God of War III Remastered PC port (reference)
+    url: https://github.com/FelipePrado0/gow3_pc
+    about: The port this project targets in Phase 3, and the definition of its mod system.
+  - name: REA — Reverse Engineer Anything (methodology)
+    url: https://github.com/morluto/rea/
+    about: The evidence-first reverse-engineering methodology this project follows.

@@ -1,0 +1,46 @@
+# --- Game assets: never commit ---
+# A second line of defence behind "derived output lives outside the repo".
+*.pac
+*.afs
+*.tm2
+*.nbz
+*.dds
+*.png
+*.tga
+!docs/**/*.png
+*.fbx
+*.glb
+*.gltf
+*.bin
+!docs/**/*.bin
+*.psk
+*.psa
+*.mdl
+*.mdf
+*.tex
+*.gmd
+*.smd
+
+# Extraction scratch
+/out/
+/work/
+/extract/
+/inventory.json
+
+# Loop runtime
+/logs/
+/.agent-loop/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
