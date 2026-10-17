@@ -86,40 +86,59 @@ can be tied to what was installed.
 * Nothing here writes to the game dump. Only the port's own `user\` and `mods\`
   folders are touched.
 
-## Smoke test before the real work
+## The staged test plan (no save sits before a boss)
 
-Do **not** start by porting Vergil. First prove the loop end-to-end with a change
-so trivial it cannot fail for asset reasons:
+Owner's answer: **none of the existing saves is immediately before a boss.** So the
+loop is built in stages, each testable from where the game already is. Only the
+last stage needs a boss.
 
-1. Unpack the target boss's `R_<Boss>.WAD`.
-2. Change one obvious pixel — e.g. tint a texture bright green.
-3. Repack, drop it in `mods\`, `-Isolate` the save before that boss, `-Play`.
-4. Expected: **the game loads, the boss still spawns, the health bar still
-   appears, and the tint is visible.**
+### Stage 1 — "does a mod swap land at all?" (no boss, no enemy hunting)
 
-That single test validates mod install, WAD replacement, the save shortcut and the
-boss health bar all at once. Only then is it worth feeding Vergil's mesh through.
+Replace a texture inside **`R_UI.WAD`** (27.8 MB, the HUD's art) — for example tint
+an orb or meter icon. The HUD is on screen the moment any save loads, so the result
+is visible **within two seconds of loading, standing still, from any save.**
 
-## Open decision: which boss
+Validates: mod folder is picked up → a replaced `R_*.WAD` really loads → the game
+still runs. No boss, no walking, no enemies.
 
-The replacement target must be reachable quickly. Candidates from the WAD
-inventory (E-016):
+### Stage 2 — "can we change a character?" (no boss)
 
-| Boss | Archive(s) | Reachable from the saves above? |
+Replace a **common enemy** — `R_GRUNT00` (grunts appear in many levels),
+`R_SOLDIER00`, `R_SIREN00`, `R_CYCLOPS00`. Load any combat save and look at the
+enemy in front of you. This proves mesh/texture replacement on a *character* rather
+than on UI.
+
+### Stage 3 — the boss and its health bar (needs a pre-boss save)
+
+**This is the one-time cost the owner must pay once:** when next playing, save
+*immediately before a boss* and tell me the slot name. From then on every iteration
+is a single click. Until that save exists, the boss health bar requirement (G7)
+cannot be verified — but nothing else is blocked by it.
+
+Then: tint the boss green (`R_HERCULES`, `R_HADES`, …) and confirm the four
+checks — loads, boss spawns, **health bar appears**, change is visible.
+
+### Stage 4 — Vergil
+
+Only after Stages 1–3 pass is it worth feeding Vergil's mesh through the converters.
+
+## Choosing the boss (deferred)
+
+Since the target is "whichever is reachable", the boss is chosen once the pre-boss
+save exists. Candidates (E-016):
+
+| Boss | Archive(s) | Note |
 |---|---|---|
-| Zeus | `R_ZEUS00..60` — **six** variants | final boss; not reachable at 1:19 |
-| Hades | `R_HADES`, `R_HADESBIG` | near `Realm of Hades` / `The Depths of Hades` |
-| Hercules | `R_HERCULES`, `R_HERCULES10` | mid-game |
-| Cronos | `R_*` — level `CRN###` | mid-game |
+| Zeus | `R_ZEUS00..60` — **six** variants | the only boss with a real sword; likely multi-phase |
+| Hercules | `R_HERCULES`, `R_HERCULES10` | humanoid, two variants |
+| Hades | `R_HADES`, `R_HADESBIG` | owner has saves in his realm |
+| Chronos | level `CRN###` | the `CRN` levels are his |
 | Poseidon | `R_POSEIDON00`, `R_POSMAIN00` | prologue; needs a new game |
-| Helios / Hermes | `R_HELIOS`, `R_HERMES` | mid-game |
 
-**This needs the owner's knowledge:** which of the observed saves is *immediately*
-before a boss? That save becomes the standing test point and decides the target.
-
-Note that a boss with **multiple variants** (Zeus has six; Hercules two) is
-attractive because it implies multi-phase data — but it is not testable until it
-is reachable.
+The user's saves sit in the **Hades** section (`Realm of Hades`, `The Depths of
+Hades`, `The Three Judges`), and `HDS675AI1HADES.WAD` places the Hades encounter at
+level `HDS675`. If the next save lands near `HDS675`, **Hades is the natural
+target**; otherwise the boss nearest wherever the pre-boss save is taken wins.
 
 ## Why this matters beyond convenience
 
@@ -127,6 +146,7 @@ A tight loop is what makes the remaining Phase 3 work tractable at all:
 
 * the WAD container can be iterated on against the *running game* rather than
   inferred in the abstract;
-* a wrong guess about the mesh format shows up as a visibly broken boss within a
-  minute;
+* a wrong guess about the mesh format shows up as a visibly broken character
+  within a minute;
 * the health bar requirement (G7) can be confirmed or refuted with one test.
+

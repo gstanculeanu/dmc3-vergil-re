@@ -209,6 +209,32 @@ don't want to play through the game."*
   mod install + WAD replacement + the boss health bar before feeding Vergil's mesh
   through.
 
+---
+
+## 2026-10-17 — Owner: no save is pre-boss → staged test plan
+
+- Owner answers: **none** of the seven saves is immediately before a boss; the
+  target boss is "whichever is reachable from my save".
+- Did: rewrote the smoke test into a **staged plan** in `docs/TESTING.md` so that
+  work can proceed *now* without a boss, and recorded the reasoning on #37 (T9)
+  and #28 (G6).
+  1. **Stage 1** — tint a texture in `R_UI.WAD` (HUD art). Visible within two
+     seconds of loading **any** save, standing still. Proves mod install + WAD
+     replacement + "the game still runs".
+  2. **Stage 2** — swap a common enemy (`R_GRUNT00`, `R_SOLDIER00`, …). Proves
+     *character* replacement without a boss.
+  3. **Stage 3** — the one-time cost: save immediately before a boss once, then
+     every iteration is one click. Confirms the boss health bar (G7).
+  4. **Stage 4** — Vergil's mesh.
+- Reasoned about the boss target from existing evidence: the owner's saves sit in
+  the Hades section (`HDS###`), and `HDS675AI1HADES.WAD` places the Hades
+  encounter at level `HDS675`, so **Hades is the natural target** if the next
+  pre-boss save lands there. Noted that **Zeus** (`R_ZEUS00..60`, six variants) is
+  the only GoW3 boss with a real sword, and Hercules the next best humanoid fit.
+- Stages 1–2 are blocked only on **G9** (unpack/repack a `R_*.WAD`); the harness
+  itself is ready.
+
+
 
 
 
