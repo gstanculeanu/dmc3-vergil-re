@@ -585,7 +585,18 @@ moves and health bar and everything."*
   and F4 (keyframe u16[1..3] / preamble semantics) remain stopped at their
   bounded-slice boundaries for the same reason. Candidates for the next
   iteration: F3 (untagged pl021.pac chunks), F7 (animation name map), F8
-  (TM2 pre-header), or tooling T11 (PAC writer round-trip test) — all have
+  (TM2 pre-header), or tooling T3 (PAC writer round-trip test) — all have
   resolved dependencies.
+
+
+---
+
+## 2026-10-18 — F3 bounded slice: pl021.pac slot 0 raw header decoded from real bytes
+
+- Did: bounded slice on F3 (untagged pl021.pac chunks, issue #4). Read all
+  27 slots of the real pl021.pac (G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\pl021.pac): 18 occupied slots, nine untagged (0, 5, 6, 7, 9, 10, 11, 21, 22). Added tools/dmc3/raw.py (RawHeader / maybe_raw_header), the raw_chunk_slot0() fixture, and tests/test_raw.py (4 new tests). Full suite: 139 tests, all green. Committed ba51c75, pushed to origin main; commented issue #4.
+- Found (E-033): slot 0 at file offset 0x80 (span upper bound 0x39800 to slot 1 at 0x39880) begins with six u32s 5, 43, 22, 43, 5, 1, then zeros until body+0x0800; an embedded DDS magic (dwSize 124, 256x64) at body+0x0870 / file offset 0x8F0. All field meanings [UNKNOWN]; no shared header shape across the untagged slots.
+- Docs: EVIDENCE.md E-033; FORMATS.md §1.3 ([UNKNOWN]); BACKLOG.md F3 open — header decoded, body layout [UNKNOWN].
+- Next: F3 body layouts (slot 10 u16 pairs, slot 21 0xFFFF-separated table are the clearest tables) need engine ground truth; F1 and F4 remain blocked on engine ground truth as well.
 
 
