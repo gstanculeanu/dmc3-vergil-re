@@ -359,6 +359,49 @@ Owner: *"save at 20:13 is just before the hades fight"*.
 - Blocked on: **G9/G10** — the WAD record directory. Without a WAD reader/writer,
   Stage 1 (tint `R_UI.WAD`) cannot be run.
 
+---
+
+## 2026-10-17 — G9: resource taxonomy decoded; two of my own measurements discarded
+
+Owner: *"re-iterate until done; I want Hades phase 1 to be Vergil, with his own
+moves and health bar and everything."*
+
+- Did: attacked the WAD record directory from the smallest possible file. Recorded
+  **E-023**.
+- **Discarded two failed measurements** (recorded so they are not repeated):
+  - uniform **0x40-byte stride** — invalid; unnamed records are 0x10/0x20, so the
+    stride is not constant (32 bytes left over, garbage type fields).
+  - a **regex** scan for the resource pattern — invalid; it matched the byte
+    pattern inside payloads and produced nonsense like `"iving"`, `"hortcut"`.
+    Not treated as evidence.
+- **Solid result — the resource class table.** From a complete dump of
+  `R_I_ICE0.WAD` (3,456 bytes, readable end to end), the `0x80000000|n` marker
+  following each resource is constant per 4-letter prefix:
+
+  `MDLX`=13 model · `TXRX`=7 texture · `MATX`=8 material · `ANMX`=3 animation ·
+  `BHVX`=18 behaviour · `COLX`=14 collision · `SNDX`=19 sound · `CAMX`=9 camera ·
+  `SCRX`=4 script · `LGTX`=6 light · `PRTX`=15 particle · `FX`=21 · `OCCX`=24 ·
+  `WPTX`=16 · `CXT`=1 · root=20
+
+  Commands: `1`=resource(name,size), `2`=GroupStart, `3`=GroupEnd,
+  `0x12`=root, `0x15`=PopHeap. Named records are 0x40 bytes.
+
+  So a WAD is a **nested group tree of typed, named resources** — exactly the map
+  needed to know which records to replace for Vergil's mesh/animations.
+- **Big find on the behaviour side.** The AI WAD contains a **readable logic graph**
+  with English descriptions ("Detecting the player is in the air", "Spawning wave
+  11", "Telling the brutes and his grunts to chase the player"), `CI*` logic nodes,
+  sensors, event transmitters, and — directly relevant — **per-weapon nav profiles
+  `navWalkSword`, `navWalkShield`, `navWalkSpear`, `navWalkStone`**. Vergil wields
+  a sword and a `navWalkSword` profile already exists.
+- Still blocking: the exact **per-record framing** (how a length is determined for a
+  record with no name). No reader/writer → no repack → no test iteration.
+- Next: settle the framing. Best lead: dump the region immediately after a resource
+  record (e.g. 0x0D0..0x0F0 in `R_I_ICE0.WAD`) and work out what the 0x18/0x08
+  payload bytes encode, then check whether the following record is at a
+  16-byte-aligned boundary.
+
+
 
 
 

@@ -744,6 +744,101 @@ the variable prefix is *reported*, not assumed), name-family classification and
 graph. But the naming is legible, the entity/AI split is exactly the seam a boss
 port needs, and the AI side is a small set of named behaviour modules.
 
+---
+
+## E-023 — WAD record stream partial; the AI WAD is a *readable* logic graph
+
+**Method note first.** Two measurements were attempted and are recorded here as
+**failed**, so they are not repeated:
+
+* a **uniform 0x40-byte stride** walk from 0x40 — invalid. Records without a name
+  are 0x10 or 0x20 bytes, so the stride is not constant; the walk left 32 bytes
+  over and produced garbage type fields.
+* a **regex scan** for `\x01\x00\x00\x00` + name — invalid. It matched that byte
+  pattern inside arbitrary payload and yielded thousands of nonsense "resource
+  names" (e.g. `"iving"`, `"hortcut"`). Those results are noise and are discarded.
+
+**What is solid: a complete dump of the smallest WAD**
+(`R_I_ICE0.WAD`, 3,456 bytes — small enough to read end to end). From 0x40 there is
+a stream of records shaped ``u32 type; u32 size; char name[0x38]``, and named
+records are 0x40 bytes:
+
+```
+0x050  type=2  size=0     "GroupStart"
+0x090  type=1  size=0x18  "WAD_R_I_Ice"
+0x0D0  type=0x80000014             <- no name; 0x20 bytes
+0x0F0  type=2  size=0     "GroupStart"
+0x130  type=1  size=0x10  "TXRX_R_I_Ice"
+0x170  type=0x80000007             <- no name; 0x10 bytes
+0x180  type=3  size=0     "GroupEnd"
+...
+0x0D00 type=0x15 size=0   "PopHeap"
+0x0D40 type=0x12 size=0   "WAD_R_I_Ice"
+```
+
+Command types observed: **1** = resource definition (`name` + `size`),
+**2** = `GroupStart`, **3** = `GroupEnd`, **0x12** = root (the banner again),
+**0x15** = `PopHeap`, and **`0x80000000 | n`** = a typed marker where `n` is a
+resource class id.
+
+Resource names use a 4-letter class prefix, and the `n` of the following
+`0x80000000|n` marker is **constant per prefix**. Read directly off the dump:
+
+| `n` | prefix | meaning |
+|---|---|---|
+| 1 | `CXT` | context |
+| 3 | `ANMX` | **animation** |
+| 4 | `SCRX` | script |
+| 6 | `LGTX` | light |
+| 7 | `TXRX` | **texture** |
+| 8 | `MATX` | **material** |
+| 9 | `CAMX` | camera |
+| 13 | `MDLX` | **model** |
+| 14 | `COLX` | collision |
+| 15 | `PRTX` | particle |
+| 16 | `WPTX` | weapon texture |
+| 18 | `BHVX` | **behaviour** |
+| 19 | `SNDX` | sound |
+| 20 | — | the WAD itself (root) |
+| 21 | `FX` | effects |
+| 24 | `OCCX` | occlusion |
+
+So a WAD is a **nested group tree of typed, named resources**: `MDLX` = model,
+`TXRX` = texture, `MATX` = material, `ANMX` = animation, `BHVX` = behaviour.
+That is exactly the map needed to know *which records to replace*.
+
+**The AI WAD is a readable logic graph.** While dumping, the AI WAD
+(`HDS675AI1HADES.WAD`) turned out to contain a **named logic/script graph with
+human-readable descriptions**, e.g.:
+
+```
+CILevelDataHds675AI2Souls        HadesHandLogic-ListenHadesHandSpawn1..6
+goevttrans2693spawnbighades      gobighades      godestructbighades
+gohadesbigsouls                  gohighmiphades  gosethighmitmaphadesbig
+"Detecting the player is in the air"    "Telling the brutes and his grunts
+"Setting Cerb to wander"                 to chase the player"
+navWalk  navWalkShield  navWalkSpear  navWalkStone  navWalkSword
+```
+
+Two things stand out:
+
+* **`navWalkSword`** — there are **per-weapon navigation/behaviour profiles**
+  (`navWalkShield`, `navWalkSpear`, `navWalkStone`, `navWalkSword`). A sword
+  profile already existing is directly useful for Vergil.
+* The nodes carry **English descriptions of their own behaviour**, plus
+  `CI*` (logic), `*Sensor*`, `*EventTransmitter*`, `go*` object names and
+  `attacks` / `Reactions` / `Damage` groups. Authoring Vergil's behaviour is
+  therefore editing a legible graph, not writing machine code.
+
+**Unknown (blocking).** The exact per-record framing — specifically how a record's
+length is determined when it has no name. Until that is settled there can be no
+WAD reader/writer, and therefore no repack, and therefore no test iteration.
+
+**Consequence.** The container is closer than it looked: its *taxonomy* (which
+record is a model, a texture, an animation, a behaviour) is decoded and the
+behaviour side is human-readable. The remaining gap is mechanical record framing.
+
+
 
 
 
