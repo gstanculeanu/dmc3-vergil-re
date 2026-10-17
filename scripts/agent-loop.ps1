@@ -89,12 +89,28 @@ for ($i = 1; $i -le $Iterations; $i++) {
 
         Write-Host "[$stamp] starting iteration $i (log: $log)"
         Push-Location -LiteralPath $RepoDir
+        $agentExit = 1
         try {
-            & opencode @cliArgs 2>&1 | Tee-Object -FilePath $log
+            # Omitting --continue means every tick gets a brand-new session.
+            #
+            # NOTE: Windows PowerShell 5.1 wraps a native command's stderr output
+            # as a NativeCommandError. Combined with $ErrorActionPreference='Stop'
+            # and '2>&1' that becomes a *terminating* error, even when the CLI ran
+            # fine and merely emitted an ANSI escape on stderr -- which killed the
+            # first working iteration and wrote nothing to the log. Relax the
+            # preference for the duration of the call only.
+            $savedPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+                & opencode @cliArgs 2>&1 | Tee-Object -FilePath $log
+                $agentExit = $LASTEXITCODE
+            } finally {
+                $ErrorActionPreference = $savedPreference
+            }
         } finally {
             Pop-Location
         }
-        Write-Host "[$stamp] iteration $i finished (exit $LASTEXITCODE)"
+        Write-Host "[$stamp] iteration $i finished (agent exit $agentExit, log: $log)"
     } finally {
         $writer.Dispose()
         $lockHandle.Dispose()
@@ -105,3 +121,9 @@ for ($i = 1; $i -le $Iterations; $i++) {
         Start-Sleep -Seconds $IntervalSeconds
     }
 }
+
+# The task's job is to *run* an iteration, not to succeed at the agent's task.
+# Reporting failure here would flag the scheduled task as broken on every tick
+# the agent had a bad round, so exit 0 once the iterations have been attempted;
+# the agent's own exit code is recorded in the log above.
+exit 0

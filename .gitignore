@@ -30,6 +30,7 @@
 # Loop runtime
 /logs/
 /.agent-loop/
+/.agent-loop.lock
 
 # Python
 __pycache__/

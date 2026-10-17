@@ -90,6 +90,45 @@ powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& openco
 Lesson recorded because it is easy to reintroduce: **never use `$PSScriptRoot` in a
 parameter default in a script that Task Scheduler will run.**
 
+## Second failure mode: the agent outlives the pipeline (2026-10-17)
+
+After the `$PSScriptRoot` fix the script ran but still exited 1 with a **0-byte log**:
+
+```
+opencode.exe : [0m
+  + FullyQualifiedErrorId : NativeCommandError
+```
+
+**Cause.** Windows PowerShell 5.1 wraps a native command's **stderr** as a
+`NativeCommandError`. With `$ErrorActionPreference = 'Stop'` plus `2>&1` that
+becomes a *terminating* error — so the harmless ANSI escape `opencode` emits on
+stderr killed the pipeline, and `Tee-Object` never wrote a byte.
+
+**Fix.** Relax the preference only around that call, then restore it. The script
+also now always `exit 0` once its iterations have been attempted, logging the
+agent's exit code instead — the task's job is to *run* an iteration, not to
+guarantee the agent had a good round. Otherwise a bad agent round flags the
+scheduled task as broken (exactly the confusion this whole episode was).
+
+**The subtle consequence, worth knowing.** Terminating the *pipeline* does not
+kill the `opencode` child process. The very first "failed" run therefore **kept
+working and committed** — `7db7de4` (MOT keyframe frame-time, E-026) exists in the
+history even though that iteration reported failure and wrote no log. So:
+
+> A failed loop iteration may still have produced a commit. Check `git log`
+> before concluding nothing happened.
+
+Verify the loop with:
+
+```powershell
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/agent-loop.ps1 -Iterations 0
+# -> exit 0, logs/ created
+
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/agent-loop.ps1
+# -> an iteration that commits and writes logs/loop-<stamp>.log
+```
+
+
 
 ## Guardrails
 
