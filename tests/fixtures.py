@@ -156,6 +156,23 @@ def mod_body(
     return bytes(blob)
 
 
+def raw_chunk_slot0() -> bytes:
+    """A synthetic raw chunk mirroring pl021.pac slot 0's header (E-033).
+
+    Body-relative layout (little-endian), all trailing bytes zero::
+
+        +0x00 u32 field_00   (observed 5)
+        +0x04 u32 field_04   (observed 43)
+        +0x08 u32 field_08   (observed 22)
+        +0x0C u32 field_0c   (observed 43)
+        +0x10 u32 field_10   (observed 5)
+        +0x14 u32 field_14   (observed 1)
+    """
+    blob = bytearray(0x80)
+    struct.pack_into("<IIIIII", blob, 0, 5, 43, 22, 43, 5, 1)
+    return bytes(blob)
+
+
 def cloth_text() -> bytes:
     return b";pl021_02.clt\r\n\r\nClothNum\t1\r\n\r\nClothNo     0\r\nClothId     0\r\n"
 

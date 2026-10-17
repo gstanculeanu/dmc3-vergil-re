@@ -4,6 +4,7 @@ Read-only tooling.  Nothing here writes to a game installation.
 """
 
 from .mod import BODY_PREFIX_SIZE, ModBodyPrefix, ModHeader
+from .raw import SLOT0_HEADER_SIZE, RawHeader, maybe_raw_header
 from .pac import (
     ALIGNMENT,
     MAGIC,
@@ -60,6 +61,8 @@ __all__ = [
     "BODY_PREFIX_SIZE",
     "ModBodyPrefix",
     "ModHeader",
+    "SLOT0_HEADER_SIZE",
+    "RawHeader",
     "is_mot",
     "parse_mot",
     "parse_mot_from_bytes",

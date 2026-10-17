@@ -54,6 +54,33 @@ otherwise look like tags.
 
 `pl021.pac` decomposes as **4 `MOD `, 4 `SHW `, 1 text, 9 untagged** (E-008).
 
+### 1.3 Raw (untagged) chunks — [UNKNOWN]
+
+**Evidence E-033.** `pl021.pac` slot 0 sits at file offset 0x80 (span up to slot
+1 at 0x39880, a 0x39800-byte upper bound) and begins with six little-endian
+u32s:
+
+```
++0x00 u32  5   [UNKNOWN]
++0x04 u32  43  [UNKNOWN]
++0x08 u32  22  [UNKNOWN]
++0x0C u32  43  [UNKNOWN]
++0x10 u32  5   [UNKNOWN]
++0x14 u32  1   [UNKNOWN]
+```
+
+followed by zero bytes until body+0x0800, where small sub-fields appear. At
+body+0x0870 (file offset 0x8F0) the bytes contain a `DDS ` magic
+(`dwSize = 124`, `dwFlags = 0x000A1007`, 256×64) — an embedded DDS-like blob
+whose presence inside the raw slot is unexplained. The remaining ~235 KB of
+the slot's span is non-zero and structured; its layout is undecoded.
+
+The other eight untagged slots (5, 6, 7, 9, 10, 11, 21, 22) have different
+leading bytes — slot 10 is a table of u16 pairs `(0x5C, x)` with `x`
+increasing by 20, slot 21 is a u16 table with `0xFFFF` separators, slots 9/11
+are f32 arrays (E-008) — so no single header shape is shared across the
+untagged slots. Every field in this section is [UNKNOWN].
+
 ---
 
 ## 2. Weapon archives (`.pac` starting with `PNST`) — [UNKNOWN]

@@ -1313,3 +1313,52 @@ bytes alone — marked [UNKNOWN] in `docs/FORMATS.md` §3.
 **Consequence.** `tools/dmc3/mot.py` `parse_mot` already returns the table
 (`MotHeader.table`) and enforces `header_size == 0x22 + 2 * len(table)`; no code
 change is needed beyond unit tests locking the observed shapes.
+
+---
+
+## E-033 — `pl021.pac` slot 0: six-u32 raw header (F3, bounded slice)
+
+**Observation.** `pl021.pac` (27 entries, data start 0x80). Slot 0 is occupied
+at **file offset 0x80**; its span runs to slot 1 (0x39880), a 0x39800-byte
+upper bound on the chunk size (E-001). The payload carries no ASCII tag, so
+`pac.py` classifies it as "raw" (E-002). First 24 bytes (body-relative,
+little-endian):
+
+```
+file +0x000080: 05 00 00 00 2B 00 00 00 16 00 00 00 2B 00 00 00 05 00 00 00 01 00 00 00
+                 u32=5             u32=43            u32=22             u32=43
+                 u32=5             u32=1
+```
+
+Bytes body+0x18..~0x0807 are zero; small non-zero fields resume around
+body+0x0808. At **body+0x0870 (file offset 0x0008F0)** the bytes read
+
+```
+44 44 53 20 7C 00 00 00 07 10 0A 00 00 01 00 00 40 00 00 00
+"DDS "          dwSize=0x7C   dwFlags=0x000A1007  dwHeight=256  dwWidth=64
+```
+
+an embedded DDS-like blob (dwSize 124 matches a standard DDS header). The
+remainder of the ~0x39800-byte span is non-zero and structured; its layout is
+undecoded.
+
+Slot 0 is one of nine occupied untagged slots in `pl021.pac` (0, 5, 6, 7,
+9, 10, 11, 21, 22; E-008). Their leading bytes differ: slot 10 is a table
+of u16 pairs `(0x5C, x)` with `x` increasing by 20; slot 21 is a u16 table
+with `0xFFFF` separators; slots 9/11 are f32 arrays. No single header shape
+is shared across them.
+
+**Inference.** The six leading u32s of slot 0 look like a small header, but
+which fields they are (counts, sizes, offsets, flags) is not established from
+these bytes alone; the repeated `43` and `5` are coincidences, not a pattern.
+The embedded `DDS ` is an observation, not an identification of the chunk as
+a texture.
+
+**Unknown.** Meaning of field_00..field_14 (5/43/22/43/5/1); the body layout
+beyond the header; the role of the embedded `DDS ` at body+0x0870; whether any
+of the other untagged slots shares slot 0's header shape.
+
+**Consequence.** `tools/dmc3/raw.py` decodes exactly the observed six-u32
+header (`RawHeader`, `maybe_raw_header`) and nothing more; exercised by
+`tests/test_raw.py` on a synthetic fixture. F3 remains open: this slice
+decodes slot 0's header only.
