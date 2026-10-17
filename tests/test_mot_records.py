@@ -1,9 +1,10 @@
 import _bootstrap  # noqa: F401
+import struct
 import unittest
 
 import fixtures
 from dmc3 import Chunk, MotError, try_walk_records, walk_records
-from dmc3.mot import RECORD_HEADER_SIZE
+from dmc3.mot import KEYFRAME_TIME_BASE, RECORD_HEADER_SIZE, keyframe_time
 
 
 def chunk_of(payload: bytes) -> Chunk:
@@ -83,6 +84,27 @@ class TestMotRecordWalkRejects(unittest.TestCase):
         self.assertIsNone(try_walk_records(chunk_of(fixtures.plain_chunk(b"MOD "))))
         self.assertIsNotNone(
             try_walk_records(chunk_of(fixtures.motion_chunk_with_records((4,))))
+        )
+
+
+class TestMotKeyframeTime(unittest.TestCase):
+    """The first u16 of an 8-byte keyframe group is ``0x8000 + frame`` (E-026)."""
+
+    def test_frame_zero(self):
+        self.assertEqual(
+            keyframe_time(struct.pack("<HHHH", KEYFRAME_TIME_BASE, 0, 0, 0)), 0
+        )
+
+    def test_frame_positive(self):
+        self.assertEqual(
+            keyframe_time(struct.pack("<HHHH", KEYFRAME_TIME_BASE + 23, 0, 0, 0)), 23
+        )
+
+    def test_frame_matches_duration_example(self):
+        # keyframe[3] of pl021_00_9.pac record 0: u16[0] = 0x8064, duration = 100
+        self.assertEqual(
+            keyframe_time(struct.pack("<HHHH", KEYFRAME_TIME_BASE + 100, 0, 0, 0)),
+            100,
         )
 
 

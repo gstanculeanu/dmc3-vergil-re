@@ -32,7 +32,9 @@ Unknown (open issues):
 
 * the meaning of the ``+0x22`` table (23 entries in **all** 840 chunks; usually
   56, sometimes 0 or 504).
-* how the 8-byte groups inside a record encode keyframes (see E-019).
+* how the 8-byte groups inside a record encode keyframes: the first u16 of each
+  group is decoded as an offset-binary frame time (see :func:`keyframe_time` and
+  E-026); the remaining three u16s per group are undecoded.
 """
 
 from __future__ import annotations
@@ -296,3 +298,26 @@ def try_walk_records(chunk: Chunk) -> Optional[MotPayload]:
         return walk_records(chunk)
     except MotError:
         return None
+
+
+# ---------------------------------------------------------------------------
+# Keyframe group: first field decoded (evidence E-026)
+# ---------------------------------------------------------------------------
+#
+# Each 8-byte keyframe group's first u16 is an offset-binary frame count:
+# ``frame = u16[0] - KEYFRAME_TIME_BASE``.  Verified on every Vergil ``pl021``
+# chunk (thousands of keyframes, 0 violations); times are monotonic within a
+# record and bounded by the header duration.  The group's remaining three u16s
+# are undecoded (issue F4).
+
+KEYFRAME_TIME_BASE = 0x8000
+"""Offset subtracted from a keyframe group's first u16 to yield the frame time."""
+
+
+def keyframe_time(group: bytes) -> int:
+    """Return the frame time of one 8-byte keyframe group (see E-026).
+
+    ``frame = u16[0] - KEYFRAME_TIME_BASE``, in animation frames.  Confidence:
+    [INFERRED] — the remaining three u16s of the group are undecoded.
+    """
+    return u16(group, 0) - KEYFRAME_TIME_BASE

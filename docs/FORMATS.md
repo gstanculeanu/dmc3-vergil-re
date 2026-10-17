@@ -136,10 +136,18 @@ payload:
 * Data is therefore `8 * (groups + 3)` bytes: `groups + 3` eight-byte groups.
 * `groups` observed 1…181; most commonly 2 (12,407 of 59,269 records).
 
-**[UNKNOWN]** the encoding of the 8-byte groups. Their `u16` quadruples cluster
-near `0x8000`, `0x3FFF` and `0xBFFF` — values near ±1.0 in Q15, which is plausible
-for quantised rotation but unproven; high bytes varying by ±3 point at a
-bit-packed stream rather than a plain quaternion array.
+**[INFERRED]** each 8-byte keyframe group's first u16 is an offset-binary frame
+count: ``frame = u16[0] - 0x8000`` (evidence E-026).  Times are monotonic within a
+record and bounded by the header duration; the unit is animation frames, matching
+the `+0x0C`/`+0x14` duration.  Verified on every Vergil `pl021_*.pac` chunk
+(thousands of keyframes, 0 violations) and present in all 840 install chunks.
+`0x8000` is the encoding's zero point.
+
+**[UNKNOWN]** the group's remaining three u16s (position/rotation values), the
+per-record groups at positions 0–2 that precede the keyframes, the value scale,
+and whether `0x8000` is a base offset or a flag bit.  Their u16 quadruples cluster
+near `0x8000`, `0x3FFF` and `0xBFFF`; high bytes varying by ±3 point at a
+bit-packed stream rather than a plain quaternion array, but that is unproven.
 
 **[DISPROVEN]** `record_count == 3 × bone_count` (suggested by 69 = 3 × 23 in
 `pl021_00_9.pac`). Across the install the ratio is 3.0 in only 193/840 chunks.

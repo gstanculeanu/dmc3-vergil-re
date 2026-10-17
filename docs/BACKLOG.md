@@ -15,7 +15,7 @@ Labels used: `re`, `tooling`, `format`, `phase-1`, `phase-2`, `phase-3`, `blocke
 | F1 | Reverse the `MOD ` mesh payload (vertices, indices, normals, UVs, skin weights) | E-008, E-014 | open — **cross-check**, mesh already available (E-014) |
 | F2 | Reverse the `SHW ` material payload and its texture binding | FORMATS §5 | open |
 | F3 | Reverse the untagged chunks in `pl021.pac` (bone transforms, UV tables, primitive groups) | E-008 | open |
-| F4 | Recover the MOT keyframe encoding after the header | E-003, E-019 | **record layer decoded** (840/840 chunks, 59,269 records); 8-byte group encoding open |
+| F4 | Recover the MOT keyframe encoding after the header | E-003, E-019, E-026 | **record layer decoded** (840/840 chunks, 59,269 records); first field decoded — group u16[0] = offset-binary frame time, frame = u16[0] − 0x8000 (E-026); remaining 3 u16s per group open |
 | F5 | Determine the 23-entry `+0x22` MOT table's meaning | E-003 | open |
 | F6 | Reverse the `PNST` weapon container (`plwp_*`) | E-006 | open — **deprioritised**, Yamato available via E-014 |
 | F7 | Map `(group, slot)` → human-readable animation names | E-009, E-013 | started — `docs/ANIMATIONS.md` seeded from E-013 |

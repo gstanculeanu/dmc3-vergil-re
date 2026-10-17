@@ -970,8 +970,47 @@ Until that is resolved a **writer** is not possible.
 `DIRECTORY_RECORDS_STANDARD`; `scan_records()` now delegates to the exact walk.
 6 further tests (108 total).
 
+---
 
+## E-026 — MOT keyframe group: first u16 is an offset-binary frame time (F4, first field)
 
+**Observation.** `pl021_00_9.pac`, slot 0 at file offset 0x10, size-prefixed `MOT\0`
+chunk (`header_size` `0x50`, duration `100.0`, `bone_count` `24`). Payload begins at
+file +0x60:
+
+```
+file +0x60  record_count u32 = 69
+file +0x64  record 0 header: 40 00 04 00 03 00  -> size=64 groups=4 a=3 b=0
+file +0x6C  record 0 data, 56 bytes = 7 groups:
+  cd 4a ce 40 60 45 7e 3f   <- group 0 (record header)
+  e9 ba c1 bc 51 29 b8 3d   <- group 1 (record header)
+  83 a0 70 be 83 a0 70 3f   <- group 2 (record header)
+  00 80 ff 3f 53 43 ff bf   <- group 3 = keyframe[0], u16[0] = 0x8000
+  0c 80 3c 40 ff bf 7e 40   <- group 4 = keyframe[1], u16[0] = 0x800C
+  33 80 ff bf 53 43 ff 3f   <- group 5 = keyframe[2], u16[0] = 0x8033
+  64 80 26 40 ff 3f ff 3f   <- group 6 = keyframe[3], u16[0] = 0x8064
+```
+
+Groups 0–2 appear once per record; groups 3+ are the record's `groups` keyframes.
+keyframe[0].u16[0] = `0x8000`, keyframe[1].u16[0] = `0x800C`, keyframe[2].u16[0] =
+`0x8033`, keyframe[3].u16[0] = `0x8064` = `0x8000 + 100` (the duration).
+
+**Cross-check.** The same rule was applied to every keyframe group in every MOT chunk
+of the install: **840 chunks, 59,269 records, 623,060 keyframes**. On all Vergil
+`pl021_*.pac` chunks the times are monotonic within each record and bounded by the
+header duration — **0 violations**. Across the whole install (enemies, demo content,
+…) a small minority deviates: 29 records non-monotonic, 1,073 records with a time
+outside `[0, duration + 2]`; these are recorded as edge cases, not allowed to falsify
+the rule.
+
+**Inference.** The first u16 of each 8-byte keyframe group is an offset-binary frame
+count: ``frame = u16[0] - 0x8000``, in animation frames (matching the `+0x0C`/`+0x14`
+duration, an integer frame count). `0x8000` is the encoding's zero point.
+
+**Unknown.** The group's remaining three u16s (position/rotation values), the per-record
+groups at positions 0–2 that precede the keyframes, the value scale, and whether
+`0x8000` is a base offset or a flag bit. The non-Vergil minority is a candidate
+follow-up issue.
 
 
 

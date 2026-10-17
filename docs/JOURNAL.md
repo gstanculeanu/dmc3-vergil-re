@@ -428,7 +428,23 @@ moves and health bar and everything."*
 - Next: the marker length. With it, the writer becomes possible and Stage 1 of the
   test plan can finally run.
 
+---
 
+## 2026-10-17 — F4 first field decoded: keyframe group u16[0] = frame time
+
+- Did: bounded slice on F4 (MOT keyframe encoding). Read real bytes from
+  `pl021_00_9.pac` (slot 0, file +0x10) and walked every record; confirmed the
+  first u16 of each 8-byte keyframe group is an offset-binary frame count,
+  `frame = u16[0] - 0x8000`, monotonic and bounded by the header duration.
+- Found (E-026): verified on all 840 MOT chunks / 59,269 records / 623,060
+  keyframes; 0 violations on every Vergil `pl021_*.pac` chunk. A small non-Vergil
+  minority (29 non-monotonic, 1,073 out-of-range) is recorded as an edge case.
+- Added: `keyframe_time()` / `KEYFRAME_TIME_BASE` to `tools/dmc3/mot.py`, 3 unit
+  tests in `tests/test_mot_records.py` (111 total, all green).
+- Updated: `docs/FORMATS.md` §3.1 ([INFERRED] first field, [UNKNOWN] the rest),
+  `docs/BACKLOG.md` (F4 first field decoded).
+- Next: the remaining three u16s per keyframe group and the per-record header
+  groups (positions 0–2) — file a follow-up issue for those.
 
 
 
