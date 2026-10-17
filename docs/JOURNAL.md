@@ -112,4 +112,37 @@ The owner pointed at `C:\Users\GigelCastel\Desktop\vergil`, the downloaded Nexus
 - Next: **T7** — convert the prior-art mesh to glTF/OBJ and verify it renders.
   Then **F4** — MOT keyframes, now the top technical risk.
 
+---
+
+## 2026-10-17 — Boss requirement, and the Yamato is exported and verified
+
+Owner: *"continue until done. vergil should be a boss and have a health bar in
+gow3."*
+
+- Did: reframed Phases 1 and 3 around **Vergil as a boss with a health bar**;
+  implemented `tools/priorart/` (Source `.ascii` + `.smd` parsers, OBJ writer,
+  converter CLI) and ran it against the real prior-art package. 52 tests green.
+- Found:
+  - **E-015** — both interchange formats are fully decoded. ASCII:
+    8 bones / 1 mesh / **1176 verts** / **1852 faces**; the line budget
+    (`1 + 24 + 6 + 14 + 1 + 1176*7 + 1 + 1852`) matches the file exactly.
+    SMD: 8 nodes / 8 bones / 1 material / **5556 verts** / **1852 tris**.
+  - Both OBJ exports give an **identical bounding box**:
+    `extent (x,y,z) = 0.163 × 1.260 × 0.053 m`, longest axis 1.260 — a thin,
+    1.26 m blade. **Vergil's Yamato is exported and verified.**
+  - Two independent formats agreeing on triangle count *and* bounding box is
+    mutual verification of both parsers; this also independently confirms
+    `WP_A_1063` = Yamato.
+- **Design decision recorded:** a `gow3_pc` mod cannot add UI, so a boss health
+  bar cannot be created — it must be **inherited by replacing an existing boss**.
+  This turns the mod constraint into the mechanism that satisfies the
+  requirement. Phases 1/3, `README`, `ROADMAP`, `GOW3.md` and the backlog were
+  all updated; new issue **G7** filed.
+- Still open: the **body** (`BD_M_10100`) is FLVER-only, so it needs a FLVER
+  parser or an external tool; and **F4** (MOT keyframes) remains the top
+  technical risk.
+- Next: **T7b** — parse FLVER (or drive an external tool) for Vergil's body, and
+  **F4** — MOT keyframes.
+
+
 

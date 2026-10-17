@@ -28,14 +28,14 @@ formats, plus a written spec of each DMC3 structure. Because the goal is an
 
 | Milestone | Depends on | Gate |
 |---|---|---|
-| 1.0 **Acquire Vergil's mesh from prior art** (FLVER → SMD/ASCII → glTF) | — | Vergil's body + Yamato import into Blender and look correct |
+| 1.0 **Acquire Vergil's mesh from prior art** (FLVER → SMD/ASCII → glTF) | — | Yamato **done** (E-015: 1852 tris, 1.26 m blade); body FLVER still open |
 | 1.1 `MOD ` mesh payload → vertices/indices/normals/UVs *(now a cross-check)* | E-008 work | the decoded DMC3 mesh agrees with the prior-art mesh |
 | 1.2 Skeleton + bind pose | 1.0 | bone hierarchy recovered and matches the MOT bone count |
 | 1.3 `SHW ` material/shader → texture binding *(cross-check)* | 1.1 | every submesh maps to a named `.tm2` texture |
 | 1.4 Texture export `.tm2` → `.dds` → `.png` | E-005 ✅ | correct colour/alpha when decoded |
 | 1.5 MOT keyframes → per-bone TRS tracks | E-003 work | an animation replays on the skeleton without drift |
 | 1.6 glTF 2.0 exporter | 1.0–1.5 | one `.glb` with mesh + skin + all animations |
-| 1.7 `plwp_vergilsword` (Yamato) *(largely covered by 1.0)* | E-006 work | weapon mesh exported too |
+| 1.7 `plwp_vergilsword` (Yamato) | ✅ E-015 | weapon exported to OBJ and verified |
 | 1.8 **Move set** — clip + timing + hit windows + state transitions | 1.5 | every named move (Judgement Cut, High Time, …) is described |
 | 1.9 **Audio** — Vergil's voice/SFX extracted and labelled | — | `docs/AUDIO.md` map, assets on disk |
 | 1.10 **VFX** — effects inventoried and format-identified | — | `docs/VFX.md`, conversion path stated |
@@ -66,27 +66,34 @@ Phase 1 specs are wrong and Phase 3 must not begin.
 
 ---
 
-## Phase 3 — Vergil as an enemy in God of War III Remastered
+## Phase 3 — Vergil as a **boss with a health bar** in God of War III Remastered
 
-Deliverable: Vergil, with his moves, weapon, voice and effects, acting as an enemy
-inside GoW3R on PC through the `FelipePrado0/gow3_pc` mod system.
+Deliverable: Vergil, with his moves, weapon, voice and effects, standing as a
+**boss encounter with a working boss health bar** inside GoW3R on PC, through the
+`FelipePrado0/gow3_pc` mod system.
 
 **Constraint (see `GOW3.md`):** a mod may replace data files under `dvdroot_ps4/`
 but may not replace `eboot.bin`, nor use DLL injectors or script plugins. New AI
-cannot be authored by a mod.
+and new UI cannot be authored by a mod.
+
+**Consequence:** the boss health bar comes from **replacing an existing boss**,
+not from building one. Vergil inherits that boss's health bar, arena, intro,
+phases and camera work.
 
 | Milestone | Notes |
 |---|---|
 | 3.1 Locate GoW3R character assets inside `CUSA01715` | issue G1 |
 | 3.2 Reverse GoW3R's model/material container | issue G2 |
-| 3.3 **Choose the sword-wielding enemy Vergil replaces** | issue G6 — decides what AI Vergil inherits |
-| 3.4 Map Vergil's rig/moves onto that enemy's slots | issue G3 |
+| 3.3 **Choose the sword-wielding boss Vergil replaces** | issues G6, G7 — this is what grants the health bar |
+| 3.4 Map Vergil's rig/moves onto that boss's slots | issue G3 |
 | 3.5 Build the exporter to GoW3R's format | issue G4 |
 | 3.6 Port audio and VFX (Effekseer → GoW3R effects) | issues F10, F11 |
-| 3.7 Package as a `gow3_pc` mod | issue G5 |
-| 3.8 Verify in game: encounter Vergil, fight him | issue G5 |
+| 3.7 Try to rename the boss health bar to "Vergil" | may be a replaceable text/UI file — issue G7 |
+| 3.8 Package as a `gow3_pc` mod | issue G5 |
+| 3.9 Verify in game: trigger the encounter, fight Vergil, see the health bar | issue G5 |
 
-**Gate:** an encounter in GoW3R where Vergil looks, sounds and fights like Vergil.
+**Gate:** a GoW3R boss encounter where the boss is Vergil, with his move set,
+weapon, voice and effects, and a boss health bar on screen.
 
 ---
 

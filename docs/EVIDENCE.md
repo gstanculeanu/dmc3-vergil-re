@@ -321,4 +321,54 @@ Assume *learn from*, not *reuse*, until #31 (H4) resolves it.
 **animations/moves** (F4, F9) — which is also what an enemy needs most.
 See `docs/PRIOR-ART.md`.
 
+---
+
+## E-015 — The prior-art interchange meshes are decoded and the Yamato exports correctly
+
+**Observation.** `tools/priorart/` parses the two Source formats in the package and
+was run against the real files.
+
+ASCII layout, read field by field from `WP_A_10100.ascii`:
+
+```
+<bone_count = 8>
+  per bone (3 lines): name / parent / "px py pz  rx ry rz rw"
+<mesh_count = 1>
+  <mesh name = m0_WP_A_1063>
+  <unknown = 2>
+  <texture_count = 7>
+    per texture (2 lines): path / flags
+  <vertex_count = 1176>
+    per vertex (7 lines): pos / normal / rgba / uv / uv2 / bone_indices[4] / weights[4]
+  <face_count = 1852>
+    per face (1 line): "i0 i1 i2"
+```
+
+Line-budget check: `1 + 8*3 + 1 + 1 + 1 + 1 + 7*2 + 1 + 1176*7 + 1 + 1852` matches
+the file's 10129 lines exactly.
+
+The bone index/weight ordering is confirmed against the sibling `.smd`, where the
+same corner reads `links=1 bone=4 weight=0.996078` — matching the ASCII vertex's
+`bones = 4 0 0 0`, `weights = 1 0 0 0`.
+
+**Results on real data:**
+
+| Input | Result |
+|---|---|
+| `WP_A_10100.ascii` | 8 bones, 1 mesh, **1176 vertices**, **1852 triangles** |
+| `WP_A_10100.smd` | 8 nodes, 8 bones, 1 material, 5556 vertices, **1852 triangles** |
+
+Both OBJ exports have identical bounding boxes:
+`extent (x,y,z) = (0.163, 1.260, 0.053)`, longest axis 1.260.
+
+**Inference.** The object is a ~1.26 m long, 16 cm wide, 5 cm thick blade — a
+**katana**. Two independent source formats agreeing on triangle count and on the
+bounding box is strong mutual verification of both parsers, and independently
+confirms that `WP_A_1063` is Yamato (E-014's bone names already suggested it).
+
+**Consequence.** T7 is done for the **weapon**. The **body** (`BD_M_10100`) exists
+only as FLVER and still needs a parser or an external tool. Assets stay outside the
+repository, enforced by `tools/priorart/convert.py`.
+
+
 

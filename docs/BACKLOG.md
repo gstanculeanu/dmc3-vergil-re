@@ -35,6 +35,7 @@ Labels used: `re`, `tooling`, `format`, `phase-1`, `phase-2`, `phase-3`, `blocke
 | T4 | Extract/verify `plwp_vergilsword` once F6 lands | blocked by F6 |
 | T5 | CLI to diff two PAC files slot-by-slot (mod comparison) | ready |
 | T6 | CI running the unit tests on push | ready |
+| T7 | Prior-art mesh → OBJ/glTF conversion | **done for the weapon** (E-015); body FLVER open |
 
 ## Phase 2 — round-trip into DMC3
 
@@ -44,16 +45,17 @@ Labels used: `re`, `tooling`, `format`, `phase-1`, `phase-2`, `phase-3`, `blocke
 | R2 | Re-encode a `MOD ` chunk and load it in-game | blocked by F1 |
 | R3 | Re-encode a `MOT ` chunk and load it in-game | blocked by F4 |
 
-## Phase 3 — Vergil as an enemy in God of War III Remastered
+## Phase 3 — Vergil as a boss with a health bar in God of War III Remastered
 
 | # | Title | Status |
 |---|---|---|
 | G1 | Locate GoW3R character asset containers in `CUSA01715` | open |
 | G2 | Reverse GoW3R's model/material container | blocked by G1 |
-| G3 | Decide retarget vs standalone mesh for the replaced enemy's rig | open |
+| G3 | Decide retarget vs standalone mesh for the replaced boss's rig | open |
 | G4 | Build the GoW3R exporter | blocked by G2, G3 |
-| G5 | Package as a `gow3_pc` mod and verify in the port | blocked by G4 |
-| G6 | Choose the sword-wielding GoW3R enemy Vergil replaces (mods cannot author AI) | open |
+| G5 | Package as a `gow3_pc` mod and verify the encounter in the port | blocked by G4 |
+| G6 | Choose the sword-wielding **boss** Vergil replaces (inherits the health bar) | open |
+| G7 | Confirm the boss health bar, and try to rename it to "Vergil" | open |
 
 ## Research / hygiene
 

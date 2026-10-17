@@ -47,6 +47,44 @@ GoW3R character asset files that live under `dvdroot_ps4/` inside the game dump,
 reproducing their format, and shipping them as a mod folder. Nothing about the
 executable is touched.
 
+## The health bar, and why Vergil must replace a boss
+
+You asked for Vergil to be a boss **with a health bar**. That single requirement
+decides the whole Phase 3 strategy, because of how `gow3_pc` mods work:
+
+* A mod replaces data files under `dvdroot_ps4/`, path for path.
+* A mod **cannot** replace `eboot.bin`, `sce_module` or `sce_sys`, and cannot use
+  DLL injectors or script plugins.
+
+A health bar is not a data file you can drop in — it is UI owned by the game's
+code, driven by the encounter. **Therefore a mod cannot create a new boss with a
+new health bar.** It can only replace the *content* of an existing one.
+
+GoW3R already ships boss encounters, and each brings:
+
+| Comes free with the replaced boss | Consequence for us |
+|---|---|
+| Boss health bar (with its own styling and name plate) | The requirement is met by inheritance |
+| Intro / outro cinematics and arena trigger | No new scripting needed |
+| Phase logic (health thresholds, enrage) | Vergil can keep multi-phase behaviour |
+| Camera work and lock-on rules | Reads as a real boss fight |
+| Spawn data, collision, hurtboxes | No new gameplay code |
+
+So the plan is: **pick an existing sword-wielding GoW3R boss, and replace its
+mesh, skeleton/animations, materials, audio and VFX with Vergil's.** The health
+bar, the arena and the phases come along automatically.
+
+Open questions that follow, tracked as issues **G6** and **G7**:
+
+1. Which bosses exist in GoW3R, and which wield a blade?
+2. Which one has a rig and an animation budget that can accept Vergil's mesh and
+   move set?
+3. Can the health bar's **name** be changed to "Vergil"? (A name string may live
+   in a text/UI file a mod *can* replace — worth checking; see the FMG-style text
+   files in `msg/` in the Bloodborne package, E-014.)
+4. Does the port's own in-game menu's "enemy health bar" option interact with,
+   or duplicate, the boss bar? See `gow3_pc`'s Game tab.
+
 ## Dump layout observed locally
 
 `C:\Users\GigelCastel\Desktop\gow3\CUSA01715`:

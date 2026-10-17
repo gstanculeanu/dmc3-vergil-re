@@ -57,10 +57,10 @@ tied to a byte-level observation from a real shipped artifact, and the line betw
 
 ## Goal
 
-**Vergil as an enemy in God of War III Remastered.** That is the destination, and
-it sets the scope: an enemy is not just a mesh. It is a model, a rig, a move set,
-behaviour, a weapon, voices and effects. All of it has to come out of DMC3 and go
-back in.
+**Vergil as a boss in God of War III Remastered, complete with a boss health bar.**
+That is the destination, and it sets the scope: a boss is not just a mesh. It is a
+model, a rig, a move set, behaviour, a weapon, voices, effects and a health bar.
+All of it has to come out of DMC3 and go back in.
 
 ```
                       decompile                        import
@@ -90,7 +90,7 @@ proof that the decompile is faithful, so it acts as the validation gate before G
 | Animations (poses) | `pl021_00_0..9.pac` (~108 MOT chunks) | header decoded, encoding open | F4, F5 |
 | **Move set** (attack/state definitions) | `pl021.pac` tables + MOT clips | not started | F7, F9 |
 | **Enemy behaviour / AI** | unknown — may not be data-driven | not started | F12, G6 |
-| Weapon (Yamato) | `plwp_vergilsword.pac` (`PNST`) | container not decoded | F6 |
+| Weapon (Yamato) | `plwp_vergilsword.pac` (`PNST`) | **exported** via prior art (E-015) | F6 |
 | **Sounds / voice** | `afs/sound/Versil_01..03.ogg`, `snd_*.pac` | located only | F10 |
 | **VFX** (Judgement Cut, trails, DT) | `Crimson/vfx/*.efkefc` (Effekseer) | located only | F11 |
 | Textures | `*.tm2` (wraps DDS) | decoded | F8, T2 |
@@ -119,9 +119,16 @@ Consequences, stated plainly:
 
 `gow3_pc` mods replace data files under `dvdroot_ps4/` and **may not** replace
 `eboot.bin`, `sce_module` or `sce_sys`, nor use DLL injectors or script plugins.
-So a mod cannot author new AI. Realistically Vergil **replaces an existing
-sword-wielding GoW3R enemy** and inherits its behaviour, while its mesh, animations,
-audio and VFX are Vergil's. See `docs/GOW3.md` and issue G6.
+So a mod cannot author new AI or a new UI element.
+
+A **boss with a health bar is exactly the case where this is a gift rather than a
+limitation**: GoW3R already contains boss encounters, each with its own health bar,
+intro, arena trigger, phase logic and camera work. Replacing an existing
+**sword-wielding boss** gives Vergil all of that for free — including the health
+bar — while the mesh, animations, audio and VFX are Vergil's.
+
+This is why the target is a *boss replacement*, not a from-scratch enemy. See
+`docs/GOW3.md` and issues G6/G7.
 
 
 ## Status
@@ -135,6 +142,7 @@ audio and VFX are Vergil's. See `docs/GOW3.md` and issue G6.
 | Vergil's audio location | **Located** | `Versil_01..03.ogg`; ownership unconfirmed |
 | Vergil's VFX location | **Located** | Effekseer `.efkefc` in the Crimson tree |
 | Vergil's mesh (prior art) | **Available** | Already decompiled into a Bloodborne mod: FLVER + SMD/ASCII + DDS. See `docs/PRIOR-ART.md` |
+| Yamato (weapon) export | **Verified** | `tools/priorart/` converts SMD/ASCII → OBJ; 1852 tris, 1.26 m blade (E-015) |
 | `MOT` animation payload | **Partial** | Header parsed; frame encoding open |
 | `MOD ` mesh payload | **Open** | Header fields known, vertex/index layout open |
 | `SHW ` material payload | **Open** | Header fields known, texture binding open |

@@ -94,3 +94,44 @@ directly readable by Blender (Source Tools) and trivially convertible to OBJ/glT
 5. **Licensing.** Downloaded by the owner from Nexus; permissions live on the mod
    page. Treat as *reference*; never commit. Confirm permissions before reusing
    any file. Tracked by issue #31 (H4).
+
+---
+
+## Verified: the mesh converts cleanly (T7, E-015)
+
+`tools/priorart/` implements parsers for both interchange formats and a converter
+to Wavefront OBJ. Both were run against the real package.
+
+| Input | Parser result |
+|---|---|
+| `WP_A_10100.ascii` | **8 bones, 1 mesh, 1176 vertices, 1852 triangles**, 7 textures |
+| `WP_A_10100.smd` | **8 nodes, 8 bones, 1 material, 5556 vertices, 1852 triangles** |
+
+The two independent formats agree exactly on the triangle count (1852), and the
+OBJ files produced from each have **identical bounding boxes**:
+
+```
+extent (x, y, z) = 0.163  1.260  0.053  metres      longest axis 1.260
+```
+
+A thin, 1.26 m long, 16 cm wide, 5 cm thick object is a **katana** — consistent
+with `WP_A_1063` being Yamato. Bone names confirm it:
+`WP_A_1063_Grip`, `B_Root`, `B_Blade_00`, `B_Blade_01`, `B_Blade_02`.
+
+ASCII gives 1176 shared vertices; SMD gives 5556 per-corner vertices, exactly
+`3 × 1852`. Both are correct for their format, and the agreement is strong
+evidence the parsers are right.
+
+**Conclusion: Vergil's Yamato is now exported to OBJ and verified.** Phase 1
+milestone 1.0/1.7 is satisfied for the **weapon**. The **body** (`BD_M_10100`) is
+still FLVER-only, so it needs a FLVER parser or an external tool — that remains
+open.
+
+Commands used (output kept outside the repository, as enforced by the tool):
+
+```powershell
+$W = "C:\Users\GigelCastel\Desktop\vergil\parts\wp_a_1063-partsbnd-dcx"
+python tools/priorart/convert.py "$W\WP_A_10100.ascii" --out G:\re\vergil\yamato_ascii.obj --stats
+python tools/priorart/convert.py "$W\WP_A_10100.smd"   --out G:\re\vergil\yamato_smd.obj   --stats
+```
+
