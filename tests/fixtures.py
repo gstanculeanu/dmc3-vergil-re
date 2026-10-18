@@ -157,6 +157,58 @@ def mod_body(
     return bytes(blob)
 
 
+def mod_descriptor(
+    tag: int = 0x8001,
+    count: int = 44,
+    vector: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0),
+    data_offset: int = 0,
+    aux: int = 0x00100001,
+    tag_word: int = None,
+) -> bytes:
+    """A synthetic 0x40-byte ``MOD `` body descriptor (E-092).
+
+    ``tag_word`` overrides the packed ``(count << 16) | tag`` when given (used
+    to build the untagged footer).
+    """
+    blob = bytearray(0x40)
+    struct.pack_into("<4f", blob, 0x0C, *vector)
+    word = ((count & 0xFFFF) << 16) | (tag & 0xFFFF) if tag_word is None else tag_word
+    struct.pack_into("<I", blob, 0x1C, word & 0xFFFFFFFF)
+    struct.pack_into("<I", blob, 0x24, data_offset)
+    struct.pack_into("<I", blob, 0x2C, aux)
+    return bytes(blob)
+
+
+def mod_directory_body(
+    tagged: int = 3,
+    slack: int = 0,
+    tags: tuple = (0x8001, 0x8001, 0x8001),
+    counts: tuple = (44, 54, 3),
+    footer_word: int = (4 << 16) | 44,
+) -> bytes:
+    """A synthetic ``MOD `` body opening with a descriptor array (E-092).
+
+    Builds ``tagged`` namespace-tagged descriptors followed by one untagged
+    footer descriptor (``tagged + 1`` records total), then ``slack`` fill bytes
+    and a small data region.  Descriptor 0's ``+0x24`` (the array-size field)
+    is ``(tagged + 1) * 0x40 + slack``; each tagged descriptor's ``+0x24`` is a
+    strictly increasing, 16-byte-aligned body offset beginning at the array end.
+    """
+    count = tagged + 1
+    array_size = count * 0x40 + slack
+    descs = []
+    for k in range(tagged):
+        descs.append(
+            mod_descriptor(
+                tag=tags[k % len(tags)],
+                count=counts[k % len(counts)],
+                data_offset=array_size + 0x10 * k,
+            )
+        )
+    descs.append(mod_descriptor(tag_word=footer_word, data_offset=0, aux=0x00000004))
+    return b"".join(descs) + b"\x00" * slack + b"\x10" * 0x40
+
+
 def shw_chunk(
     alpha: float = 0.5,
     field_08: int = 0,

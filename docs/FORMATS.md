@@ -511,7 +511,7 @@ files**; evidence E-030), all little-endian:
 +0x24  ...     payload body (vertices, indices, normals, UVs, skin weights)  [UNKNOWN layout]
 ```
 
-### 5.1 `MOD ` payload body prefix — first decoded fields [E-031, E-091]
+### 5.1 `MOD ` payload body prefix — first decoded fields [E-031, E-091, E-092]
 
 **Status: [PARTIAL]** — evidence E-031 (pl021.pac), E-091 (all 286 install
 `MOD ` chunks). The body begins at `+0x24` (immediately after the header). Its
@@ -561,6 +561,49 @@ section-offset table at body `+0x6C` (`0xD0, 0x960, 0x11F0, 0x14D0, 0x17B0,
 0x18F0`), while slots 1/12 do not (E-091).
 * `+0x14 == 0xF4240` (1,000,000) in 187/286 chunks suggests one field may be a
   byte size or vertex count, but that is an inference, not an observation.
+
+#### E-092 update: the body opens with a fixed-size descriptor array — structure [VERIFIED]
+
+E-031/E-091 read only the first 0x40 bytes and called them a "prefix". Reading
+the whole body (all **286** install `MOD ` chunks) shows those bytes are the
+first record of an **array of fixed 0x40-byte descriptors** that opens the body:
+
+```
+descriptor +0x00  u32     0 where observed
+descriptor +0x0C  4x f32  vector-like values                      [meaning UNKNOWN]
+descriptor +0x1C  u32    tagged count (count << 16) | tag, 0x8000 namespace
+descriptor +0x20  u32     0 where observed
+descriptor +0x24  u32     a body-relative byte offset             [referent UNKNOWN]
+descriptor +0x28  u32     0 where observed
+descriptor +0x2C  u32     varies (0x00100001 in many records)     [meaning UNKNOWN]
+```
+
+* The array's **byte size** is the u32 at body `+0x24` — descriptor 0's own
+  `+0x24`. It is a multiple of `0x40` in **279/286** chunks; the other seven
+  (all in `id430.pac` / `id470.pac`) add `0x10`.
+* `count = array_size // 0x40` (range 2..42). Verified **286/286**: exactly
+  `count - 1` descriptors carry a `0x8000`-namespace tag and the last (the
+  **footer**) does not.
+* **`ModBodyPrefix` re-interpreted.** Its `tag_word`/`field_24`/`field_2c` are
+  descriptor 0's own fields; its `vector` and `repeat` actually belong to
+  descriptor 1 (`0x4C = 0x40 + 0x0C`, `0x5C = 0x40 + 0x1C`). This explains
+  E-091's "the same tagged shape recurs at body +0x5C in 188/286": body +0x5C
+  is descriptor 1's tag, present unless `count == 2` (98 chunks), and
+  `286 − 98 = 188`. Body +0x9C is descriptor 2's tag, present when `count ≥ 4`
+  (`286 − 98 − 17 = 171`; E-091 observed 170).
+* Descriptor `+0x24` is 16-byte aligned in **284/286** chunks and strictly
+  increasing across the tagged `records` in **282/286**. The array-size field is
+  descriptor 0's `+0x24`, so descriptor 0's data begins exactly at the array end
+  (`count * 0x40`) — the descriptor data follows the array.
+* Descriptor-tag census over all tagged `records`: `0x8001` x1519, `0x8002` x26,
+  `0x8008` x8, `0x8201` x3, `0x8601` x2, `0x8004` x2, `0x8005` x1 — three tag
+  values (`0x8008`, `0x8601`, `0x8004`) are new relative to E-091's first-field
+  census.
+* What the array describes, what `count` counts, the footer's role and the data
+  layout are all **[UNKNOWN]**.
+* `tools/dmc3/mod.py` exposes `ModBodyDescriptor`, `ModBodyDirectory`,
+  `descriptor_count`, `maybe_mod_body_directory` and the `BODY_DESCRIPTOR_*`
+  constants.
 
 `SHW ` chunk header (verified bytes across all four `pl021.pac` `SHW `
 chunks; evidence E-036), all little-endian:

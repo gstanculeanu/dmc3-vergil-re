@@ -136,6 +136,12 @@ class ModBodyPrefix:
     **286** ``MOD `` chunks in the install the low half (``tag``) is a
     ``0x8000``-namespace value — ``0x8001`` x279, ``0x8002`` x4, ``0x8201`` x2,
     ``0x8005`` x1 — and the high half is exactly the count E-031 recorded.
+
+    **E-092 supersedes the "prefix" framing.** These bytes are not a bespoke
+    prefix: they are the first 0x40-byte descriptor of the body's descriptor
+    array (see :class:`ModBodyDirectory`).  ``tag_word``/``field_24``/
+    ``field_2c`` are descriptor 0's fields, and ``vector``/``repeat`` actually
+    belong to descriptor 1 (body +0x4C = 0x40 + 0x0C, body +0x5C = 0x40 + 0x1C).
     """
 
     tag_word: int
@@ -210,4 +216,199 @@ def maybe_mod_body_prefix(body: bytes) -> Optional[ModBodyPrefix]:
     try:
         return ModBodyPrefix.parse(body)
     except ValueError:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Payload body: the leading fixed-size descriptor array (E-092)
+# ---------------------------------------------------------------------------
+#
+# E-031/E-091 read the *first* record only, at body +0x00..+0x5F.  Reading the
+# whole body shows those bytes are not a bespoke prefix: the body opens with an
+# **array of 0x40-byte descriptors**.  ``ModBodyPrefix``'s fields are simply
+# descriptor 0 (``tag_word`` at +0x1C, ``field_24`` at +0x24, ``field_2c`` at
+# +0x2C) and the *vector* of descriptor 1 (+0x4C = 0x40 + 0x0C) plus
+# descriptor 1's ``tag_word`` (+0x5C = 0x40 + 0x1C), which is why E-091 saw the
+# tagged shape again at body +0x5C in 188/286 chunks (= every chunk with more
+# than two descriptors).
+
+BODY_DESCRIPTOR_SIZE = 0x40
+"""Byte size of one ``MOD `` body descriptor (E-092)."""
+
+BODY_DESCRIPTOR_ARRAY_OFFSET = 0x24
+"""Body offset of the u32 that holds the descriptor array's byte size (E-092).
+For 279/286 chunks this is exactly ``count * 0x40``; seven chunks (all in
+``id430.pac`` / ``id470.pac``) carry an extra :data:`BODY_DESCRIPTOR_SLACK`."""
+
+BODY_DESCRIPTOR_TAG_OFFSET = 0x1C
+"""Offset of the tagged u32 inside each descriptor (E-092)."""
+
+BODY_DESCRIPTOR_VECTOR_OFFSET = 0x0C
+"""Offset of the four f32s inside each descriptor (E-092)."""
+
+BODY_DESCRIPTOR_AUX_OFFSET = 0x2C
+"""Offset of the trailing u32 inside each descriptor (E-092)."""
+
+BODY_DESCRIPTOR_SLACK = 0x10
+"""Extra bytes over ``count * 0x40`` seen in the array-size field (E-092)."""
+
+
+@dataclass(frozen=True)
+class ModBodyDescriptor:
+    """One 0x40-byte record at the head of a ``MOD `` payload body (E-092).
+
+    Every field is an **observation**: the layout is consistent across the
+    install and the tag namespace is 285/286, but no field is assigned a
+    *meaning*.  The first ``count - 1`` descriptors of a body carry a
+    ``0x8000``-namespace :attr:`tag`; the final descriptor is untagged.
+    """
+
+    index: int
+    """Zero-based position in the array."""
+
+    tag_word: int
+    """Descriptor +0x1C: u32 ``(count << 16) | tag`` (see :attr:`tag`)."""
+
+    vector: tuple[float, float, float, float]
+    """Descriptor +0x0C: four little-endian f32s.  Meaning [UNKNOWN]."""
+
+    data_offset: int
+    """Descriptor +0x24: a body-relative byte offset.  For descriptor 0 this is
+    the array's byte size; for the tagged records it names their data.  Meaning
+    of the referent [UNKNOWN]."""
+
+    aux: int
+    """Descriptor +0x2C: u32 (``0x00100001`` in many tagged records).  Meaning
+    [UNKNOWN]."""
+
+    @property
+    def tag(self) -> int:
+        """Low u16 of :attr:`tag_word`."""
+        return self.tag_word & 0xFFFF
+
+    @property
+    def count(self) -> int:
+        """High u16 of :attr:`tag_word` — the E-031/E-091 "count" field."""
+        return (self.tag_word >> 16) & 0xFFFF
+
+    @property
+    def tagged(self) -> bool:
+        """True when :attr:`tag` is in the ``0x8000`` namespace (E-091/E-092)."""
+        return (self.tag & BODY_TAG_MASK) == BODY_TAG_NAMESPACE
+
+    @classmethod
+    def parse(cls, body: bytes, index: int) -> "ModBodyDescriptor":
+        """Read descriptor ``index`` from the body."""
+        base = index * BODY_DESCRIPTOR_SIZE
+        if base + BODY_DESCRIPTOR_SIZE > len(body):
+            raise ValueError(
+                f"body only {len(body)} bytes, need {base + BODY_DESCRIPTOR_SIZE} "
+                f"for descriptor {index}"
+            )
+        return cls(
+            index=index,
+            tag_word=u32(body, base + BODY_DESCRIPTOR_TAG_OFFSET),
+            vector=(
+                f32(body, base + BODY_DESCRIPTOR_VECTOR_OFFSET),
+                f32(body, base + BODY_DESCRIPTOR_VECTOR_OFFSET + 4),
+                f32(body, base + BODY_DESCRIPTOR_VECTOR_OFFSET + 8),
+                f32(body, base + BODY_DESCRIPTOR_VECTOR_OFFSET + 12),
+            ),
+            data_offset=u32(body, base + BODY_DESCRIPTOR_ARRAY_OFFSET),
+            aux=u32(body, base + BODY_DESCRIPTOR_AUX_OFFSET),
+        )
+
+
+def descriptor_count(array_size: int) -> int:
+    """Descriptor count implied by the body's array-size field (E-092).
+
+    ``array_size`` is a multiple of :data:`BODY_DESCRIPTOR_SIZE` in 279/286
+    chunks; the other seven add :data:`BODY_DESCRIPTOR_SLACK`.  Both floor to
+    the same count.  Any other remainder raises :class:`ValueError`.
+    """
+    if array_size <= 0:
+        raise ValueError(f"array size {array_size} is not positive")
+    remainder = array_size % BODY_DESCRIPTOR_SIZE
+    if remainder not in (0, BODY_DESCRIPTOR_SLACK):
+        raise ValueError(
+            f"array size 0x{array_size:X} is not a descriptor multiple "
+            f"(remainder 0x{remainder:X})"
+        )
+    return array_size // BODY_DESCRIPTOR_SIZE
+
+
+@dataclass(frozen=True)
+class ModBodyDirectory:
+    """The ``MOD `` body's leading descriptor array (E-092).
+
+    ``count`` is derived from the body's own ``+0x24`` field, not from a scan:
+    across the install exactly ``count - 1`` descriptors carry a
+    ``0x8000``-namespace tag and the last (:attr:`footer`) does not, which is
+    what makes the count self-consistent.
+    """
+
+    array_size: int
+    """The raw ``u32`` at body +0x24 (the descriptor array's byte size)."""
+
+    descriptors: tuple[ModBodyDescriptor, ...]
+    """All ``count`` descriptors, in body order."""
+
+    @property
+    def count(self) -> int:
+        """Number of descriptors (``array_size // 0x40``)."""
+        return len(self.descriptors)
+
+    @property
+    def records(self) -> tuple[ModBodyDescriptor, ...]:
+        """Every descriptor except the untagged :attr:`footer`."""
+        return self.descriptors[:-1]
+
+    @property
+    def footer(self) -> ModBodyDescriptor:
+        """The last descriptor — the one *not* in the tag namespace."""
+        return self.descriptors[-1]
+
+    @property
+    def tags(self) -> tuple[int, ...]:
+        """Tags of :attr:`records`, in body order."""
+        return tuple(d.tag for d in self.records)
+
+    @property
+    def slack(self) -> int:
+        """Bytes the array-size field exceeds ``count * 0x40`` by (0 or 0x10)."""
+        return self.array_size - self.count * BODY_DESCRIPTOR_SIZE
+
+    @property
+    def header_ok(self) -> bool:
+        """True when every :attr:`records` descriptor is tagged and the
+        :attr:`footer` is not (holds on the install)."""
+        return all(d.tagged for d in self.records) and not self.footer.tagged
+
+    @classmethod
+    def parse(cls, body: bytes) -> "ModBodyDirectory":
+        """Parse the descriptor array at the head of a ``MOD `` body."""
+        if len(body) < BODY_DESCRIPTOR_ARRAY_OFFSET + 4:
+            raise ValueError(
+                f"body only {len(body)} bytes, need 4 at +0x{BODY_DESCRIPTOR_ARRAY_OFFSET:X}"
+            )
+        array_size = u32(body, BODY_DESCRIPTOR_ARRAY_OFFSET)
+        count = descriptor_count(array_size)
+        if len(body) < count * BODY_DESCRIPTOR_SIZE:
+            raise ValueError(
+                f"body only {len(body)} bytes, need {count * BODY_DESCRIPTOR_SIZE} "
+                f"for {count} descriptors"
+            )
+        return cls(
+            array_size=array_size,
+            descriptors=tuple(
+                ModBodyDescriptor.parse(body, i) for i in range(count)
+            ),
+        )
+
+
+def maybe_mod_body_directory(body: bytes) -> Optional[ModBodyDirectory]:
+    """Like :meth:`ModBodyDirectory.parse` but returns ``None`` on bad input."""
+    try:
+        return ModBodyDirectory.parse(body)
+    except (ValueError, IndexError):
         return None

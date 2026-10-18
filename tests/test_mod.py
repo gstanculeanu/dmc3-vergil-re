@@ -3,13 +3,21 @@ import struct
 import unittest
 
 import fixtures
-from dmc3 import Chunk, ModBodyPrefix, ModHeader
+from dmc3 import Chunk, ModBodyDirectory, ModBodyPrefix, ModHeader
 from dmc3.mod import (
+    BODY_DESCRIPTOR_ARRAY_OFFSET,
+    BODY_DESCRIPTOR_AUX_OFFSET,
+    BODY_DESCRIPTOR_SIZE,
+    BODY_DESCRIPTOR_SLACK,
+    BODY_DESCRIPTOR_TAG_OFFSET,
+    BODY_DESCRIPTOR_VECTOR_OFFSET,
     BODY_PREFIX_SIZE,
     BODY_TAG_MASK,
     BODY_TAG_NAMESPACE,
     BODY_TAG_OFFSET,
     HEADER_SIZE,
+    descriptor_count,
+    maybe_mod_body_directory,
     maybe_mod_body_prefix,
     maybe_mod_header,
 )
@@ -158,6 +166,89 @@ class TestModBodyTaggedCount(unittest.TestCase):
     def test_tag_outside_namespace_is_detected(self):
         prefix = ModBodyPrefix.parse(fixtures.mod_body(tag=0x0001, count=182))
         self.assertFalse(prefix.tag_in_namespace)
+
+
+class TestModBodyDirectory(unittest.TestCase):
+    """E-092: the body opens with a 0x40-byte descriptor array whose count is
+    the body's own +0x24 field. Only observed structure is asserted."""
+
+    def test_layout_constants(self):
+        self.assertEqual(BODY_DESCRIPTOR_SIZE, 0x40)
+        self.assertEqual(BODY_DESCRIPTOR_ARRAY_OFFSET, 0x24)
+        self.assertEqual(BODY_DESCRIPTOR_TAG_OFFSET, 0x1C)
+        self.assertEqual(BODY_DESCRIPTOR_VECTOR_OFFSET, 0x0C)
+        self.assertEqual(BODY_DESCRIPTOR_AUX_OFFSET, 0x2C)
+        self.assertEqual(BODY_DESCRIPTOR_SLACK, 0x10)
+
+    def test_count_comes_from_array_size(self):
+        body = fixtures.mod_directory_body(tagged=3)
+        directory = ModBodyDirectory.parse(body)
+        self.assertEqual(directory.count, 4)
+        self.assertEqual(directory.array_size, 4 * 0x40)
+        self.assertEqual(directory.slack, 0)
+
+    def test_last_descriptor_is_the_untagged_footer(self):
+        directory = ModBodyDirectory.parse(fixtures.mod_directory_body(tagged=3))
+        self.assertEqual(len(directory.records), 3)
+        self.assertTrue(all(d.tagged for d in directory.records))
+        self.assertFalse(directory.footer.tagged)
+        self.assertTrue(directory.header_ok)
+
+    def test_tags_and_counts_round_trip(self):
+        directory = ModBodyDirectory.parse(
+            fixtures.mod_directory_body(
+                tagged=2, tags=(0x8002, 0x8601), counts=(298, 7)
+            )
+        )
+        self.assertEqual(directory.tags, (0x8002, 0x8601))
+        self.assertEqual([d.count for d in directory.records], [298, 7])
+
+    def test_descriptor_zero_matches_the_body_prefix_fields(self):
+        # E-031/E-091's "prefix" fields are descriptor 0's own fields (E-092).
+        body = fixtures.mod_directory_body(tagged=3, counts=(182, 0, 0))
+        directory = ModBodyDirectory.parse(body)
+        prefix = ModBodyPrefix.parse(body)
+        self.assertEqual(directory.descriptors[0].tag_word, prefix.tag_word)
+        self.assertEqual(directory.descriptors[0].data_offset, prefix.field_24)
+        self.assertEqual(directory.descriptors[0].aux, prefix.field_2c)
+        # The prefix's vector/repeat are descriptor 1's vector/tag_word.
+        self.assertEqual(
+            tuple(directory.descriptors[1].vector), tuple(prefix.vector)
+        )
+        self.assertEqual(directory.descriptors[1].tag_word, prefix.repeat)
+
+    def test_data_offsets_are_aligned_and_increasing(self):
+        directory = ModBodyDirectory.parse(fixtures.mod_directory_body(tagged=4))
+        offsets = [d.data_offset for d in directory.records]
+        self.assertTrue(all(o % 0x10 == 0 for o in offsets), offsets)
+        self.assertEqual(offsets, sorted(set(offsets)), offsets)
+        # array end == descriptor 0's data offset (array is followed by data)
+        self.assertEqual(offsets[0], directory.array_size)
+
+    def test_slack_remainder_is_tolerated(self):
+        # 7/286 real chunks carry +0x10 in the array-size field (id430/id470).
+        directory = ModBodyDirectory.parse(
+            fixtures.mod_directory_body(tagged=4, slack=0x10)
+        )
+        self.assertEqual(directory.count, 5)
+        self.assertEqual(directory.slack, 0x10)
+
+    def test_descriptor_count_rejects_other_remainders(self):
+        self.assertEqual(descriptor_count(0x80), 2)
+        self.assertEqual(descriptor_count(0x90), 2 + 0)  # 0x10 slack, floor
+        with self.assertRaises(ValueError):
+            descriptor_count(0x85)
+        with self.assertRaises(ValueError):
+            descriptor_count(0)
+
+    def test_rejects_short_body(self):
+        with self.assertRaises(ValueError):
+            ModBodyDirectory.parse(b"\x00" * 8)
+        # array-size says 4 descriptors but the body is truncated
+        truncated = fixtures.mod_directory_body(tagged=3)[:0x80]
+        with self.assertRaises(ValueError):
+            ModBodyDirectory.parse(truncated)
+        self.assertIsNone(maybe_mod_body_directory(b"\x00" * 4))
 
 
 if __name__ == "__main__":

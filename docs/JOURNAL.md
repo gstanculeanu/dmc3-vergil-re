@@ -2153,3 +2153,48 @@ moves and health bar and everything."*
   `+0x5C` is still F1's gap (engine route via `.pdata`, or a decoded peer). F4
   stays blocked on the engine route and is not re-spun; the GoW3R clip leaf
   keyframe encoding (F9) remains available.
+
+## 2026-10-18 — F1 bounded slice: the `MOD ` body opens with a 0x40-byte descriptor array (E-092)
+
+- Did: picked the critical path **F1** (issue #1) after re-reading the journal;
+  E-091's own "Next" said the tag was the lead, but reading the *whole* body
+  showed the first 0x40 bytes are one record of an array, which reframes the
+  tag question. Read all 194 `*.pac` files under
+  `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\` (read-only; 32
+  `PNST` files skipped) and censused the **286** `MOD ` chunks. Added
+  `ModBodyDescriptor`, `ModBodyDirectory`, `descriptor_count` /
+  `maybe_mod_body_directory` and the `BODY_DESCRIPTOR_*` constants to
+  `tools/dmc3/mod.py`, exported from `dmc3`; added the synthetic
+  `mod_descriptor()` / `mod_directory_body()` fixtures and
+  `TestModBodyDirectory` (9 tests). Full suite: **600 tests, all green**
+  (591 baseline + 9). Nothing written to the game; no game data committed.
+- Found (**E-092**), read-only on **286/286** install `MOD ` chunks:
+  - The body opens with a fixed **0x40-byte descriptor array**. Its byte size is
+    the body's own `+0x24` field (descriptor 0's `+0x24`); `count = array_size //
+    0x40` = 2..42. The size is a multiple of `0x40` in **279/286** chunks; the
+    other seven (all in `id430.pac`/`id470.pac`) add `0x10`.
+  - **Exactly `count-1` descriptors carry a `0x8000`-namespace tag at `+0x1C` and
+    the last is an untagged footer — 286/286.** Descriptor `+0x24` is 16-byte
+    aligned in 284/286 and strictly increasing across `records` in 282/286.
+  - Descriptor-tag census over every tagged record: `0x8001` x1519, `0x8002` x26,
+    **`0x8008` x8**, `0x8201` x3, **`0x8601` x2**, **`0x8004` x2**, `0x8005` x1
+    (three new tags vs E-091's first-field census).
+  - **Correction to E-031/E-091's framing:** `ModBodyPrefix.tag_word`/
+    `field_24`/`field_2c` are descriptor 0's own fields, and its `vector`/
+    `repeat` belong to **descriptor 1** (`0x4C = 0x40 + 0x0C`, `0x5C = 0x40 +
+    0x1C`). That explains E-091's body+0x5C "tagged shape in 188/286": it is
+    descriptor 1's tag, present unless `count == 2` (98 chunks; `286 − 98 =
+    188`). Body+0x9C is descriptor 2's tag (`count ≥ 4` → 171; E-091 measured
+    170).
+  - **[UNKNOWN]:** what the array describes, what `count` counts, the footer's
+    role, and the data layout. The descriptor array names mesh data; it is not
+    the mesh payload.
+- Docs: E-092 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §5.1 gains the
+  "E-092 update: the body opens with a fixed-size descriptor array" subsection
+  and the title gains E-092; `docs/BACKLOG.md` F1 row updated (evidence cell
+  adds E-092, status rewritten). No game data committed.
+- Next: the descriptor array is now the *addressable* structure — the descriptor
+  tags (`0x8001`/`0x8002`/`0x8008`/`0x8201`/`0x8601`/`0x8004`/`0x8005`) and each
+  descriptor's `+0x24` data offset are the fresh lead into the vertex/index
+  layout. F4 stays blocked on the engine route and is not re-spun; the GoW3R
+  clip leaf keyframe encoding (F9) remains available.

@@ -5137,3 +5137,76 @@ exported from `dmc3`. `tests/fixtures.py::mod_body` writes the single tagged u32
 namespace check and the four observed tags. Validated read-only against the real
 install (`tag_in_namespace` `286/286`, `pl021.pac` tags all `0x8001`). No game
 data committed.
+
+## E-092 — `MOD ` body: the leading bytes are one record of a 0x40-byte descriptor array, not a bespoke prefix (F1, bounded slice)
+
+**Observation (read-only from
+`G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\`, all 194 `*.pac`
+files — 32 `PNST` files skipped — 286 `MOD ` chunks).** E-031/E-091 read the
+body's first `0x60` bytes and named them a "prefix". Reading the whole body
+shows the body opens with an **array of fixed `0x40`-byte descriptors**. The
+array's byte size is the u32 at body `+0x24`; `count = array_size // 0x40`.
+
+Raw descriptor layout (body-relative, little-endian; observed on all chunks):
+
+```
+descriptor +0x00  u32      0 where observed
+descriptor +0x0C  4x f32   vector-like (e.g. em013.pac slot 1 rec 1 = (0.00215, 178.0, 5.278, 25.35))
+descriptor +0x1C  u32      tagged word (count << 16) | tag; tag 0x8000-namespace
+descriptor +0x20  u32      0 where observed
+descriptor +0x24  u32      a body-relative byte offset
+descriptor +0x28  u32      0 where observed
+descriptor +0x2C  u32      varies (0x00100001 in many tagged records)
+```
+
+Worked example, `pl021.pac` slot 1 (body = file `0x398A4`; array size
+`body+0x24` = `0x300` = 12 × `0x40`): 12 descriptors; the first 11 carry tag
+`0x8001`/`0x8002`/`0x8008` and the 12th (`body+0x2C0`, `+0x1C` = `0x000101DA`)
+is untagged. `pl021.pac` slots 23/25: array size `0x80` = 2 descriptors, one
+tagged (`0x00B68001`) and one untagged. `em013.pac` slot 1 (body 140,524 B):
+array size `0xA80` = 42 descriptors, 41 tagged and the 42nd untagged.
+
+**Census of the whole install (286 `MOD ` chunks):**
+
+| observation | result |
+|---|---|
+| `array_size = u32(body,+0x24)` remainder mod `0x40` | `0` x279, `0x10` x7 |
+| the seven `0x10`-remainder chunks | all in `id430.pac` (slot 3) / `id470.pac` (slots 7,9,13,15,17,19) |
+| `count = array_size // 0x40` | 2..42 (modes: 2 x98, 4 x39, 5 x19, 8 x18, 3 x17, 6 x16, 9 x19, 15 x12, 11 x8, 17 x7, 22 x6, …) |
+| exactly `count-1` descriptors tagged, footer untagged | **286/286** |
+| tagged descriptor `+0x24` 16-byte aligned | 284/286 |
+| tagged descriptor `+0x24` strictly increasing | 282/286 |
+| descriptor-0 `+0x24` = array end (`count*0x40`) | 279/279 divisible chunks (the 7 slack chunks are `+0x10`) |
+
+Descriptor-tag census over every tagged record: **`0x8001` x1519, `0x8002` x26,
+`0x8008` x8, `0x8201` x3, `0x8601` x2, `0x8004` x2, `0x8005` x1**.
+
+**Correction to E-031/E-091 [FRAMING WAS IMPRECISE].** The "prefix" fields are
+descriptor 0's own fields, and two of them belong to descriptor 1: body `+0x4C`
+= descriptor 1's `+0x0C` (the `vector`) and body `+0x5C` = descriptor 1's
+`+0x1C` (E-091's "second tagged field"). This explains E-091's otherwise odd
+observation that body `+0x5C` carries a `0x8000`-namespace tag in **188/286**
+chunks: it is descriptor 1's tag, present unless `count == 2` (98 chunks);
+`286 − 98 = 188`. Body `+0x9C` = descriptor 2's tag, present when `count ≥ 4`
+(`286 − 98 − 17 = 171`; E-091 measured 170). E-091's tag census was the *first*
+descriptor only; the install-wide census above adds `0x8008`, `0x8601`, `0x8004`.
+
+**Unknown (recorded, not inferred).** What the descriptor array describes, what
+`count` (the high `u16` of the tagged word) counts, the footer's role (its own
+`+0x1C` low `u16` equals descriptor 0's `count` in 232/286 chunks — an
+observation, not asserted), what the four f32s and the `+0x24` offset refer to,
+and the vertex/index/UV/skin-weight layout are all **[UNKNOWN]**. The descriptor
+array is *not* a mesh payload by itself; it is the structure the mesh data is
+named by.
+
+**Tooling.** `tools/dmc3/mod.py`: `ModBodyDescriptor`, `ModBodyDirectory`,
+`descriptor_count()` and `maybe_mod_body_directory()` plus the
+`BODY_DESCRIPTOR_SIZE = 0x40`, `BODY_DESCRIPTOR_ARRAY_OFFSET = 0x24`,
+`BODY_DESCRIPTOR_TAG_OFFSET = 0x1C`,
+`BODY_DESCRIPTOR_VECTOR_OFFSET = 0x0C`,
+`BODY_DESCRIPTOR_AUX_OFFSET = 0x2C`, `BODY_DESCRIPTOR_SLACK = 0x10` constants,
+exported from `dmc3`. `tests/fixtures.py` gains `mod_descriptor()` /
+`mod_directory_body()`; `tests/test_mod.py` gains `TestModBodyDirectory`
+(9 tests). Validated read-only against all **286** install `MOD ` chunks:
+**286/286** parse, **286/286** `header_ok`. Full suite: **600 tests, all green**.
+No game data committed.
