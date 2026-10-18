@@ -1425,4 +1425,44 @@ moves and health bar and everything."*
   otherwise F3 slots 6/7/11/22 and the G9/G10 directory binding. F1/F4 remain
   blocked on DMC3-side engine ground truth and are not re-spun.
 
+---
+
+## 2026-10-18 — F9/G9 bounded slice: the clip data-section recursion is exactly two levels (E-067)
+
+- Did: followed E-066's own Next ("recurse into the sub-blocks — the tag-`0x16`
+  table's continuation past index 128 and the nested preamble's own sub-blocks").
+  Read real bytes (read-only) from `R_HADES.WAD` (77 clips) and `R_HERCULES.WAD`
+  (46) under `C:\Users\GigelCastel\Desktop\gow3\CUSA01715\EXEC\WAD\PS4_LE\` and
+  walked the nested structure with one reader. Generalised the sub-block splitter
+  in `tools/gow3/anim.py` — new `parse_data_section(data, offset, end)` (the
+  general form of `parse_clip_sub_blocks`), `ClipSubBlocks.end` and
+  `ClipSubBlocks.nested_data_section()`, `clip_data_sections()`, and
+  `tag16_offset_table()` / `ClipSubBlock.tag16_offset_table`; new constants
+  `CLIP_DATA_NESTED_LEAD_TAG` = 0x19, `CLIP_DATA_NESTED_LEAD_TAGS`,
+  `CLIP_DATA_NESTED_TAIL_TAGS`, `CLIP_DATA_MAX_DEPTH`,
+  `CLIP_DATA_SECOND_TABLE_FIRST` = 0x20. 9 new tests (`TestClipDataRecursion`)
+  on a synthetic two-level clip. Full suite: **398 tests, all green**.
+- Found (**E-067**):
+  - **The data-section recursion is exactly two levels.** 122/123 clips have a
+    two-long chain of preambles; none has three; `attCestusCrush` has one. The
+    level-2 preamble keeps every E-065 offset invariant on 122/122
+    (increasing, 16-byte aligned, `values[0] == round_up(length, 16)`).
+  - **The nested level adds lead tag `0x19`** (`101/122` clips; shapes
+    `0x15 0x16 0x18 0x19 0x0B` and `0x15 0x16 0x17 0x18 0x19 0x0B`). `0x19` is
+    never an outer lead tag, so the two levels are not identical.
+  - **The level-2 tag-`0x16` table is 122/123 entries, never 128.** E-066's
+    "128 on 123/123" is the outer level only; the nested block opens with 123
+    entries (114 clips) or 122 (8).
+  - **Every tag-`0x16` block continues past the `0x30 * k` table with a second
+    offset table**: u16 values strictly increasing, all multiples of 16, first
+    value `0x20` in every outer block (123/123). It reaches `0x1800`
+    (`0x30 * 128`) or `0x3C00` before constant fill; length/meaning [UNKNOWN].
+- Docs: E-067 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §7.7 gains "the recursion
+  is exactly two levels — [VERIFIED] (E-067)"; `docs/BACKLOG.md` F9/G9 rows
+  updated (evidence cells now list E-067). No game data committed.
+- Next: the leaf keyframe/curve encoding inside the level-2 sub-blocks is the
+  remaining F9 gap, decodable from `eboot.elf`; otherwise F3 slots 6/7/11/22 and
+  the G9/G10 directory binding. F1/F4 remain blocked on DMC3-side engine ground
+  truth and are not re-spun.
+
 

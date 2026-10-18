@@ -27,7 +27,9 @@ strictly increasing **offset** into the clip's data section, and the first one
 is the preamble's own length rounded up; E-066: those offsets name **typed
 sub-blocks** -- the sub-block a record points at is typed by that record's tag,
 the tag-0x16 sub-block always opens with 128 u16 ``0x30 * k``, and the tag-0x10
-sub-block contains a *nested* preamble of the same shape). The *internal* clip
+sub-block contains a *nested* preamble of the same shape; E-067: the nesting is
+exactly two levels deep, the level-2 preamble may carry tag 0x19, and its
+tag-0x16 table is 122/123 entries rather than 128). The *internal* clip
 encoding (bone channels, keyframes) is [UNKNOWN] and is not interpreted here.
 """
 
@@ -506,6 +508,20 @@ CLIP_DATA_TAG16_STEP = 0x30         # the table's value at index k is step * k
 CLIP_DATA_TAG10 = 0x10              # tag whose sub-block holds the nested preamble
 CLIP_DATA_NESTED_MIN_RECORDS = 3    # min lead/tail for a nested parse (E-066)
 
+# The clip data section recurses: the tag-0x10 sub-block holds a *nested* data
+# section of the same shape, and its tag-0x10 sub-block holds none further, so the
+# nesting is exactly two levels deep (E-067). The nested preamble keeps the
+# E-064/E-065 shape with two additions: tag 0x19 is a lead tag seen *only* at the
+# nested level, and the nested level's tag-0x16 sub-block opens with a `0x30 * k`
+# table whose length is 123 (114 clips) or 122 (8 clips), not 128. Immediately
+# after a `0x30 * k` table comes a second, strictly increasing, 16-byte-aligned
+# u16 offset table beginning at 0x20 (E-067).
+CLIP_DATA_NESTED_LEAD_TAG = 0x19    # lead tag observed only in the nested preamble
+CLIP_DATA_NESTED_LEAD_TAGS = (0x0B, 0x15, 0x16, 0x17, 0x18, 0x19)
+CLIP_DATA_NESTED_TAIL_TAGS = (0x0B, 0x0F, 0x10, 0x1B, 0x1C, 0x1D, 0x1E)
+CLIP_DATA_MAX_DEPTH = 4             # recursion cap for clip_data_sections()
+CLIP_DATA_SECOND_TABLE_FIRST = 0x20  # first value of the table after `0x30 * k`
+
 
 def tag16_prefix_length(payload: bytes) -> int:
     """Count leading u16 where ``payload`` equals ``0x30 * k`` (E-066).
@@ -521,6 +537,30 @@ def tag16_prefix_length(payload: bytes) -> int:
             break
         length += 1
     return length
+
+
+def tag16_offset_table(payload: bytes) -> tuple:
+    """The offset table that follows a tag-0x16 sub-block's ``0x30 * k`` table (E-067).
+
+    On the real clips the ``0x30 * k`` table is immediately followed by a second
+    table of u16 values that strictly increase and are all multiples of 16,
+    beginning at ``CLIP_DATA_SECOND_TABLE_FIRST`` (0x20). This returns the leading
+    run of such values; it stops at the first value that is zero, misaligned or
+    not greater than its predecessor. The meaning of the values is [UNKNOWN] — only
+    the run is observed.
+    """
+    start = tag16_prefix_length(payload)
+    values = []
+    at = 2 * start
+    while at + 2 <= len(payload):
+        value = struct.unpack_from("<H", payload, at)[0]
+        if value == 0 or value % CLIP_DATA_ALIGNMENT != 0:
+            break
+        if values and value <= values[-1]:
+            break
+        values.append(value)
+        at += 2
+    return tuple(values)
 
 
 def find_nested_preamble(payload: bytes,
@@ -563,6 +603,11 @@ class ClipSubBlock:
         """Leading ``0x30 * k`` run length (E-066)."""
         return tag16_prefix_length(self.payload)
 
+    @property
+    def tag16_offset_table(self) -> tuple:
+        """The increasing 16-byte-aligned table after the ``0x30 * k`` run (E-067)."""
+        return tag16_offset_table(self.payload)
+
     def nested_preamble(self, min_records: int = CLIP_DATA_NESTED_MIN_RECORDS):
         """The nested preamble inside this sub-block, or ``None`` (E-066)."""
         return find_nested_preamble(self.payload, min_records)
@@ -574,11 +619,13 @@ class ClipSubBlocks:
 
     ``blocks`` is in file order and one entry per preamble record, so its tags
     match ``ClipDataPreamble``'s records. The two verified relations are reported
-    as evidence: ``tag16_prefix_ok`` and ``nested_ok``.
+    as evidence: ``tag16_prefix_ok`` and ``nested_ok``. ``end`` is the bound the
+    last block runs to; it is needed to recurse into the tag-0x10 sub-block (E-067).
     """
 
     offset: int      # the clip's data-section start
     blocks: tuple    # ClipSubBlock, in file order
+    end: int = 0     # bytes bound of the data section (last block's stop)
 
     @property
     def tags(self) -> tuple:
@@ -603,6 +650,25 @@ class ClipSubBlocks:
                 return found
         return None
 
+    def nested_data_section(self, data: bytes,
+                            min_records: int = CLIP_DATA_NESTED_MIN_RECORDS
+                            ) -> Optional["ClipSubBlocks"]:
+        """The data section nested inside the tag-0x10 sub-block, or ``None`` (E-067).
+
+        Finds the nested preamble (E-066) and splits it with the same reader as the
+        outer data section, bounded by the tag-0x10 sub-block. Returns ``None`` when
+        there is no nested preamble, so recursion terminates exactly where the real
+        clips stop (E-067: two levels).
+        """
+        for block in self.of_tag(CLIP_DATA_TAG10):
+            found = block.nested_preamble(min_records)
+            if found is None:
+                continue
+            relative, _preamble = found
+            return parse_data_section(data, block.offset + relative,
+                                      block.offset + block.size)
+        return None
+
     @property
     def nested_ok(self) -> bool:
         """A nested preamble sits in the tag-0x10 sub-block (E-066, 122/123)."""
@@ -614,6 +680,33 @@ class ClipSubBlocks:
                 "nested_preamble": self.nested_ok}
 
 
+def parse_data_section(data: bytes, offset: int,
+                       end: int) -> Optional[ClipSubBlocks]:
+    """Split the data section whose preamble sits at ``offset``, bounded by ``end``.
+
+    This is the general form of :func:`parse_clip_sub_blocks`: the preamble at
+    ``offset`` names one sub-block per record (E-064/E-065), each running to the
+    next record's target or to ``end`` for the last. It is used both for a clip's
+    outer data section and for the nested one inside a tag-0x10 sub-block (E-067).
+    Returns ``None`` when the preamble cannot be parsed or names no records.
+    """
+    preamble = parse_clip_data_preamble(data, offset)
+    if preamble is None or not (preamble.lead or preamble.tail):
+        return None
+    records = tuple(preamble.lead) + tuple(preamble.tail)
+    targets = preamble.data_targets(offset)
+    stop_bound = min(end, len(data)) if end else len(data)
+
+    blocks = []
+    for index, (record, start) in enumerate(zip(records, targets)):
+        stop = targets[index + 1] if index + 1 < len(targets) else stop_bound
+        stop = min(stop, stop_bound)
+        payload = data[start:stop] if 0 <= start <= stop else b""
+        blocks.append(ClipSubBlock(tag=record.tag, offset=start,
+                                   size=max(0, stop - start), payload=payload))
+    return ClipSubBlocks(offset=offset, blocks=tuple(blocks), end=stop_bound)
+
+
 def parse_clip_sub_blocks(data: bytes, clip) -> Optional[ClipSubBlocks]:
     """Split a clip's data section into the sub-blocks its preamble names (E-066).
 
@@ -623,22 +716,24 @@ def parse_clip_sub_blocks(data: bytes, clip) -> Optional[ClipSubBlocks]:
     ``None`` when the preamble cannot be parsed or names no records; a target
     outside the buffer yields an empty payload rather than raising.
     """
-    data_offset = clip.offset + CLIP_TAIL_END
-    preamble = parse_clip_data_preamble(data, data_offset)
-    if preamble is None or not (preamble.lead or preamble.tail):
-        return None
-    records = tuple(preamble.lead) + tuple(preamble.tail)
-    targets = preamble.data_targets(data_offset)
-    end = clip.end
+    return parse_data_section(data, clip.offset + CLIP_TAIL_END, clip.end)
 
-    blocks = []
-    for index, (record, start) in enumerate(zip(records, targets)):
-        stop = targets[index + 1] if index + 1 < len(targets) else end
-        stop = min(stop, len(data))
-        payload = data[start:stop] if 0 <= start <= stop else b""
-        blocks.append(ClipSubBlock(tag=record.tag, offset=start,
-                                   size=max(0, stop - start), payload=payload))
-    return ClipSubBlocks(offset=data_offset, blocks=tuple(blocks))
+
+def clip_data_sections(data: bytes, clip,
+                       max_depth: int = CLIP_DATA_MAX_DEPTH) -> tuple:
+    """A clip's data section and its nested ones, outermost first (E-067).
+
+    Follows the tag-0x10 nesting (E-066/E-067) up to ``max_depth`` sections. On the
+    real clips the chain is exactly two long on 122/123 clips and one long for
+    ``attCestusCrush``; the walk stops there rather than on the cap. Returns an empty
+    tuple when the clip has no parseable data section.
+    """
+    sections = []
+    current = parse_clip_sub_blocks(data, clip)
+    while current is not None and len(sections) < max_depth:
+        sections.append(current)
+        current = current.nested_data_section(data)
+    return tuple(sections)
 
 
 def _read_u32(data: bytes, offset: int) -> int:

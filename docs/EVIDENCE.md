@@ -3262,3 +3262,95 @@ The full suite is **389 tests, all green**. `docs/FORMATS.md` §7.7 and
 `docs/BACKLOG.md` F9/G9 are updated.
 
 
+## E-067 — GoW3R clip data section: the recursion is exactly two levels, and each tag-0x16 block carries a second offset table (G9/F9, bounded slice)
+
+**Observation.** E-066 left two questions open: the tag-`0x16` table's
+"continuation past index 128" and "the nested preamble's own sub-blocks". This
+slice answers both, read-only from `R_HADES.WAD` (77 clips) and `R_HERCULES.WAD`
+(46 clips) under `C:\Users\GigelCastel\Desktop\gow3\CUSA01715\EXEC\WAD\PS4_LE\`.
+
+**A. The data section recurses exactly two levels.** Splitting the nested preamble
+inside the outer tag-`0x10` sub-block with the same reader (E-064/E-065), on all
+123 clips:
+
+| quantity | result |
+|---|---|
+| clips with a data section | 123/123 |
+| data-section chains of length 1 | **1** (`attCestusCrush`, `R_HERCULES.WAD`) |
+| chains of length 2 | **122** |
+| chains of length 3 or more | **0** |
+
+So the nested preamble, in turn, has a tag-`0x10` sub-block that holds **no**
+further preamble — the structure is recursive but shallow, and the leaf data sits
+inside the level-2 sub-blocks. The nested preamble keeps every E-065 offset
+invariant on 122/122: strictly increasing, 16-byte aligned, and
+`values[0] == round_up(preamble byte length, 16)`.
+
+**B. The nested preamble adds tag `0x19` to the vocabulary.** The outer lead tags
+are exactly `{0x0B, 0x15, 0x16, 0x17, 0x18}` (E-064) and the outer tail tags
+`{0x0B, 0x0F, 0x10, 0x1B, 0x1C, 0x1D, 0x1E}`. At the nested level the lead tags may
+also carry `0x19` (`101/122` clips), in three observed shapes:
+
+```
+0x15 0x16 0x18 0x0B            21 clips   (no 0x19)
+0x15 0x16 0x18 0x19 0x0B      93 clips
+0x15 0x16 0x17 0x18 0x19 0x0B  8 clips
+```
+
+Tail shapes at the nested level: `0x1B 0x1D 0x1E 0x0F 0x10` (82),
+`0x1B 0x1C 0x1B 0x1D 0x1E 0x0F 0x10` (17), `0x1B 0x1C 0x1D 0x0F 0x10` (13),
+`0x1B 0x1D 0x0F 0x10` (6), `0x1B 0x1D 0x1E 0x10` (3), `0x1B 0x1E 0x0F 0x10` (1).
+`0x19` is **not** an outer lead tag on any clip and **not** in E-064's tag sets.
+
+**C. Every tag-`0x16` sub-block continues past the `0x30 * k` table with a second
+offset table.** Both at the outer level and at the nested level, the `0x30 * k`
+run is immediately followed by a u16 table whose values strictly increase and are
+all multiples of 16, starting at `0x20` in every outer tag-`0x16` block
+(123/123). Raw bytes, `angryKratosWalk` (`R_HADES.WAD`, outer tag-`0x16` block at
+`0x5C60`), from table index 126:
+
+```
+[126] 17a0 17d0 0020 0080 00b0 00e0 0140 0170 01a0 01d0 0200 0230   <- 0x17d0 = 0x30*127, then 0x20 ...
+```
+
+The table's values reach `0x1800` (= `0x30 * 128`) before a run of constant
+`0x1800` fill; on other clips it reaches `0x3C00`. The *length* of the run is
+variable and its meaning is [UNKNOWN]; only "increasing, 16-byte aligned, first
+value `0x20`" is claimed.
+
+**D. The level-2 tag-`0x16` table is shorter than the outer one.** E-066 measured
+128 `0x30 * k` entries on 123/123, but that is the **outer** level. At the nested
+level the tag-`0x16` sub-block opens with a `0x30 * k` run of **123** entries on
+114 clips and **122** on 8 clips — never 128. Raw bytes, `angryKratosWalk` nested
+tag-`0x16` block at `0x6EF0`, from table index 120:
+
+```
+[120] 1680 16b0 16e0 0020 0050 0080 00b0 00e0 0140 0170 0200 0230   <- 122 entries, then 0x20 ...
+```
+
+**Inference.** The clip data section is a two-level directory tree: the outer
+preamble names typed sub-blocks, the tag-`0x10` block nests a second preamble of
+the same shape, and the level-2 sub-blocks hold the leaf data. `0x19` is a
+level-2-only lead tag, which is consistent with the levels not being identical.
+The tag-`0x16` sub-block is a two-table structure (a fixed-stride `0x30 * k`
+table plus an increasing 16-byte-aligned table), but no field meaning is proven.
+
+**Unknown.** The meaning of every tag, `arg`, `extra` and sub-block payload; why
+`attCestusCrush` has no nested preamble; whether the nested level-2 tag-`0x16`
+table length (122/123) is a count; and the leaf keyframe/curve encoding, which is
+still the F9 gap. No pointer or type semantics beyond "offset" (E-065), "typed by
+tag" (E-066) and "two levels" (this entry) are claimed.
+
+**Consequence.** `tools/gow3/anim.py` gains `parse_data_section()` (the general
+form of `parse_clip_sub_blocks()`), `ClipSubBlocks.end` and
+`ClipSubBlocks.nested_data_section()`, `clip_data_sections()`, and
+`tag16_offset_table()` / `ClipSubBlock.tag16_offset_table`, plus the constants
+`CLIP_DATA_NESTED_LEAD_TAG` = 0x19, `CLIP_DATA_NESTED_LEAD_TAGS`,
+`CLIP_DATA_NESTED_TAIL_TAGS`, `CLIP_DATA_MAX_DEPTH` and
+`CLIP_DATA_SECOND_TABLE_FIRST` = 0x20. 9 new unit tests (`TestClipDataRecursion`)
+run on a synthetic two-level clip (no game data committed); the full suite is
+**398 tests, all green**. `docs/FORMATS.md` §7.7 and `docs/BACKLOG.md` F9/G9 are
+updated.
+
+
+

@@ -936,3 +936,39 @@ the `CLIP_DATA_TAG16` / `CLIP_DATA_TAG16_PREFIX_WORDS` (128) /
 `CLIP_DATA_TAG16_STEP` (0x30) / `CLIP_DATA_TAG10` / `CLIP_DATA_NESTED_MIN_RECORDS`
 (3) constants; `ClipSubBlocks` reports `tag16_prefix_ok` / `nested_ok` as evidence
 only. The leaf keyframe/curve encoding is still the F9 gap.
+
+##### The recursion is exactly two levels — [VERIFIED] (E-067)
+
+Splitting the *nested* preamble with the same reader (E-064/E-065) shows the
+nesting is shallow and bounded:
+
+| quantity | result |
+|---|---|
+| data-section chains of length 1 | 1 (`attCestusCrush`) |
+| chains of length 2 | **122/123** |
+| chains of length ≥ 3 | **0** |
+
+The level-2 preamble satisfies every E-065 offset invariant on 122/122 (strictly
+increasing, 16-byte aligned, `values[0] == round_up(length, 16)`). Its tag
+vocabulary differs from the outer level in two measured ways (both 123 clips):
+
+* a lead tag **`0x19`** appears only at level 2 (`101/122` clips; shapes
+  `0x15 0x16 0x18 0x19 0x0B` and `0x15 0x16 0x17 0x18 0x19 0x0B`);
+* the level-2 tag-`0x16` sub-block opens with a `0x30 * k` run of **123** entries
+  (114 clips) or **122** (8 clips), **never 128** — E-066's "128" is the outer
+  level only.
+
+Each tag-`0x16` sub-block, at either level, also carries a second table
+immediately after the `0x30 * k` run: u16 values that strictly increase, are all
+multiples of 16, and start at `0x20` in every outer block (123/123). The run
+reaches `0x1800` (= `0x30 * 128`) or `0x3C00` before constant fill; its length
+and meaning are [UNKNOWN].
+
+The reader is `parse_data_section()` (the general form of
+`parse_clip_sub_blocks()`), `ClipSubBlocks.end` / `ClipSubBlocks.nested_data_section()`,
+`clip_data_sections()`, `tag16_offset_table()` /
+`ClipSubBlock.tag16_offset_table`, and the constants
+`CLIP_DATA_NESTED_LEAD_TAG` (0x19) / `CLIP_DATA_NESTED_LEAD_TAGS` /
+`CLIP_DATA_NESTED_TAIL_TAGS` / `CLIP_DATA_MAX_DEPTH` /
+`CLIP_DATA_SECOND_TABLE_FIRST` (0x20). Tag meaning and the leaf encoding remain
+[UNKNOWN].

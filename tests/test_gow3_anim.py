@@ -611,5 +611,164 @@ class TestClipSubBlocks(unittest.TestCase):
         self.assertEqual(last.payload, b"")
 
 
+# E-067: two-level recursion. These offsets are relative to the synthetic clip.
+NEST_OFFSET = 0x40             # clip offset (name field)
+NEST_SIZE = 0x940              # clip byte size (>= every target)
+NEST_TAG16_REL = 0x90          # outer tag-0x16 sub-block, from the data section
+NEST_TAG10_REL = 0x2A0         # outer tag-0x10 sub-block, from the data section
+NESTED_REL = 0x40              # nested preamble inside the outer tag-0x10 block
+NEST_TAG16_WORDS = 123         # nested tag-0x16 table length (E-067)
+
+
+def nested_preamble_bytes() -> bytes:
+    """A nested preamble whose lead tags include 0x19 (E-067)."""
+    disc = anim.CLIP_DATA_RECORD_DISCRIMINATOR
+    lead = [(0x15, 0x10, 0x70), (0x16, 0xD8, 0x130), (0x18, 0x78, 0x280),
+            (0x19, 0x08, 0x300), (0x0B, 0x8022, 0x310)]
+    tail = [(0x1B, 0x8022, 0x320, 0x0), (0x1D, 0x04, 0x330, 0x0),
+            (0x1E, 0x01, 0x340, 0x0), (0x0F, 0x05, 0x350, 0x0),
+            (0x10, 0x33, 0x370, 0x0)]
+    out = bytearray()
+    for tag, arg, value in lead:
+        out += struct.pack("<4H", tag, arg, disc, value)
+    out += struct.pack("<3H", 0, 0, 117)
+    for tag, arg, value, extra in tail:
+        out += struct.pack("<5H", tag, arg, disc, value, extra)
+    out += struct.pack("<H", 0)
+    return bytes(out)
+
+
+def outer_preamble_bytes() -> bytes:
+    """An outer preamble naming the E-067 sub-block layout (values relative)."""
+    disc = anim.CLIP_DATA_RECORD_DISCRIMINATOR
+    lead = [(0x15, 0x08, 0x60), (0x16, 0x100, NEST_TAG16_REL),
+            (0x18, 0x50, 0x200), (0x0B, 0x8039, 0x220)]
+    tail = [(0x1B, 0x8039, 0x230, 0x0), (0x1D, 0x31, 0x250, 0xC0),
+            (0x1E, 0x01, 0x270, 0x700), (0x0F, 0x05, 0x290, 0x0),
+            (0x10, 0x33, NEST_TAG10_REL, 0xC0)]
+    out = bytearray()
+    for tag, arg, value in lead:
+        out += struct.pack("<4H", tag, arg, disc, value)
+    out += struct.pack("<3H", 0, 0, 41)
+    for tag, arg, value, extra in tail:
+        out += struct.pack("<5H", tag, arg, disc, value, extra)
+    out += struct.pack("<H", 0)
+    return bytes(out)
+
+
+def nested_clip(name="nestedClip") -> tuple:
+    """A clip whose data section recurses exactly two levels (E-067).
+
+    The outer tag-0x10 sub-block holds a nested preamble that carries tag 0x19 and
+    whose own tag-0x16 sub-block opens with a 123-entry ``0x30 * k`` table; the
+    nested tag-0x10 sub-block holds no further preamble.
+    """
+    data = bytearray(NEST_OFFSET + NEST_SIZE)
+    raw = name.encode("latin-1")
+    data[NEST_OFFSET:NEST_OFFSET + len(raw)] = raw
+    data_offset = NEST_OFFSET + anim.CLIP_TAIL_END
+
+    outer = outer_preamble_bytes()
+    data[data_offset:data_offset + len(outer)] = outer
+    # outer tag-0x16: the 128-entry table, then a short second offset table
+    outer16 = data_offset + NEST_TAG16_REL
+    for k in range(anim.CLIP_DATA_TAG16_PREFIX_WORDS):
+        struct.pack_into("<H", data, outer16 + 2 * k,
+                         anim.CLIP_DATA_TAG16_STEP * k)
+    for i, value in enumerate((0x20, 0x80, 0xB0, 0x140)):
+        struct.pack_into("<H", data, outer16 + 2 * anim.CLIP_DATA_TAG16_PREFIX_WORDS + 2 * i,
+                         value)
+    # outer tag-0x10: a nested preamble at +NESTED_REL
+    outer10 = data_offset + NEST_TAG10_REL
+    nested = nested_preamble_bytes()
+    data[outer10 + NESTED_REL:outer10 + NESTED_REL + len(nested)] = nested
+    # nested tag-0x16: a shorter `0x30 * k` table (123 entries) then a second table
+    n_data = outer10 + NESTED_REL
+    nested16 = n_data + 0x130
+    for k in range(NEST_TAG16_WORDS):
+        struct.pack_into("<H", data, nested16 + 2 * k,
+                         anim.CLIP_DATA_TAG16_STEP * k)
+    for i, value in enumerate((0x20, 0x50, 0x80)):
+        struct.pack_into("<H", data, nested16 + 2 * NEST_TAG16_WORDS + 2 * i, value)
+    # nested tag-0x10 (at n_data+0x370) holds no preamble: fill with 0xCC
+    nested10 = n_data + 0x370
+    filler = (((NEST_OFFSET + NEST_SIZE) - nested10) + 1) // 2 * 2
+    data[nested10:nested10 + filler] = b"\xcc" * filler
+    clip = anim.Clip(index=0, name=name, offset=NEST_OFFSET,
+                     span=NEST_SIZE, size=NEST_SIZE)
+    return bytes(data), clip
+
+
+class TestClipDataRecursion(unittest.TestCase):
+    """E-067: the data section recurses exactly two levels."""
+
+    def setUp(self):
+        self.data, self.clip = nested_clip()
+        self.sections = anim.clip_data_sections(self.data, self.clip)
+
+    def test_two_sections_are_returned(self):
+        self.assertEqual(len(self.sections), 2)
+        outer, nested = self.sections
+        self.assertEqual(outer.offset, self.clip.offset + anim.CLIP_TAIL_END)
+        self.assertEqual(nested.offset, outer.offset + NEST_TAG10_REL + NESTED_REL)
+        self.assertEqual(outer.end, self.clip.end)
+        self.assertEqual(nested.end, self.clip.end)
+
+    def test_nested_section_is_a_sub_block_of_the_outer(self):
+        outer, nested = self.sections
+        self.assertEqual(
+            nested, outer.nested_data_section(self.data))
+        self.assertTrue(outer.nested_ok)
+
+    def test_nested_lead_carries_the_extra_tag_0x19(self):
+        self.assertEqual(anim.CLIP_DATA_NESTED_LEAD_TAG, 0x19)
+        _, nested = self.sections
+        lead_tags = anim.parse_clip_data_preamble(
+            self.data, nested.offset).lead_tags
+        self.assertIn(anim.CLIP_DATA_NESTED_LEAD_TAG, lead_tags)
+        self.assertNotIn(anim.CLIP_DATA_NESTED_LEAD_TAG, anim.CLIP_DATA_LEAD_TAGS)
+        self.assertTrue(set(lead_tags) <= set(anim.CLIP_DATA_NESTED_LEAD_TAGS))
+
+    def test_nested_tag16_table_is_123_words_not_128(self):
+        _, nested = self.sections
+        block = nested.of_tag(anim.CLIP_DATA_TAG16)[0]
+        self.assertEqual(block.tag16_prefix_length, NEST_TAG16_WORDS)
+        self.assertEqual(NEST_TAG16_WORDS, 123)
+        self.assertNotEqual(NEST_TAG16_WORDS, anim.CLIP_DATA_TAG16_PREFIX_WORDS)
+        # the outer level still opens with the full 128-entry table (E-066)
+        outer, _ = self.sections
+        self.assertTrue(outer.tag16_prefix_ok)
+
+    def test_recursion_terminates_at_the_second_level(self):
+        _, nested = self.sections
+        self.assertIsNone(nested.nested_data_section(self.data))
+        self.assertFalse(nested.nested_ok)
+
+    def test_max_depth_caps_the_walk(self):
+        self.assertEqual(len(anim.clip_data_sections(self.data, self.clip,
+                                                     max_depth=1)), 1)
+
+    def test_empty_when_the_clip_has_no_data_section(self):
+        blob = b"\x00" * (NEST_OFFSET + NEST_SIZE)
+        self.assertEqual(anim.clip_data_sections(blob, self.clip), ())
+
+    def test_second_offset_table_follows_the_0x30k_table(self):
+        outer, nested = self.sections
+        block = outer.of_tag(anim.CLIP_DATA_TAG16)[0]
+        self.assertEqual(block.tag16_offset_table, (0x20, 0x80, 0xB0, 0x140))
+        self.assertEqual(anim.CLIP_DATA_SECOND_TABLE_FIRST, 0x20)
+        nblock = nested.of_tag(anim.CLIP_DATA_TAG16)[0]
+        self.assertEqual(nblock.tag16_offset_table, (0x20, 0x50, 0x80))
+
+    def test_tag16_offset_table_stops_on_a_bad_value(self):
+        table = b"".join(struct.pack("<H", 0x30 * k) for k in range(2))
+        # 0x20, 0x30, then 0x31 (misaligned) stops the run
+        tail = struct.pack("<3H", 0x20, 0x30, 0x31)
+        self.assertEqual(anim.tag16_offset_table(table + tail), (0x20, 0x30))
+        # a repeat / non-increase also stops it
+        self.assertEqual(anim.tag16_offset_table(table + struct.pack("<2H", 0x20, 0x20)),
+                         (0x20,))
+
+
 if __name__ == "__main__":
     unittest.main()
