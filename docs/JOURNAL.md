@@ -1178,3 +1178,46 @@ moves and health bar and everything."*
 - Next: the clip's **internal** encoding (channels, keyframes, root motion) is
   still the F9 "moves" gap; `+0x124`-onward pointer-like data is the lead. F1/F4
   remain blocked on DMC3-side engine ground truth and are not re-spun.
+
+---
+
+## 2026-10-18 — F9/G9 bounded slice: clip descriptor tail and data-section start (E-061)
+
+- Did: continued the GoW3R clip work after E-060 by censusing the region *past*
+  E-060's boundary (`+0x120..+0x15B`) on all 123 clips of `R_HADES.WAD` (77) and
+  `R_HERCULES.WAD` (46), read-only. Added `ClipDescriptorTail`,
+  `parse_clip_descriptor_tail()` / `maybe_clip_descriptor_tail()` and the
+  `CLIP_TAIL_*` / `CLIP_DATA_*` constants to `tools/gow3/anim.py`; extended the
+  synthetic `anim_wad` fixture and added `TestClipDescriptorTail` (9 tests).
+  Full suite: **351 tests, all green** (342 baseline + 9). Validated read-only
+  against both real archives: all 123 clips satisfy all four invariants.
+- Found (**E-061**):
+  - The fixed descriptor ends at `+0x158`, not `+0x123`: `+0x128` = `0x00800000`,
+    `+0x130` = `0x00010001`, `+0x138` = `0x037B0000` and `+0x14C..+0x158` =
+    `0xFFFFFFFF` are constant on 123/123 clips.
+  - The **seven** per-clip u32s are `+0x124`, `+0x12C`, `+0x134`, `+0x13C`,
+    `+0x140`, `+0x144`, `+0x148`. Five of them are **16-byte aligned and
+    in-file on 123/123** (`+0x124/+0x12C/+0x134/+0x13C/+0x144`); the other two
+    are small and unaligned.
+  - **Correction to E-060:** "from `+0x124` onward the u32s are pointer-like and
+    per-clip" holds only for those seven fields, not for the interleaved
+    constants or the sentinel run.
+  - The per-clip data section begins at **`+0x15C`**, opening with the u16 marker
+    pair `0x0015` / `0x000C` on 123/123 clips.
+  - **[INFERRED]** the five aligned fields are file offsets into a *shared* pool:
+    `+0x12C` values are reused between clips (18/77 in `R_HADES.WAD`, in coherent
+    groups — `hadesKnifeAttLhigh/Llow/RHigh` share `0x14F0`, both taunts share
+    `0x1350`), and one Hades pair's `+0x124` values differ by exactly 16. Pointer
+    semantics remain unproven, so the reader exposes values plus `aligned_ok`
+    only — no field meaning is asserted.
+- Docs: E-061 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §7.7 gains the descriptor
+  tail ([PARTIAL]/[INFERRED] marked); `docs/BACKLOG.md` F9/G9 rows updated.
+- Next: the clip's internal encoding beyond `+0x15C` is the remaining F9 "moves"
+  gap and is decodable from `eboot.bin`/`eboot.elf`; the `+0x15C` marker pair is
+  the lead. F1/F4 remain blocked on DMC3-side engine ground truth and are not
+  re-spun.
+- Note (housekeeping, not fixed this iteration): `tools/dmc3/raw.py`'s
+  `Slot9Table` cites "evidence E-053", but the ledger's E-053 is the eboot entry
+  — the pl021.pac slot-9 f32 array still has **no ledger entry**. Next free ID is
+  **E-062**; a future slice should re-read slot 9 and record it, then correct the
+  stale citation.

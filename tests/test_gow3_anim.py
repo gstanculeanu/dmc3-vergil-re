@@ -36,6 +36,19 @@ def anim_wad(names, lead=LEAD, table=TABLE, base=BASE, head=HEAD) -> bytes:
         struct.pack_into("<H", record, anim.CLIP_FRAME_COUNT_OFFSET, FRAMES)
         struct.pack_into("<f", record, anim.CLIP_SAMPLE_RATE_OFFSET,
                          anim.expected_sample_rate(FRAMES))
+        # E-061: the per-clip descriptor tail and the data-section markers
+        for field, value in anim.CLIP_TAIL_CONSTANTS:
+            struct.pack_into("<I", record, field, value)
+        for field in anim.CLIP_TAIL_SENTINEL_OFFSETS:
+            struct.pack_into("<I", record, field, anim.CLIP_TAIL_SENTINEL)
+        for field, value in zip(anim.CLIP_TAIL_ALIGNED_OFFSETS,
+                                (0x12340, 0x1200, 0x34560, 0x1D10, 0x2000)):
+            struct.pack_into("<I", record, field, value)
+        struct.pack_into("<I", record, 0x140, 0x2A)       # unaligned, as observed
+        struct.pack_into("<I", record, 0x148, 0x185)      # unaligned, as observed
+        struct.pack_into("<H", record, anim.CLIP_TAIL_END, anim.CLIP_DATA_MARKER)
+        struct.pack_into("<H", record, anim.CLIP_TAIL_END + 4,
+                         anim.CLIP_DATA_SECOND_MARKER)
         payload += record
     blob += b"\x00" * (base - len(blob))
     blob += payload
@@ -220,6 +233,73 @@ class TestClipHeaderRelations(unittest.TestCase):
         self.assertEqual(anim.float32(1.0 / 30),
                          struct.unpack("<f", struct.pack("<f", 1.0 / 30))[0])
         self.assertNotEqual(anim.float32(1.0 / 30), 1.0 / 30)
+
+
+class TestClipDescriptorTail(unittest.TestCase):
+    """E-061: the per-clip tail at +0x124..+0x148 and the data-section markers."""
+
+    def setUp(self):
+        self.data = anim_wad(["csHadesIntro", "hadesKnifeBlockEnter"])
+        self.offset = anim.parse_clips(self.data)[0].offset
+        self.tail = anim.parse_clip_descriptor_tail(self.data, self.offset)
+
+    def test_reads_the_seven_per_clip_fields(self):
+        self.assertEqual(anim.CLIP_TAIL_VALUE_OFFSETS,
+                         (0x124, 0x12C, 0x134, 0x13C, 0x140, 0x144, 0x148))
+        self.assertEqual([field for field, _ in self.tail.fields],
+                         list(anim.CLIP_TAIL_VALUE_OFFSETS))
+
+    def test_five_fields_are_sixteen_byte_aligned(self):
+        self.assertEqual(anim.CLIP_TAIL_ALIGNED_OFFSETS,
+                         (0x124, 0x12C, 0x134, 0x13C, 0x144))
+        self.assertTrue(self.tail.aligned_ok)
+        self.assertEqual(len(self.tail.aligned_values), 5)
+        for value in self.tail.aligned_values:
+            self.assertEqual(value % 16, 0)
+
+    def test_constants_match_evidence(self):
+        self.assertEqual(anim.CLIP_TAIL_CONSTANTS,
+                         ((0x128, 0x00800000), (0x130, 0x00010001),
+                          (0x138, 0x037B0000)))
+        self.assertTrue(self.tail.constants_ok)
+
+    def test_sentinel_and_data_markers(self):
+        self.assertTrue(self.tail.sentinel_ok)
+        self.assertEqual(anim.CLIP_TAIL_SENTINEL, 0xFFFFFFFF)
+        self.assertEqual(self.tail.data_marker, anim.CLIP_DATA_MARKER)
+        self.assertEqual(self.tail.second_marker, anim.CLIP_DATA_SECOND_MARKER)
+        self.assertTrue(self.tail.markers_ok)
+
+    def test_tail_extends_the_header_to_the_data_section(self):
+        self.assertEqual(anim.CLIP_TAIL_MIN, 0x15C)
+        self.assertGreater(anim.CLIP_TAIL_MIN, anim.CLIP_HEADER_MIN)
+
+    def test_invariants_report_every_relation(self):
+        self.assertEqual(self.tail.invariants(),
+                         {"aligned": True, "constants": True,
+                          "sentinel": True, "markers": True})
+
+    def test_a_broken_field_is_reported_not_raised(self):
+        blob = bytearray(self.data)
+        struct.pack_into("<I", blob, self.offset + 0x134, 0x12345)  # not aligned
+        tail = anim.parse_clip_descriptor_tail(bytes(blob), self.offset)
+        self.assertFalse(tail.aligned_ok)
+        self.assertFalse(tail.invariants()["aligned"])
+        self.assertTrue(tail.constants_ok)
+
+    def test_broken_constants_and_sentinel_are_reported(self):
+        blob = bytearray(self.data)
+        struct.pack_into("<I", blob, self.offset + 0x130, 0)
+        struct.pack_into("<I", blob, self.offset + 0x150, 0)
+        tail = anim.parse_clip_descriptor_tail(bytes(blob), self.offset)
+        self.assertFalse(tail.constants_ok)
+        self.assertFalse(tail.sentinel_ok)
+
+    def test_tail_is_none_when_the_clip_is_too_short(self):
+        self.assertIsNone(anim.parse_clip_descriptor_tail(self.data[:0x100], 0))
+        self.assertIsNone(anim.parse_clip_descriptor_tail(
+            self.data, len(self.data) - 8))
+        self.assertIsNone(anim.maybe_clip_descriptor_tail(b"\x00" * 8, 0))
 
 
 if __name__ == "__main__":

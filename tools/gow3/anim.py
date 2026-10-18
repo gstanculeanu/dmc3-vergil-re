@@ -18,8 +18,10 @@ a known offset and span.
 Only what is observed is exposed: clip names, offsets, spans and the fixed clip
 header (E-059: name in a 0x38-byte field, then the size at +0x38; E-060: the size
 is repeated at three further offsets, the frame rate at three further offsets plus
-its reciprocal, and the clip frame count and loop flag). The *internal* clip
-encoding (bone channels, keyframes) is [UNKNOWN] and is not interpreted here.
+its reciprocal, and the clip frame count and loop flag; E-061: the descriptor's
+per-clip tail at +0x124..+0x148, with five 16-byte-aligned fields, and the data
+section beginning at +0x15C). The *internal* clip encoding (bone channels,
+keyframes) is [UNKNOWN] and is not interpreted here.
 """
 
 from __future__ import annotations
@@ -58,6 +60,23 @@ CLIP_SIZE_OFFSETS = (CLIP_SIZE_OFFSET,) + CLIP_SIZE_COPY_OFFSETS
 CLIP_FRAME_RATE_OFFSETS = (CLIP_FRAME_RATE_OFFSET,) + CLIP_RATE_COPY_OFFSETS
 
 CLIP_HEADER_MIN = CLIP_SAMPLE_RATE_OFFSET + 4  # bytes needed to parse the header
+
+# The fixed descriptor continues past CLIP_HEADER_MIN (E-061). Censusing
+# 0x120..0x15B on all 123 clips of R_HADES.WAD and R_HERCULES.WAD shows the
+# descriptor ends at 0x158 and the per-clip data section begins at 0x15C. Within
+# 0x124..0x14B three u32s are constant and seven vary per clip; five of the seven
+# are 16-byte aligned and inside the file on 123/123 clips (the other two are
+# small, unaligned values).
+CLIP_TAIL_END = 0x15C            # first byte of the per-clip data section
+CLIP_TAIL_MIN = CLIP_TAIL_END    # bytes needed to read the descriptor tail
+CLIP_TAIL_VALUE_OFFSETS = (0x124, 0x12C, 0x134, 0x13C, 0x140, 0x144, 0x148)
+CLIP_TAIL_ALIGNED_OFFSETS = (0x124, 0x12C, 0x134, 0x13C, 0x144)
+CLIP_TAIL_CONSTANTS = ((0x128, 0x00800000), (0x130, 0x00010001),
+                       (0x138, 0x037B0000))
+CLIP_TAIL_SENTINEL_OFFSETS = (0x14C, 0x150, 0x154, 0x158)
+CLIP_TAIL_SENTINEL = 0xFFFFFFFF
+CLIP_DATA_MARKER = 0x15          # u16 at 0x15C (21) on 123/123 clips
+CLIP_DATA_SECOND_MARKER = 0x0C   # u16 at 0x160 (12) on 123/123 clips
 
 
 class AnimError(ValueError):
@@ -157,10 +176,106 @@ def expected_sample_rate(frames: int) -> float:
     return float32(1.0 / (frames - 1))
 
 
+@dataclass(frozen=True)
+class ClipDescriptorTail:
+    """The per-clip fields at the end of a clip's fixed descriptor (E-061).
+
+    ``fields`` holds the seven per-clip u32s of ``CLIP_TAIL_VALUE_OFFSETS`` as
+    ``(offset, value)`` pairs. Five of those offsets are 16-byte aligned on all
+    123 censused clips; ``aligned_ok`` reports that, not a meaning. ``constants``
+    and ``sentinel`` are the three constant u32s and the four ``0xFFFFFFFF``
+    sentinels; ``markers_ok`` checks the two u16 values that open the data
+    section. No semantics are asserted: the aligned values behave like offsets
+    into a shared pool (clips share ``+0x12C`` values) but that is [INFERRED].
+    """
+
+    offset: int                    # file offset of the clip (its name field)
+    fields: tuple                  # ((field offset, value), ...) per CLIP_TAIL_VALUE_OFFSETS
+    constants: tuple               # the three u32s of CLIP_TAIL_CONSTANTS
+    sentinel: tuple                # the four u32s of CLIP_TAIL_SENTINEL_OFFSETS
+    data_marker: int               # u16 at CLIP_TAIL_END
+    second_marker: int             # u16 at CLIP_TAIL_END + 4
+
+    @property
+    def aligned_values(self) -> tuple:
+        """Values of the five offsets that are 16-byte aligned on 123/123 clips."""
+        return tuple(value for field, value in self.fields
+                     if field in CLIP_TAIL_ALIGNED_OFFSETS)
+
+    @property
+    def aligned_ok(self) -> bool:
+        """Every ``CLIP_TAIL_ALIGNED_OFFSETS`` value is a multiple of 16 (E-061)."""
+        aligned = [value for field, value in self.fields
+                   if field in CLIP_TAIL_ALIGNED_OFFSETS]
+        return bool(aligned) and all(value % 16 == 0 for value in aligned)
+
+    @property
+    def constants_ok(self) -> bool:
+        """The three interleaved constants match E-061 (123/123 clips)."""
+        return tuple(self.constants) == tuple(value for _, value in CLIP_TAIL_CONSTANTS)
+
+    @property
+    def sentinel_ok(self) -> bool:
+        """All four sentinel u32s are ``CLIP_TAIL_SENTINEL`` (E-061)."""
+        return bool(self.sentinel) and all(value == CLIP_TAIL_SENTINEL
+                                           for value in self.sentinel)
+
+    @property
+    def markers_ok(self) -> bool:
+        """The data section opens with the two observed u16 markers (E-061)."""
+        return (self.data_marker == CLIP_DATA_MARKER
+                and self.second_marker == CLIP_DATA_SECOND_MARKER)
+
+    def invariants(self) -> dict:
+        """The E-061 relations, each as a name -> bool. Evidence, not a verdict."""
+        return {
+            "aligned": self.aligned_ok,
+            "constants": self.constants_ok,
+            "sentinel": self.sentinel_ok,
+            "markers": self.markers_ok,
+        }
+
+
+def parse_clip_descriptor_tail(data: bytes, offset: int) -> Optional[ClipDescriptorTail]:
+    """Read the descriptor tail at ``offset``, or ``None`` if not readable.
+
+    Returns only observed values (E-061); the alignment of five fields is
+    reported as a property, and no field is assigned a meaning.
+    """
+    if offset < 0 or offset + CLIP_TAIL_MIN > len(data):
+        return None
+    return ClipDescriptorTail(
+        offset=offset,
+        fields=tuple((field, _read_u32(data, offset + field))
+                     for field in CLIP_TAIL_VALUE_OFFSETS),
+        constants=tuple(_read_u32(data, offset + field)
+                        for field, _ in CLIP_TAIL_CONSTANTS),
+        sentinel=tuple(_read_u32(data, offset + field)
+                       for field in CLIP_TAIL_SENTINEL_OFFSETS),
+        data_marker=_read_u16(data, offset + CLIP_TAIL_END),
+        second_marker=_read_u16(data, offset + CLIP_TAIL_END + 4),
+    )
+
+
+def maybe_clip_descriptor_tail(data: bytes,
+                               offset: int) -> Optional[ClipDescriptorTail]:
+    """Like :func:`parse_clip_descriptor_tail` but forgiving of short input."""
+    try:
+        return parse_clip_descriptor_tail(data, offset)
+    except (struct.error, ValueError):
+        return None
+
+
 def _read_u32(data: bytes, offset: int) -> int:
     if offset < 0 or offset + 4 > len(data):
         return 0
     return struct.unpack_from("<I", data, offset)[0]
+
+
+def _read_u16(data: bytes, offset: int) -> int:
+    if offset < 0 or offset + 2 > len(data):
+        return 0
+    return struct.unpack_from("<H", data, offset)[0]
 
 
 def _read_f32(data: bytes, offset: int) -> float:

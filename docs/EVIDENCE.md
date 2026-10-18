@@ -2861,4 +2861,61 @@ record (no game data committed). `docs/FORMATS.md` §7.7 and `docs/BACKLOG.md`
 F9/G9 updated.
 
 
+## E-061 — GoW3R clip descriptor tail: five 16-byte-aligned fields and a data-section marker (G9/F9, bounded slice)
+
+**Observation.** E-060 censused `+0x00..+0x123`; this slice censuses
+`+0x120..+0x15B` on **all 123 clips** (77 `R_HADES.WAD`, 46 `R_HERCULES.WAD`,
+read-only from `C:\Users\GigelCastel\Desktop\gow3\CUSA01715\EXEC\WAD\PS4_LE\`).
+
+The fixed descriptor does **not** stop at `+0x123`. In `+0x120..+0x15B`:
+
+| offset | observation across 123/123 clips |
+|---|---|
+| `+0x124`, `+0x12C`, `+0x134`, `+0x13C`, `+0x144` | 16-byte aligned (`value % 16 == 0`) **and** `0 < value < file_size` |
+| `+0x140`, `+0x148` | small unaligned values (`+0x140` 6/77 aligned, `+0x148` 6/77) |
+| `+0x128` = `0x00800000`, `+0x130` = `0x00010001`, `+0x138` = `0x037B0000` | constant |
+| `+0x14C`, `+0x150`, `+0x154`, `+0x158` | constant `0xFFFFFFFF` |
+| `+0x15C` | u16 = `0x0015` (21) on 123/123 |
+| `+0x160` | u16 = `0x000C` (12) on 123/123 |
+
+That is five per-clip aligned fields, two per-clip unaligned fields, three
+constant u32s and four sentinels, then the data section opens with the marker pair
+`u16 0x15, u16 0x0C`. Censusing `+0x15C` and `+0x160` across the 123 clips gives
+only three and four distinct u32 values respectively, all sharing those low u16s.
+
+The `+0x12C` values are shared between clips. In `R_HADES.WAD`, 18 of 77 clips
+reuse another clip's `+0x12C`; the groups are semantically coherent — e.g.
+`0x14F0`: `hadesKnifeAttLhigh`, `hadesKnifeAttLlow`, `hadesKnifeAttRHigh`;
+`0x1350`: `angryKratosTaunt1`, `angryKratosTaunt2`; `0x12D0`:
+`cshadesRip01Stab03`, `cshadesRip01Stab04`, `cshadesRip02Stab01`,
+`cshadesRip02Stab04`, `hadesKnifeBlockEnter`. In one Hades pair the `+0x124`
+values differ by exactly 16 (`hadesKnifeYankTug` `0x431350`, `cshadesRip02Win`
+`0x431360`), i.e. two clips reference overlapping byte ranges.
+
+**Inference.** The five aligned fields are **[INFERRED]** to be file offsets into
+a **shared** data pool — alignment, in-file range and cross-clip sharing all fit
+offsets, and none fits an ordinary numeric parameter. Whether they are pointers,
+offsets relative to some base, or counts-of-16 cannot be settled from these bytes,
+so the reader exposes raw values and an `aligned_ok` property only. The fixed
+descriptor block ends at `+0x158` and the per-clip data section begins at
+`+0x15C`; E-060's "from `+0x124` onward the u32s are pointer-like and per-clip" is
+imprecise for `+0x128`/`+0x130`/`+0x138` (constant) and `+0x14C..+0x158`
+(sentinel).
+
+**Unknown.** What the five aligned fields and the two unaligned fields index;
+whether the pool is separate from the ANM blob; the meaning of the three
+constants and the `+0x15C`/`+0x160` marker pair; and the clip's internal encoding
+(channels, keyframes, root motion) after `+0x15C`. Engine ground truth
+(`eboot.bin`/`eboot.elf`) is the route.
+
+**Consequence.** `tools/gow3/anim.py` gains `ClipDescriptorTail`,
+`parse_clip_descriptor_tail()` / `maybe_clip_descriptor_tail()`, the
+`CLIP_TAIL_*` / `CLIP_DATA_*` constants, and `ClipDescriptorTail.invariants()`.
+All 123 real clips satisfy `aligned`/`constants`/`sentinel`/`markers` when parsed
+against the archives (read-only); the parser is unit-tested on a synthetic clip
+record (no game data committed). `docs/FORMATS.md` §7.7 and `docs/BACKLOG.md`
+F9/G9 updated.
+
+
+
 

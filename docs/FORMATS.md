@@ -790,14 +790,45 @@ E-060's census adds the relations and the two derived fields:
 
 Every other u32 in `+0x00..+0x123` is constant on all 123 clips (the full list is
 in E-060), including the `0xCD`/`0xCC` uninitialized-memory fill — so the region
-is a fixed, mostly-redundant descriptor block, not a track table. From `+0x124`
-onward the u32s are pointer-like and per-clip. The meaning of the four copies,
-the remaining constants, the `0xCD`/`0xCC` fill and the clip's *internal* encoding
-(channels, keyframes, root motion) remain **[UNKNOWN]** — the latter is the
-remaining gap for F9/"moves".
+is a fixed, mostly-redundant descriptor block, not a track table. The meaning of
+the four copies, the remaining constants, the `0xCD`/`0xCC` fill and the clip's
+*internal* encoding (channels, keyframes, root motion) remain **[UNKNOWN]** — the
+latter is the remaining gap for F9/"moves".
+
+#### Descriptor tail and data-section start — [PARTIAL] (E-061)
+
+The descriptor does not stop at `+0x123`. Censusing `+0x120..+0x15B` on the same
+123 clips shows the tail below, with the per-clip data section opening at
+`+0x15C`:
+
+```
++0x124  u32  per-clip, 16-byte aligned, in-file on 123/123   [INFERRED offset]
++0x128  u32  0x00800000 (constant)                            [VERIFIED value]
++0x12C  u32  per-clip, 16-byte aligned, in-file on 123/123   [INFERRED offset]
++0x130  u32  0x00010001 (constant)                            [VERIFIED value]
++0x134  u32  per-clip, 16-byte aligned, in-file on 123/123   [INFERRED offset]
++0x138  u32  0x037B0000 (constant)                            [VERIFIED value]
++0x13C  u32  per-clip, 16-byte aligned, in-file on 123/123   [INFERRED offset]
++0x140  u32  per-clip, small, not aligned                     [UNKNOWN]
++0x144  u32  per-clip, 16-byte aligned, in-file on 123/123   [INFERRED offset]
++0x148  u32  per-clip, small, not aligned                     [UNKNOWN]
++0x14C  u32  0xFFFFFFFF (×4: +0x14C/+0x150/+0x154/+0x158)     [VERIFIED value]
++0x15C  u16  0x0015 (21) on 123/123; then u16 0x000C at +0x160 [VERIFIED value]
+```
+
+So the fixed descriptor ends at `+0x158`; E-060's "from `+0x124` onward the u32s
+are pointer-like and per-clip" holds only for the seven fields above, not for the
+interleaved constants or the sentinel run. The five aligned fields are
+**[INFERRED]** file offsets into a shared pool: `+0x12C` values are reused
+between clips (18/77 in `R_HADES.WAD`, in coherent groups), and one Hades pair's
+`+0x124` values differ by exactly 16. Pointer/offset semantics, the two unaligned
+fields, the constants and the marker pair remain **[UNKNOWN]**.
 
 `tools/gow3/anim.py`: `ClipHeader` (with `frames`, `loop_flag`, `sample_rate`,
 `frame_count_rate`, `rate_copies` and the four `*_ok` relations / `invariants()`),
-`parse_clip_header()`, `float32()`, `expected_sample_rate()`, `CLIP_*` constants;
-`Clip.size` is read from `+0x38` (`Clip.end` uses it), the directory span is
-retained as the upper bound.
+`parse_clip_header()`, `ClipDescriptorTail` (`fields`, `constants`, `sentinel`,
+`data_marker`, `second_marker`, `aligned_ok` / `constants_ok` / `sentinel_ok` /
+`markers_ok` / `invariants()`), `parse_clip_descriptor_tail()`,
+`maybe_clip_descriptor_tail()`, `float32()`, `expected_sample_rate()`, the
+`CLIP_*` / `CLIP_TAIL_*` / `CLIP_DATA_*` constants; `Clip.size` is read from
+`+0x38` (`Clip.end` uses it), the directory span is retained as the upper bound.
