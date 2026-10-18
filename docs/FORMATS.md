@@ -70,10 +70,13 @@ u32s:
 ```
 
 followed by zero bytes until body+0x0800, where small sub-fields appear. At
-body+0x0870 (file offset 0x8F0) the bytes contain a `DDS ` magic
-(`dwSize = 124`, `dwFlags = 0x000A1007`, 256×64) — an embedded DDS-like blob
-whose presence inside the raw slot is unexplained. The remaining ~235 KB of
-the slot's span is non-zero and structured; its layout is undecoded.
+body+0x0870 (file offset 0x8F0) the bytes contain a `DDS ` magic — an embedded
+DDS-like blob whose presence inside the raw slot is unexplained. **Update
+(E-084):** slot 0's DDS is `dwSize = 124`, `dwFlags = 0x000A1007`,
+**256×256**, fourCC `DX10`, depth 1, 9 mips; E-033's "256×64" was a misread
+dword. The bytes at body+0x808..+0x86F are the shared **texture descriptor**
+of §1.4. The remaining ~235 KB of the slot's span is non-zero and structured;
+its layout is undecoded.
 
 The other eight untagged slots (5, 6, 7, 9, 10, 11, 21, 22) have different
 leading bytes (E-008) — so no single header shape is shared across them.
@@ -106,7 +109,11 @@ every field meaning remains [UNKNOWN]:
   sub-record `32767, 0, 32767, 1, 1, 0, VALUE` with `VALUE` stepping by 256.
   `0x7FFF` occurs inside segments and is not a delimiter. Segment-internal
   layout and all field meanings [UNKNOWN] (evidence E-043).
-* **slots 6, 7, 11, 22** — leading bytes differ per slot. Layouts [UNKNOWN].
+* **slots 6, 7, 11** — leading bytes differ per slot. Layouts [UNKNOWN].
+* **slot 22** [PARTIAL] — a **texture slot**: the shared descriptor of §1.4 at
+  body+0x808 followed by an embedded `DXT1` DDS at body+0x870 (32×32, 1 mip,
+  512-byte payload); the descriptor's relations to the DDS header are
+  [VERIFIED] (evidence E-084). Field meanings [UNKNOWN].
 * **slot 9** [structural / [UNKNOWN] semantics] — at file offset `0x077B50`,
   span `0x380` (896 bytes = **224 little-endian f32s**), no header, no count
   field, no separator (evidence E-062). The first 24 values read `10.4, -1.2,
@@ -120,6 +127,45 @@ every field meaning remains [UNKNOWN]:
   `Slot9Table` previously cited "E-053", which is the `eboot.bin` ledger entry.
 
 Every field meaning in this section is [UNKNOWN].
+
+### 1.4 Texture slots: the shared texture descriptor — structure [VERIFIED] (E-084)
+
+The untagged texture slots (`pl021.pac` 0 and 22) and the HD `.tm2` platform
+pre-header carry the **same 0x68-byte descriptor** immediately before an
+embedded DDS. In a PAC texture slot it starts at body+0x808 (after eight zero
+bytes), DDS at body+0x870; in a `.tm2` it starts at file+0x08, DDS at file+0x70
+— a `0x800` offset difference. Fields are relative to the descriptor start `D`
+(little-endian):
+
+```
+D+0x00 u16          mip count << 8   (0x0900 for 9 mips, 0x0100 for 1) [INFERRED]
+D+0x02 u16          2
+D+0x04 u32          0x0000AAE4
+D+0x08 u16,(u16)    (width, height)          == the DDS dwWidth/dwHeight
+D+0x0C u32          1
+D+0x18 u32          64
+D+0x30 u32          DDS payload byte size
+D+0x3C u16,(u16)    (width // 2, height // 2)
+D+0x40 f32,(f32)    2 / width                == 1 / (width // 2)
+D+0x5C u32          payload size + 128 (the DDS header)
+D+0x60 u32          8
+D+0x68 DDS          128-byte DDS header ("DDS ")
+```
+
+The five relations above hold on **three real chunks with no exception**:
+`pl021.pac` slot 0 (256×256 `DX10`, 9 mips, payload 87,428) and slot 22
+(32×32 `DXT1`, 1 mip, payload 512), plus `i001_90.tm2` (256×256 `DXT3`,
+1 mip, payload 65,536 — exactly `256*256*1`). Both observed PAC slots are
+square, so the descriptor's two extents cannot distinguish a width axis from a
+height axis. **Every field meaning beyond these relations is [UNKNOWN]**, and
+the descriptor is not known to hold more than one surface; the payload's block
+format is carried by the DDS fourCC.
+
+Tooling: `TextureChunk` / `maybe_texture_chunk` in `tools/dmc3/raw.py`, with
+`PAC_TEXTURE_DESCRIPTOR_OFFSET = 0x808` (default) and
+`TM2_TEXTURE_DESCRIPTOR_OFFSET = 0x08`, and the
+`dimensions_match` / `half_extent_matches` / `inverse_scale_matches` /
+`total_size_matches` / `mips_match` properties.
 
 ---
 
@@ -332,10 +378,21 @@ DDS** blob. Extraction is `data[find(b"DDS "):]`.
 `0x00081007`, `256×256`, fourCC `DXT3`, one mip level, DDS payload runs from
 file 0xF0 to EOF (65,536 bytes).
 
-### 4.1 TM2 pre-header — census, all fields [UNKNOWN] (E-034)
+### 4.1 TM2 pre-header — the shared texture descriptor (E-034, E-084)
 
 The 0x70-byte platform header preceding the embedded DDS blob, read as 28
-little-endian u32s in `i001_90.tm2`:
+little-endian u32s in `i001_90.tm2`. **Update (E-084):** `+0x08..+0x6F` is not
+an anonymous census — it is the **same 0x68-byte texture descriptor** the
+untagged `pl021.pac` texture slots carry at body+0x808 (§1.4), verified
+field-for-field on all three real artifacts. The relations in §1.4
+(dimensions, half-extents, `2/width`, `payload+128`, mip count at `+0x08`) hold
+here too: `+0x10` = (256, 256), `+0x38` = 65,536 = the DXT3 payload
+(`256*256*1`), `+0x44` = (128, 128), `+0x48`/`+0x4C` = `0.0078125`, `+0x64` =
+`65536 + 128`. The leading eight bytes (+0x00..+0x07) are zero. The `+0x38 ==
+pitch` observation E-034 flagged is thereby explained as the DDS payload size,
+not a coincidence. Every remaining field meaning is [UNKNOWN]; the one
+caveat stands — only one `.tm2` file exists locally, so the format's generality
+rests on the two PAC slots that agree with it.
 
 ```
 +0x00  u32  0                +0x18  u32  0
@@ -354,10 +411,11 @@ little-endian u32s in `i001_90.tm2`:
 +0x68  u32  8                 +0x6C  u32  0
 ```
 
-All 28 fields are **[UNKNOWN]**: no semantics established. An observed
-correlation in this single file — +0x38 == 65,536 equals the DDS pitch — is
-not a rule (only one TM2 file exists in this install, so no cross-file
-confirmation is possible).
+All remaining fields are **[UNKNOWN]** beyond the §1.4 relations: the
+descriptor census above is retained for reference, but `+0x08`/`+0x0C`/`+0x10`/
+`+0x14`/`+0x20`/`+0x38`/`+0x44`/`+0x48`/`+0x4C`/`+0x64`/`+0x68` are now the
+shared descriptor fields `D+0x00`/`D+0x04`/`D+0x08`/`D+0x0C`/`D+0x18`/`D+0x30`/
+`D+0x3C`/`D+0x40`/`D+0x44`/`D+0x5C`/`D+0x60` (E-084).
 
 **Correction history.** E-005 reported "only 0x08 and 0x0C are non-zero" among
 the pre-header u32s; E-034's full census falsifies that — non-zero u32s also

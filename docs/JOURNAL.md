@@ -1944,3 +1944,56 @@ moves and health bar and everything."*
   worker (`0x2EF790`) or the now-readable `.pdata` table rather than the
   string/tag signatures. F3 slots 6/7/11/22 remain available.
 
+---
+
+## 2026-10-18 — F3/F8 bounded slice: the `.tm2` pre-header and the PAC texture slots are the same descriptor (E-084); three F4 engine leads closed (E-085)
+
+- Did: picked the Phase-1 format path (F1/F4 stay blocked on the engine route,
+  which was first probed and closed as E-085). Read real bytes (read-only) from
+  `pl021.pac` slots 0 and 22 and `i001_90.tm2` under
+  `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\`, and found the
+  untagged texture slots and the `.tm2` platform pre-header carry **one and the
+  same 0x68-byte texture descriptor** immediately before an embedded DDS.
+  Added `TextureChunk` / `maybe_texture_chunk` and the
+  `TEXTURE_DESCRIPTOR_SIZE` / `PAC_TEXTURE_DESCRIPTOR_OFFSET` /
+  `TM2_TEXTURE_DESCRIPTOR_OFFSET` / `TEXTURE_DDS_OFFSET` / `DDS_MAGIC`
+  constants to `tools/dmc3/raw.py`, exported from `dmc3`,
+  `raw_chunk_texture(...)` to `tests/fixtures.py`, and `TestTextureChunk`
+  (7 tests) to `tests/test_raw.py`. Full suite: **545 tests, all green**
+  (538 baseline + 7). Nothing written to the game; no game data committed.
+- Found:
+  - **E-084.** The descriptor is at **body+0x808** in a `pl021.pac` texture slot
+    (after 8 zero bytes) and at **file+0x08** in a `.tm2` — a `0x800` offset
+    difference — with the 128-byte DDS header immediately after it in both
+    (`body+0x870` / `file+0x70`). Relations **verified 3/3 chunks**: `D+0x08 ==
+    (width, height)`; `D+0x3C == (width//2, height//2)`; `D+0x40 == D+0x44 ==
+    float32(2/width)`; `D+0x5C == D+0x30 + 128`. `D+0x00 >> 8 == mips` is
+    [INFERRED] (9/1/1). The three instances are `pl021.pac` slot 0 (256×256
+    `DX10`, 9 mips, payload 87,428) and slot 22 (32×32 `DXT1`, 1 mip, payload
+    512), plus `i001_90.tm2` (256×256 `DXT3`, 1 mip, payload 65,536).
+  - **Corrections.** E-033's slot-0 DDS was recorded as `256×64`; the real bytes
+    at body+0x880 are `00 01 00 00` (256), so it is **256×256 `DX10`, depth 1,
+    9 mips** (E-033's hex had one wrong dword). **E-034's "all 28 TM2 pre-header
+    fields [UNKNOWN]" is superseded** — `+0x08..+0x6F` is the same descriptor,
+    so F8's fields gain the §1.4 relations a format away.
+  - **E-085 (bounded negative, DMC3 `dmc3.exe`).** The three engine leads tried
+    first are all dead ends: (a) E-075's "animation evaluator" (`0x68200`) is a
+    single object's runtime spin integrator (`[0x681B0, 0x68316)`, reads
+    `[r9+0x60]`, integrates into `[rax+0x20/0x24/0x28]`; never touches MOT
+    bytes); (b) E-078/E-082's `0x2EF790` walks a **runtime job queue** passed via
+    `[rdx+0x10]` (record type at `[rbx]`: 1 = `(category,index)`, 2 = inline
+    name, 3 = callback), not a static array — and has no direct callers; (c) the
+    MOD header's `f32@+0x04` `1.01` constant is inert `.rdata` (`0x4C6134`,
+    zero RIP-relative references), like the MOT frame bias (`sub eax,0x8000`)
+    which has no `.text` hit.
+- Docs: E-084 and E-085 in `docs/EVIDENCE.md`; `docs/FORMATS.md` gains §1.4
+  (texture descriptor) and rewrites §4.1 (TM2 pre-header = the descriptor) plus
+  the §1.3 slot-0/slot-22 corrections; `docs/BACKLOG.md` F3 and F8 rows updated
+  (evidence cells now list E-084). Committed and pushed; commented issues #4
+  and #8.
+- Next: the descriptor's remaining field meanings (`0x0000AAE4`, `64`, `8`, the
+  `+0x02 == 2`) need engine ground truth or more texture samples — but the
+  structure is now shared across two formats. F3 slots 6/7/11 remain; F1/F4's
+  byte decoders are still the critical path and the next engine lead is the
+  `.pdata`/call-graph route (E-083/E-085), not the string/tag signatures.
+

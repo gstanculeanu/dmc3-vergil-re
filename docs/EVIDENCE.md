@@ -4587,3 +4587,128 @@ substitution is a *name-resolution* step consistent with E-078's
 on the real image reproduces the 12,235-function table and all boundaries above.
 No game data committed.
 
+## E-084 — DMC3 HD texture descriptor: the `.tm2` pre-header and the untagged `pl021.pac` texture slots are the same 0x68-byte block (F3/F8, bounded slice)
+
+**Observation (read-only).** Three real artifacts were read: `pl021.pac` slot 0
+(body starts at file 0x80) and slot 22 (file 0x801E0) under
+`G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\`, and
+`i001_90.tm2` in the same folder. All three carry an identical **0x68-byte
+descriptor** immediately before an embedded **DDS** header:
+
+* in a `pl021.pac` texture slot the descriptor starts at **body+0x808** (after
+  eight zero bytes) and the DDS at **body+0x870**;
+* in an HD `.tm2` the descriptor starts at **file+0x08** and the DDS at
+  **file+0x70** (`i001_90.tm2`, E-034).
+
+The two offsets differ by exactly `0x800`. Descriptor fields, relative to the
+descriptor start `D` (little-endian):
+
+```
+D+0x00 u16          mip count << 8   (0x0900 for 9 mips, 0x0100 for 1)
+D+0x02 u16          2                (all three)
+D+0x04 u32          0x0000AAE4       (all three)
+D+0x08 u16,(u16)    (width, height)
+D+0x0C u32          1                (all three)
+D+0x18 u32          64               (all three)
+D+0x30 u32          DDS payload byte size
+D+0x3C u16,(u16)    (width // 2, height // 2)
+D+0x40 f32,(f32)    2 / width  (== 1 / (width // 2))
+D+0x5C u32          payload size + 128 (the DDS header)
+D+0x60 u32          8                (all three)
+D+0x68 DDS          128-byte DDS header ("DDS ")
+```
+
+Verbatim DDS headers at the offsets above:
+
+```
+slot 0  @body+0x870  44 44 53 20 7C 00 00 00 07 10 0A 00 00 01 00 00
+                     00 01 00 00 00 00 01 00 01 00 00 00 09 00 00 00
+                     -> h=256 w=256 pitch=65536 depth=1 mips=9 fourCC="DX10"
+slot 22 @body+0x870  44 44 53 20 7C 00 00 00 07 10 08 00 20 00 00 00
+                     20 00 00 00 00 02 00 00 00 00 00 00 01 00 00 00
+                     -> h=32  w=32  pitch=512   depth=0 mips=1 fourCC="DXT1"
+i001_90 @file+0x70   h=256 w=256 pitch=65536 depth=0 mips=1 fourCC="DXT3"  (E-034)
+```
+
+**Verified relations (three of three chunks, no exception):**
+
+* `D+0x08 == (width, height)`; `D+0x3C == (width//2, height//2)`.
+* `D+0x40 == D+0x44 == float32(2 / width)` (slot 0 `0.0078125`, slot 22
+  `0.0625`, tm2 `0.0078125`).
+* `D+0x5C == D+0x30 + 128` (slot 0 `87428 -> 87556`; slot 22 `512 -> 640`;
+  tm2 `65536 -> 65664`).
+* slot 22's `D+0x30` (512) is exactly its DXT1 payload `32*32/2`; tm2's
+  (65536) is exactly its DXT3 payload `256*256*1`.
+
+**[INFERRED]** `D+0x00 >> 8 == mips` (9/1/1 — holds on all three, but it is a
+byte inside a u16 whose low half is 0 in every sample). **Not claimed:** any
+other field's meaning; the two observed PAC slots are **square**, so the
+descriptor's two extents cannot distinguish a width axis from a height axis.
+
+**Correction to E-033 [OBSERVATION WAS WRONG].** E-033 recorded slot 0's DDS as
+`256×64`. The real bytes at body+0x880 are `00 01 00 00` (256), not
+`40 00 00 00` (64): slot 0 is **256×256**, `dwFlags = 0x000A1007`, fourCC
+**`DX10`**, `dwDepth = 1`, **9 mips** (E-033's hex had a single wrong dword).
+E-033's six-u32 leading header and its "DDS at body+0x870" both stand.
+
+**Supersedes E-034's "all 28 pre-header fields [UNKNOWN]".** The `.tm2`
+pre-header is byte-for-byte the same descriptor as the PAC texture slots
+(verified: `+0x08/0x0C/0x10/0x14/0x20/0x38/0x44/0x48/0x4C/0x64/0x68` all match
+the `D+`offsets above), so the F8 pre-header fields get the same structural
+relations a whole format away.
+
+**Unknown (recorded, not guessed).** Every descriptor field meaning beyond the
+relations above; whether a texture slot can hold more than one surface; how the
+descriptor selects the payload's block format (the DDS header already carries
+the fourCC); and the `0x0000AAE4` / `64` / `8` constants.
+
+**Tools.** `tools/dmc3/raw.py` gains `TextureChunk` (+ `maybe_texture_chunk`)
+with `descriptor_offset` (default `PAC_TEXTURE_DESCRIPTOR_OFFSET = 0x808`;
+`TM2_TEXTURE_DESCRIPTOR_OFFSET = 0x08` for a `.tm2`), the `TEXTURE_DESCRIPTOR_
+SIZE`/`TEXTURE_DDS_OFFSET`/`DDS_MAGIC` constants, and the
+`dimensions_match`/`half_extent_matches`/`inverse_scale_matches`/
+`total_size_matches`/`mips_match` relation properties. Exported from `dmc3`.
+`tests/fixtures.py` gains `raw_chunk_texture(...)`; `tests/test_raw.py` gains
+`TestTextureChunk` (7 tests). The reader was validated read-only against all
+three real artifacts above (all relations `True`). No game data committed.
+
+## E-085 — DMC3 `dmc3.exe`: three engine-route leads for the F4 MOT decoder are dead ends (F4/F1 route, bounded negative)
+
+**Observation (read-only from `dmc3.exe`, 6,356,432 B).** Before the E-084 slice
+this iteration spent a bounded look on the standing engine route to the MOT
+byte-level decoder and stopped; the three probes and their results are recorded
+here so they are not re-walked.
+
+* **E-075's "animation evaluator" (function containing `0x68200`) is a single
+  object's runtime spin integrator, not the general motion evaluator.** Its
+  `.pdata` function is `[0x681B0, 0x68316)`. It reads a runtime u16 at
+  `[r9+0x60]` (E-075's angle), calls the `0x32D9C0`/`0x32D9F0` cos/sin wrappers
+  and integrates into `f32 [rax+0x20/0x24/0x28]` — i.e. it updates one object's
+  position, and `[rbx+0x20]` is that object's state. It never reads MOT bytes.
+  The struct at `+0x60` is a runtime value, so this is *downstream* of any
+  decoder; E-075's route does not lead to the MOT loader.
+* **E-078/E-082's `0x2EF790` worker walks a runtime-built record queue, not a
+  static record array.** At `0x2EF79F` it reads `[rdx+4]` (a dword index) and
+  `[rdx+1]` (a type byte) and forms `rbx = [rdx+0x10] + 0x88*index`; the record
+  type is `[rbx]` (1 = `(category=[rbx+4], index=[rbx+6])` via `0x33480`,
+  2 = inline name at `rbx+0x10` via `0x333F0`, 3 = a callback `[rbx+8]` called
+  with `[rbx+0x10..0x1c]`). So the `0x88`-byte records are a **job queue** passed
+  in via the host struct at `[rdx+0x10]`; there is no static record array to
+  read in `.data`, and `0x2EF790` has **no direct `call rel32` callers** (it is
+  dispatched indirectly).
+* **The MOD header's `f32@+0x04` constant (`1.0099999904632568`, `0x3F8147AE`)
+  is inert data, not a code anchor.** `find_all(b"\xae\x47\x81\x3f")` matches
+  exactly once in the whole image: `.rdata` RVA `0x4C6134`. It has **zero**
+  RIP-relative `lea`/`mov` references, so the MOD reader (if it validates this
+  field at all) does not compare it from a literal in code. (For reference, the
+  `.mot` frame bias `sub eax, 0x8000` also has no `.text` hit — the single
+  `b"\x2d\x00\x80\x00\x00"` match at `0x5D3CE5` is outside `.text`.)
+
+**Consequence.** The F4 MOT decoder is still [UNKNOWN]; the string/tag and the
+`+0x60`-angle routes are now exhausted, and the E-078 record queue is confirmed
+dynamic. The next engine lead remains the `.pdata`/call-graph route (E-083) from
+the asset-load side, where `0x2EF790` is reached indirectly. **Corrects E-075's
+framing** of `0x68200` as "the animation evaluator" (it is one object's spin
+update) and **refines E-078's** [INFERRED] "array of `0x88`-byte records" to
+"runtime job queue". No game data committed; no code change beyond E-084.
+

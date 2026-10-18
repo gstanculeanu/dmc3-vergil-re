@@ -5,21 +5,27 @@ import unittest
 import fixtures
 from dmc3 import RawHeader
 from dmc3.raw import (
+    PAC_TEXTURE_DESCRIPTOR_OFFSET,
     SLOT0_HEADER_SIZE,
     SLOT10_PAIR_COUNT,
     SLOT21_SEPARATOR,
     SLOT5_SEGMENT_COUNT,
     SLOT9_FLOAT_COUNT,
+    TEXTURE_DESCRIPTOR_SIZE,
+    TEXTURE_DDS_OFFSET,
+    TM2_TEXTURE_DESCRIPTOR_OFFSET,
     maybe_raw_header,
     maybe_slot10_table,
     maybe_slot21_table,
     maybe_slot5_table,
     maybe_slot9_table,
+    maybe_texture_chunk,
     RawHeader,
     Slot10Table,
     Slot21Table,
     Slot5Table,
     Slot9Table,
+    TextureChunk,
 )
 
 
@@ -232,6 +238,82 @@ class TestSlot9Table(unittest.TestCase):
         with self.assertRaises(ValueError):
             Slot9Table.parse(slot9_data() + b"\x00\x00\x00\x00")
         self.assertIsNone(maybe_slot9_table(b"\x00" * 8))
+
+
+class TestTextureChunk(unittest.TestCase):
+    """The DMC3 HD texture descriptor shared by the untagged PAC texture slots
+    and the ``.tm2`` platform pre-header (E-084). All values are verbatim
+    observations; relations are verified on the real artifacts, field meanings
+    stay [UNKNOWN]."""
+
+    def test_parses_pac_texture_slot(self):
+        chunk = TextureChunk.parse(fixtures.raw_chunk_texture())
+        self.assertEqual(chunk.descriptor_offset, PAC_TEXTURE_DESCRIPTOR_OFFSET)
+        self.assertEqual(chunk.descriptor_offset, 0x808)
+        self.assertEqual(chunk.dds_offset, TEXTURE_DDS_OFFSET)
+        self.assertEqual(chunk.dds_offset, 0x870)
+        self.assertEqual(TEXTURE_DESCRIPTOR_SIZE, 0x68)
+        self.assertEqual((chunk.width, chunk.height), (32, 32))
+        self.assertEqual(chunk.mips, 1)
+        self.assertEqual(chunk.fourcc, b"DXT1")
+        self.assertEqual(chunk.extent, (32, 32))
+        self.assertEqual(chunk.half_extent, (16, 16))
+        self.assertEqual(chunk.payload_size, 512)
+        self.assertEqual(chunk.total_size, 640)
+        self.assertEqual(chunk.field_00, 0x0100)
+        self.assertEqual(chunk.field_02, 2)
+        self.assertEqual(chunk.field_04, 0x0000AAE4)
+        self.assertEqual(chunk.field_0c, 1)
+        self.assertEqual(chunk.field_18, 64)
+        self.assertEqual(chunk.field_60, 8)
+
+    def test_relations_hold(self):
+        chunk = TextureChunk.parse(fixtures.raw_chunk_texture())
+        self.assertTrue(chunk.dimensions_match)
+        self.assertTrue(chunk.half_extent_matches)
+        self.assertTrue(chunk.inverse_scale_matches)
+        self.assertTrue(chunk.total_size_matches)
+        self.assertTrue(chunk.mips_match)
+
+    def test_256x256_dx10_mirrors_slot_0(self):
+        # pl021.pac slot 0: 256x256 DX10, 9 mips, 87428-byte payload (E-084).
+        chunk = TextureChunk.parse(fixtures.raw_chunk_texture(
+            width=256, height=256, mips=9, fourcc=b"DX10", payload_size=87428))
+        self.assertEqual(chunk.fourcc, b"DX10")
+        self.assertEqual(chunk.mips, 9)
+        self.assertEqual(chunk.inverse_scale, (0.0078125, 0.0078125))
+        self.assertTrue(chunk.mips_match)
+        self.assertTrue(chunk.dimensions_match)
+        self.assertTrue(chunk.half_extent_matches)
+        self.assertTrue(chunk.inverse_scale_matches)
+        self.assertTrue(chunk.total_size_matches)
+
+    def test_tm2_descriptor_offset(self):
+        # i001_90.tm2: the same descriptor at +0x08, DDS at +0x70 (E-084/E-034).
+        chunk = TextureChunk.parse(
+            fixtures.real_tm2(), TM2_TEXTURE_DESCRIPTOR_OFFSET)
+        self.assertEqual(chunk.descriptor_offset, 0x08)
+        self.assertEqual(chunk.dds_offset, 0x70)
+        self.assertEqual((chunk.width, chunk.height), (256, 256))
+        self.assertEqual(chunk.fourcc, b"DXT3")
+        self.assertEqual(chunk.payload_size, 65536)
+        self.assertTrue(chunk.dimensions_match)
+        self.assertTrue(chunk.half_extent_matches)
+        self.assertTrue(chunk.inverse_scale_matches)
+        self.assertTrue(chunk.total_size_matches)
+        self.assertTrue(chunk.mips_match)
+
+    def test_default_offset_rejects_tm2(self):
+        # A .tm2's descriptor is at +0x08, not the PAC default +0x808.
+        self.assertIsNone(maybe_texture_chunk(fixtures.real_tm2()))
+
+    def test_maybe_returns_none_without_dds(self):
+        self.assertIsNone(maybe_texture_chunk(fixtures.raw_chunk_slot0()))
+        self.assertIsNone(maybe_texture_chunk(b"\x00" * 0x900))
+
+    def test_rejects_short_input(self):
+        with self.assertRaises(ValueError):
+            TextureChunk.parse(fixtures.raw_chunk_texture()[:0x870])
 
 
 if __name__ == "__main__":

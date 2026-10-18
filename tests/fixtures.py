@@ -482,6 +482,57 @@ def raw_chunk_slot9() -> bytes:
     return bytes(blob)
 
 
+PAC_TEXTURE_DESCRIPTOR = 0x808
+
+
+def raw_chunk_texture(
+    width: int = 32,
+    height: int = 32,
+    mips: int = 1,
+    fourcc: bytes = b"DXT1",
+    payload_size: int = 512,
+) -> bytes:
+    """A synthetic ``pl021.pac`` texture slot mirroring slots 0/22 (E-084).
+
+    Body-relative layout (little-endian); the descriptor starts at +0x808::
+
+        +0x808 u16          mips << 8
+        +0x80A u16          2
+        +0x80C u32          0x0000AAE4
+        +0x810 u16,(u16)    (width, height)
+        +0x814 u32          1
+        +0x820 u32          64
+        +0x838 u32          payload_size
+        +0x844 u16,(u16)    (width // 2, height // 2)
+        +0x848 f32,(f32)    2 / width
+        +0x864 u32          payload_size + 128
+        +0x868 u32          8
+        +0x870 128-byte DDS header, then payload_size bytes of 0xCC fill
+
+    No game bytes are committed; the fixture encodes only the observed layout.
+    """
+    d = PAC_TEXTURE_DESCRIPTOR
+    dds = d + 0x68
+    blob = bytearray(dds + 128 + payload_size)
+    struct.pack_into("<HH", blob, d, mips << 8, 2)
+    struct.pack_into("<I", blob, d + 0x04, 0x0000AAE4)
+    struct.pack_into("<HH", blob, d + 0x08, width, height)
+    struct.pack_into("<I", blob, d + 0x0C, 1)
+    struct.pack_into("<I", blob, d + 0x18, 64)
+    struct.pack_into("<I", blob, d + 0x30, payload_size)
+    struct.pack_into("<HH", blob, d + 0x3C, width // 2, height // 2)
+    struct.pack_into("<f", blob, d + 0x40, 2.0 / width)
+    struct.pack_into("<f", blob, d + 0x44, 2.0 / height)
+    struct.pack_into("<I", blob, d + 0x5C, payload_size + 128)
+    struct.pack_into("<I", blob, d + 0x60, 8)
+    struct.pack_into("<4sIIIIII", blob, dds, b"DDS ", 124, 0x00081007, height,
+                     width, payload_size, 0)
+    struct.pack_into("<I", blob, dds + 28, mips)
+    blob[dds + 84:dds + 88] = fourcc
+    blob[dds + 128:] = b"\xCC" * payload_size
+    return bytes(blob)
+
+
 def cloth_text() -> bytes:
     return b";pl021_02.clt\r\n\r\nClothNum\t1\r\n\r\nClothNo     0\r\nClothId     0\r\n"
 

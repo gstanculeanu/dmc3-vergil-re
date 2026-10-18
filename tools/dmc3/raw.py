@@ -9,6 +9,7 @@ decodes only what is *observed* in real bytes; every field meaning is
 
 from __future__ import annotations
 
+import struct
 from dataclasses import dataclass
 from typing import Optional
 
@@ -272,5 +273,210 @@ def maybe_slot9_table(data: bytes) -> Optional[Slot9Table]:
     """Like :meth:`Slot9Table.parse` but returns ``None`` on bad input."""
     try:
         return Slot9Table.parse(data)
+    except ValueError:
+        return None
+
+
+DDS_MAGIC = b"DDS "
+"""Magic of the embedded DDS blobs carried by the texture containers."""
+
+TEXTURE_DESCRIPTOR_SIZE = 0x68
+"""Size of the DMC3 HD texture descriptor (evidence E-084).
+
+The descriptor is the fixed block that immediately precedes the embedded DDS
+in both the ``.tm2`` platform pre-header and the untagged ``pl021.pac`` texture
+slots. Its own host-format prefix (8 bytes) lies before it; the 128-byte DDS
+header begins at ``descriptor_start + TEXTURE_DESCRIPTOR_SIZE``.
+"""
+
+PAC_TEXTURE_DESCRIPTOR_OFFSET = 0x808
+"""Body-relative descriptor offset in the untagged ``pl021.pac`` texture slots."""
+
+TM2_TEXTURE_DESCRIPTOR_OFFSET = 0x08
+"""File-relative descriptor offset in an HD-Collection ``.tm2`` (E-084/E-034)."""
+
+TEXTURE_DDS_OFFSET = PAC_TEXTURE_DESCRIPTOR_OFFSET + TEXTURE_DESCRIPTOR_SIZE
+"""Body-relative DDS offset in a ``pl021.pac`` texture slot (observed 0x870)."""
+
+TEXTURE_DDS_HEADER_SIZE = 128
+"""Size of the standard DDS header that follows the descriptor (E-084)."""
+
+
+def _float32(value: float) -> float:
+    """Round ``value`` to the nearest binary32 and return it as a float."""
+    return struct.unpack("<f", struct.pack("<f", value))[0]
+
+
+@dataclass(frozen=True)
+class TextureChunk:
+    """A DMC3 HD texture descriptor together with its embedded DDS (E-084).
+
+    The same 0x68-byte descriptor precedes the DDS in **two** container types.
+    In the untagged ``pl021.pac`` texture slots it starts at body+0x808 (after
+    eight zero bytes); in an HD-Collection ``.tm2`` it starts at file+0x08. The
+    two differ by exactly 0x800, and the 128-byte DDS header follows the
+    descriptor in both. Field offsets below are relative to the descriptor
+    start ``D`` (little-endian)::
+
+        D+0x00 u16          mip count << 8  (0x0900 for 9, 0x0100 for 1)
+        D+0x02 u16          2
+        D+0x04 u32          0x0000AAE4
+        D+0x08 u16,(u16)    (width, height)
+        D+0x0C u32          1
+        D+0x18 u32          64
+        D+0x30 u32          DDS payload byte size
+        D+0x3C u16,(u16)    (width // 2, height // 2)
+        D+0x40 f32,(f32)    2 / width  (== 1 / (width // 2))
+        D+0x5C u32          payload size + 128 (the DDS header)
+        D+0x60 u32          8
+        D+0x68 DDS          128-byte DDS header ("DDS ")
+
+    Verified on three real artifacts: ``pl021.pac`` slot 0 (256x256 ``DX10``,
+    9 mips), ``pl021.pac`` slot 22 (32x32 ``DXT1``, 1 mip) and ``i001_90.tm2``
+    (256x256 ``DXT3``, 1 mip). All observed chunks are **square**, so the two
+    descriptor extents cannot distinguish a width axis from a height axis.
+
+    Only the relations between the descriptor and the DDS header are verified;
+    every field's *meaning* is [UNKNOWN] and is deliberately not named beyond
+    its offset. The parser reads exactly the observed layout and exposes the
+    relations as ``*_ok`` properties.
+    """
+
+    descriptor_offset: int
+    """Offset the descriptor starts at (0x808 for a PAC slot, 0x08 for a .tm2)."""
+
+    dds_offset: int
+    """Offset of the embedded DDS header (``descriptor_offset + 0x68``)."""
+
+    dds_header: bytes
+    """The 128-byte DDS header, verbatim."""
+
+    width: int
+    """DDS ``dwWidth`` (header +0x10)."""
+
+    height: int
+    """DDS ``dwHeight`` (header +0x0C)."""
+
+    mips: int
+    """DDS ``dwMipMapCount`` (header +0x1C), 0 when absent."""
+
+    fourcc: bytes
+    """DDS ``dwFourCC`` (header +0x54); ``b"DX10"`` for an extended header."""
+
+    field_00: int
+    """u16 at ``D+0x00`` (high byte equals :attr:`mips` on the three chunks)."""
+
+    field_02: int
+    """u16 at ``D+0x02`` (observed 2 on the three chunks)."""
+
+    field_04: int
+    """u32 at ``D+0x04`` (observed ``0x0000AAE4`` on the three chunks)."""
+
+    extent: tuple[int, int]
+    """u16 pair at ``D+0x08`` (observed ``(width, height)``)."""
+
+    field_0c: int
+    """u32 at ``D+0x0C`` (observed 1 on the three chunks)."""
+
+    field_18: int
+    """u32 at ``D+0x18`` (observed 64 on the three chunks)."""
+
+    payload_size: int
+    """u32 at ``D+0x30`` (observed DDS payload byte size)."""
+
+    half_extent: tuple[int, int]
+    """u16 pair at ``D+0x3C`` (observed ``(width // 2, height // 2)``)."""
+
+    inverse_scale: tuple[float, float]
+    """f32 pair at ``D+0x40``/``D+0x44`` (observed ``2 / width``)."""
+
+    total_size: int
+    """u32 at ``D+0x5C`` (observed :attr:`payload_size` + 128)."""
+
+    field_60: int
+    """u32 at ``D+0x60`` (observed 8 on the three chunks)."""
+
+    @classmethod
+    def parse(
+        cls,
+        data: bytes,
+        descriptor_offset: int = PAC_TEXTURE_DESCRIPTOR_OFFSET,
+    ) -> "TextureChunk":
+        """Parse the texture descriptor and embedded DDS header.
+
+        ``descriptor_offset`` selects the container: the default is the
+        ``pl021.pac`` texture-slot body offset (0x808); pass
+        :data:`TM2_TEXTURE_DESCRIPTOR_OFFSET` (0x08) for an HD ``.tm2``.
+        """
+        dds_offset = descriptor_offset + TEXTURE_DESCRIPTOR_SIZE
+        end = dds_offset + TEXTURE_DDS_HEADER_SIZE
+        if descriptor_offset < 0 or len(data) < end:
+            raise ValueError(
+                f"texture chunk only {len(data)} bytes, need {end} for the "
+                f"descriptor at +{descriptor_offset:#x} and the DDS header"
+            )
+        d = descriptor_offset
+        header = data[dds_offset:end]
+        if header[:4] != DDS_MAGIC:
+            raise ValueError(
+                f"no DDS magic at +{dds_offset:#x}: {header[:4]!r}"
+            )
+        return cls(
+            descriptor_offset=d,
+            dds_offset=dds_offset,
+            dds_header=header,
+            width=u32(header, 16),
+            height=u32(header, 12),
+            mips=u32(header, 28),
+            fourcc=header[84:88],
+            field_00=u16(data, d + 0x00),
+            field_02=u16(data, d + 0x02),
+            field_04=u32(data, d + 0x04),
+            extent=(u16(data, d + 0x08), u16(data, d + 0x0A)),
+            field_0c=u32(data, d + 0x0C),
+            field_18=u32(data, d + 0x18),
+            payload_size=u32(data, d + 0x30),
+            half_extent=(u16(data, d + 0x3C), u16(data, d + 0x3E)),
+            inverse_scale=(f32(data, d + 0x40), f32(data, d + 0x44)),
+            total_size=u32(data, d + 0x5C),
+            field_60=u32(data, d + 0x60),
+        )
+
+    @property
+    def dimensions_match(self) -> bool:
+        """``extent == (width, height)`` — verified on all three chunks."""
+        return self.extent == (self.width, self.height)
+
+    @property
+    def half_extent_matches(self) -> bool:
+        """``half_extent == (width // 2, height // 2)`` — all three chunks."""
+        return self.half_extent == (self.width // 2, self.height // 2)
+
+    @property
+    def inverse_scale_matches(self) -> bool:
+        """The f32 pair equals ``2 / width`` (all chunks are square)."""
+        if not self.width:
+            return False
+        expected = _float32(2.0 / self.width)
+        return self.inverse_scale[0] == self.inverse_scale[1] == expected
+
+    @property
+    def total_size_matches(self) -> bool:
+        """``total_size == payload_size + 128`` — verified on all three."""
+        return self.total_size == self.payload_size + TEXTURE_DDS_HEADER_SIZE
+
+    @property
+    def mips_match(self) -> bool:
+        """``field_00 >> 8 == mips`` — [INFERRED] on the three chunks."""
+        return (self.field_00 >> 8) == self.mips
+
+
+def maybe_texture_chunk(
+    data: bytes,
+    descriptor_offset: int = PAC_TEXTURE_DESCRIPTOR_OFFSET,
+) -> Optional[TextureChunk]:
+    """Like :meth:`TextureChunk.parse` but returns ``None`` when no DDS."""
+    try:
+        return TextureChunk.parse(data, descriptor_offset)
     except ValueError:
         return None
