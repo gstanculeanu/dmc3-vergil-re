@@ -972,3 +972,31 @@ The reader is `parse_data_section()` (the general form of
 `CLIP_DATA_NESTED_TAIL_TAGS` / `CLIP_DATA_MAX_DEPTH` /
 `CLIP_DATA_SECOND_TABLE_FIRST` (0x20). Tag meaning and the leaf encoding remain
 [UNKNOWN].
+
+##### The u16 offset lists share a **0x30-byte stride** — [PARTIAL] (E-068)
+
+Censusing the arithmetic residue of every u16 in the data-section sub-blocks on all
+123 clips (read-only) shows the stored offsets all step by `0x30` (48 bytes):
+
+| relation | result | note |
+|---|---|---|
+| every tag-`0x10` sub-block's **first** u16 `== 0x10 (mod 0x30)` | **245/245** | 154 `R_HADES.WAD` + 91 `R_HERCULES.WAD`; only the first word, the run is not uniform |
+| the word after the tag-`0x16` continuation run `== 0x00 (mod 0x30)` | **245/245** | and is one of exactly `0x1710` / `0x1800` / `0x3C00` = `0x30 * {123,128,320}` |
+| the tag-`0x16` `0x30 * k` prefix | residue `0x00` | by construction (E-066) |
+| the tag-`0x16` post-prefix continuation | residue `0x20` | first value `0x20` (E-067) |
+
+The three residues (`0x00`, `0x10`, `0x20`) are consistent with a **single
+0x30-byte record stride** whose fields sit at `+0x00` / `+0x10` / `+0x20` —
+**[INFERRED], unproven**; no field is assigned a meaning. The tag-`0x16`
+continuation is the **first** residue-`0x20` run, not the whole set: 87/245
+blocks carry further residue-`0x20` values later, so that remains [UNKNOWN].
+
+The helpers are `stride_residue()` / `stride_offset_run()` and the constants
+`CLIP_DATA_STRIDE` (0x30) / `CLIP_DATA_STRIDE_FIELDS` /
+`CLIP_DATA_TAG10_RESIDUE` (0x10) / `CLIP_DATA_TAG16_CONTINUATION_RESIDUE` (0x20) /
+`CLIP_DATA_CONTINUATION_TERMINATORS`, exposed through
+`ClipSubBlock.first_word` / `first_word_residue` / `tag16_continuation` /
+`tag16_continuation_terminator` / `tag10_residue_ok` / `tag16_terminator_ok` and
+`ClipSubBlocks.tag10_residue_ok` / `tag16_continuation_ok`. The leaf keyframe
+encoding is still the F9 gap.
+

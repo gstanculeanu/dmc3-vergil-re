@@ -3353,4 +3353,83 @@ run on a synthetic two-level clip (no game data committed); the full suite is
 updated.
 
 
+---
+
+## E-068 — GoW3R clip data section: the u16 offset lists share a 0x30-byte stride (G9/F9, bounded slice)
+
+**Observation.** Followed E-067's open question ("the tag-`0x16` table's
+continuation past index 128 ... length/meaning [UNKNOWN]") by measuring the
+**arithmetic residue** of every u16 in the data-section sub-blocks, read-only from
+`R_HADES.WAD` (77 clips) and `R_HERCULES.WAD` (46 clips) under
+`C:\Users\GigelCastel\Desktop\gow3\CUSA01715\EXEC\WAD\PS4_LE\`. A module-level
+census over every sub-block at every recursion level of all 123 clips:
+
+**A. Every tag-`0x10` sub-block opens with a u16 `== 0x10 (mod 0x30)`.**
+
+| archive | tag-`0x10` sub-blocks | first word `== 0x10 (mod 0x30)` |
+|---|---|---|
+| `R_HADES.WAD` | 154 (77 clips × 2 levels) | **154/154** |
+| `R_HERCULES.WAD` | 91 (45 clips × 2 levels + 1) | **91/91** |
+| total | **245** | **245/245** |
+
+Worked examples (verbatim first u16): `angryKratosWalk` `0x01C0` (448),
+`csHadesIntro` `0x01C0`, `csHadesIntroStruggle` `0x0190` (400),
+`hitWallStuckWin2` `0x1690` (5776), `hitWallStuckStruggle1` `0x0190`. Every value
+satisfies `value % 0x30 == 0x10`, i.e. `0x10 + 0x30 * k` (observed `k` 7..120).
+The *whole* leading run is not all residue-`0x10` (it breaks after 1..35 entries),
+so only the **first** word is claimed.
+
+**B. The word right after the tag-`0x16` continuation run is always residue
+`0x00`, and in fact one of exactly three values.** Starting after the `0x30 * k`
+prefix (E-066/E-067), the run of strictly increasing u16 whose value is
+`== 0x20 (mod 0x30)` was measured; the next word after it is, on **245/245**
+tag-`0x16` sub-blocks, one of:
+
+```
+0x1710 = 0x30 * 123      (nested prefix length)
+0x1800 = 0x30 * 128      (outer prefix length)
+0x3C00 = 0x30 * 320
+```
+
+`R_HADES.WAD` boundary counts `{0x1800: 73, 0x1710: 59, 0x3C00: 22}`;
+`R_HERCULES.WAD` `{0x1800: 44, 0x1710: 44, 0x3C00: 3}`; no other value and no
+truncation. Raw bytes, `angryKratosWalk` outer tag-`0x16` block (`0x5C60`),
+from word index 126 (E-067's own example, re-read here):
+
+```
+[126] 17a0 17d0 0020 0080 00b0 00e0 0140 0170 01a0 01d0 ...  <- 0x17d0=0x30*127, then 0x20...
+```
+
+**C. Not claimed: the continuation is not always one contiguous table.** Counting
+*all* residue-`0x20` words in each tag-`0x16` block and comparing to the leading
+run: they are equal on 126/154 `R_HADES.WAD` blocks but only 32/91
+`R_HERCULES.WAD` blocks — 87/245 blocks carry further residue-`0x20` values later.
+So the "second table" of E-067 is the **first** residue-`0x20` run, not the whole
+set of such values; the later ones are [UNKNOWN].
+
+**Inference.** The three measured residues — the `0x30 * k` prefix is `0x00`, the
+tag-`0x16` continuation is `0x20`, and every tag-`0x10` opening word is `0x10` —
+are consistent with a single **0x30-byte (48-byte) record stride** whose fields sit
+at `+0x00`, `+0x10` and `+0x20`. **This inference is unproven**; the stride is an
+arithmetic regularity in the stored values, not a decoded record layout, and no
+field is assigned a meaning.
+
+**Unknown.** What a 0x30-byte record holds; why 87 tag-`0x16` blocks carry a
+second residue-`0x20` run and the other 158 do not; the meaning of every tag,
+`arg`, `value`, `extra` and of the three terminators; and the leaf keyframe/curve
+encoding, which remains the F9 gap.
+
+**Consequence.** `tools/gow3/anim.py` gains `CLIP_DATA_STRIDE` (0x30),
+`CLIP_DATA_STRIDE_FIELDS`, `CLIP_DATA_TAG10_RESIDUE` (0x10),
+`CLIP_DATA_TAG16_CONTINUATION_RESIDUE` (0x20),
+`CLIP_DATA_CONTINUATION_TERMINATORS`, `stride_residue()` and
+`stride_offset_run()`, plus `ClipSubBlock.first_word` / `first_word_residue` /
+`tag16_continuation` / `tag16_continuation_terminator` / `tag10_residue_ok` /
+`tag16_terminator_ok` and `ClipSubBlocks.tag10_residue_ok` /
+`tag16_continuation_ok`. 7 new unit tests (`TestStrideResidues`) run on synthetic
+fixtures (no game data committed); the full suite is **405 tests, all green**. The
+read-only validation reproduced **245/245** tag-`0x10` and **245/245** tag-`0x16`
+relations. `docs/FORMATS.md` §7.7 and `docs/BACKLOG.md` F9/G9 are updated.
+
+
 

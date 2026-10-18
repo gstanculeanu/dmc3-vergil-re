@@ -770,5 +770,81 @@ class TestClipDataRecursion(unittest.TestCase):
                          (0x20,))
 
 
+class TestStrideResidues(unittest.TestCase):
+    """E-068: the u16 offset lists inside sub-blocks share a 0x30-byte stride."""
+
+    def test_stride_constants(self):
+        self.assertEqual(anim.CLIP_DATA_STRIDE, 0x30)
+        self.assertEqual(anim.CLIP_DATA_STRIDE_FIELDS, (0x00, 0x10, 0x20))
+        self.assertEqual(anim.CLIP_DATA_TAG10_RESIDUE, 0x10)
+        self.assertEqual(anim.CLIP_DATA_TAG16_CONTINUATION_RESIDUE, 0x20)
+        self.assertEqual(anim.CLIP_DATA_CONTINUATION_TERMINATORS,
+                         (0x1710, 0x1800, 0x3C00))
+        for residue in anim.CLIP_DATA_STRIDE_FIELDS:
+            self.assertEqual(anim.stride_residue(residue), residue)
+        for terminator in anim.CLIP_DATA_CONTINUATION_TERMINATORS:
+            self.assertEqual(anim.stride_residue(terminator), 0)
+
+    def test_stride_offset_run_collects_a_residue_run(self):
+        payload = struct.pack("<6H", 0x20, 0x80, 0xB0, 0x140, 0x1800, 0x30)
+        self.assertEqual(anim.stride_offset_run(payload),
+                         (0x20, 0x80, 0xB0, 0x140))
+
+    def test_stride_offset_run_stops_on_wrong_residue_or_non_increase(self):
+        self.assertEqual(
+            anim.stride_offset_run(struct.pack("<3H", 0x20, 0x30, 0x140)),
+            (0x20,))                       # 0x30 has residue 0x00, not 0x20
+        self.assertEqual(
+            anim.stride_offset_run(struct.pack("<3H", 0x20, 0x80, 0x80)),
+            (0x20, 0x80))                  # a repeat is not strictly increasing
+        self.assertEqual(anim.stride_offset_run(b""), ())
+
+    def test_first_word_residue_marks_a_tag10_block(self):
+        good = anim.ClipSubBlock(tag=anim.CLIP_DATA_TAG10, offset=0, size=2,
+                                 payload=struct.pack("<H", 0x160))
+        self.assertEqual(good.first_word, 0x160)
+        self.assertEqual(good.first_word_residue, anim.CLIP_DATA_TAG10_RESIDUE)
+        self.assertTrue(good.tag10_residue_ok)
+        bad = anim.ClipSubBlock(tag=anim.CLIP_DATA_TAG10, offset=0, size=2,
+                                payload=struct.pack("<H", 0x150))
+        self.assertFalse(bad.tag10_residue_ok)
+        # the helper is only meaningful for a tag-0x10 block
+        other = anim.ClipSubBlock(tag=anim.CLIP_DATA_TAG16, offset=0, size=2,
+                                  payload=struct.pack("<H", 0x160))
+        self.assertFalse(other.tag10_residue_ok)
+
+    def test_tag16_continuation_and_terminator(self):
+        prefix = b"".join(struct.pack("<H", 0x30 * k) for k in range(4))
+        payload = prefix + struct.pack("<5H", 0x20, 0x80, 0xB0, 0x1800, 0x1800)
+        block = anim.ClipSubBlock(tag=anim.CLIP_DATA_TAG16, offset=0,
+                                  size=len(payload), payload=payload)
+        self.assertEqual(block.tag16_prefix_length, 4)
+        self.assertEqual(block.tag16_continuation, (0x20, 0x80, 0xB0))
+        self.assertEqual(block.tag16_continuation_terminator, 0x1800)
+        self.assertTrue(block.tag16_terminator_ok)
+
+    def test_tag16_terminator_rejects_an_unobserved_value(self):
+        prefix = b"".join(struct.pack("<H", 0x30 * k) for k in range(2))
+        payload = prefix + struct.pack("<3H", 0x20, 0x80, 0x1000)
+        block = anim.ClipSubBlock(tag=anim.CLIP_DATA_TAG16, offset=0,
+                                  size=len(payload), payload=payload)
+        self.assertEqual(block.tag16_continuation_terminator, 0x1000)
+        self.assertFalse(block.tag16_terminator_ok)
+
+    def test_clip_sub_blocks_report_the_residue_relations(self):
+        tag10 = anim.ClipSubBlock(tag=anim.CLIP_DATA_TAG10, offset=16, size=2,
+                                  payload=struct.pack("<H", 0x160))
+        prefix = b"".join(struct.pack("<H", 0x30 * k) for k in range(2))
+        tag16 = anim.ClipSubBlock(
+            tag=anim.CLIP_DATA_TAG16, offset=18,
+            size=len(prefix) + 6,
+            payload=prefix + struct.pack("<3H", 0x20, 0x80, 0x1710))
+        blocks = anim.ClipSubBlocks(offset=0, blocks=(tag10, tag16), end=0x100)
+        self.assertTrue(blocks.tag10_residue_ok)
+        self.assertTrue(blocks.tag16_continuation_ok)
+        no_tag16 = anim.ClipSubBlocks(offset=0, blocks=(tag10,), end=0x100)
+        self.assertFalse(no_tag16.tag16_continuation_ok)
+
+
 if __name__ == "__main__":
     unittest.main()

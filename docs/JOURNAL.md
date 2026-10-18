@@ -1465,4 +1465,46 @@ moves and health bar and everything."*
   the G9/G10 directory binding. F1/F4 remain blocked on DMC3-side engine ground
   truth and are not re-spun.
 
+---
+
+## 2026-10-18 — F9/G9 bounded slice: the u16 offset lists share a 0x30-byte stride (E-068)
+
+- Did: followed E-067's open item ("the tag-`0x16` table's continuation past index
+  128 ... length/meaning [UNKNOWN]") by measuring the **arithmetic residue** of
+  every u16 in the data-section sub-blocks, on all 123 clips of `R_HADES.WAD` (77)
+  and `R_HERCULES.WAD` (46), read-only from
+  `C:\Users\GigelCastel\Desktop\gow3\CUSA01715\EXEC\WAD\PS4_LE\`. Added
+  `stride_residue()` / `stride_offset_run()` and the `CLIP_DATA_STRIDE` /
+  `CLIP_DATA_STRIDE_FIELDS` / `CLIP_DATA_TAG10_RESIDUE` /
+  `CLIP_DATA_TAG16_CONTINUATION_RESIDUE` / `CLIP_DATA_CONTINUATION_TERMINATORS`
+  constants to `tools/gow3/anim.py`, the `ClipSubBlock.first_word` /
+  `first_word_residue` / `tag16_continuation` / `tag16_continuation_terminator` /
+  `tag10_residue_ok` / `tag16_terminator_ok` and `ClipSubBlocks.tag10_residue_ok` /
+  `tag16_continuation_ok` accessors, and 7 tests (`TestStrideResidues`) in
+  `tests/test_gow3_anim.py`. Full suite: **405 tests, all green** (398 baseline + 7).
+  Read-only validation reproduced **245/245** tag-`0x10` and **245/245** tag-`0x16`
+  relations.
+- Found (**E-068**), all read-only on 245 tag-`0x10` and 245 tag-`0x16` sub-blocks:
+  - **Every tag-`0x10` sub-block opens with a u16 `== 0x10 (mod 0x30)`** —
+    245/245 (Hades 154, Hercules 91), i.e. `0x10 + 0x30 * k`. Only the first word:
+    the leading run is not uniform and breaks after 1..35 entries.
+  - **The word right after the tag-`0x16` continuation run is one of exactly
+    `0x1710` / `0x1800` / `0x3C00`** (`0x30 * {123,128,320}`, all residue `0x00`) —
+    245/245, no other value, no truncation.
+  - The `0x30 * k` prefix is residue `0x00` and the continuation residue `0x20`.
+  - **Recorded honestly:** the continuation is the *first* residue-`0x20` run, not
+    the whole set — 87/245 tag-`0x16` blocks carry further residue-`0x20` values
+    later (126/154 Hades but only 32/91 Hercules). So E-067's "second table" is a
+    first run; the later values stay [UNKNOWN].
+- **Inference (marked, unproven):** residues `0x00`/`0x10`/`0x20` are consistent
+  with a single **0x30-byte (48-byte) record stride** whose fields sit at
+  `+0x00`/`+0x10`/`+0x20`. No field is assigned a meaning.
+- Docs: E-068 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §7.7 gains "the u16 offset
+  lists share a 0x30-byte stride — [PARTIAL] (E-068)"; `docs/BACKLOG.md` F9/G9 rows
+  updated (evidence cells now list E-068). No game data committed.
+- Next: the leaf keyframe/curve encoding inside the level-2 sub-blocks is still the
+  F9 gap (decodable from `eboot.elf`); otherwise F3 slots 6/7/11/22 and the G9/G10
+  directory binding. F1/F4 remain blocked on DMC3-side engine ground truth and are
+  not re-spun.
+
 

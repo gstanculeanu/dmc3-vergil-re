@@ -29,8 +29,12 @@ sub-blocks** -- the sub-block a record points at is typed by that record's tag,
 the tag-0x16 sub-block always opens with 128 u16 ``0x30 * k``, and the tag-0x10
 sub-block contains a *nested* preamble of the same shape; E-067: the nesting is
 exactly two levels deep, the level-2 preamble may carry tag 0x19, and its
-tag-0x16 table is 122/123 entries rather than 128). The *internal* clip
-encoding (bone channels, keyframes) is [UNKNOWN] and is not interpreted here.
+tag-0x16 table is 122/123 entries rather than 128; E-068: the u16 offset lists
+inside the sub-blocks share a 0x30-byte stride -- every tag-0x10 block opens with
+a value `== 0x10 (mod 0x30)`, the tag-0x16 `0x30 * k` prefix is residue 0x00, its
+continuation is residue 0x20, and the word after that continuation is one of
+0x1710/0x1800/0x3C00). The *internal* clip encoding (bone channels, keyframes)
+is [UNKNOWN] and is not interpreted here.
 """
 
 from __future__ import annotations
@@ -522,6 +526,23 @@ CLIP_DATA_NESTED_TAIL_TAGS = (0x0B, 0x0F, 0x10, 0x1B, 0x1C, 0x1D, 0x1E)
 CLIP_DATA_MAX_DEPTH = 4             # recursion cap for clip_data_sections()
 CLIP_DATA_SECOND_TABLE_FIRST = 0x20  # first value of the table after `0x30 * k`
 
+# The u16 offset lists inside every data-section sub-block share a **0x30-byte
+# (48-byte) stride** (E-068). Censused read-only on all 123 clips of R_HADES.WAD
+# (77) and R_HERCULES.WAD (46), i.e. 245 tag-0x10 sub-blocks and 245 tag-0x16
+# sub-blocks: every tag-0x10 sub-block opens with a u16 `== 0x10 (mod 0x30)`
+# (245/245), the tag-0x16 `0x30 * k` prefix is residue 0x00, the continuation that
+# follows it is residue 0x20, and the word after that continuation is one of
+# 0x1710 / 0x1800 / 0x3C00 -- residue 0x00 (245/245). This is consistent with
+# [INFERRED] 48-byte records whose fields sit at +0x00/+0x10/+0x20; the stride and
+# the field meaning remain otherwise unproven. On 87/245 tag-0x16 blocks further
+# residue-0x20 values occur later in the block, so the continuation is a first run,
+# not always the whole set -- recorded honestly.
+CLIP_DATA_STRIDE = 0x30                     # 48-byte stride of the offset lists
+CLIP_DATA_STRIDE_FIELDS = (0x00, 0x10, 0x20)  # observed field residues
+CLIP_DATA_TAG10_RESIDUE = 0x10              # every tag-0x10 opens with this residue
+CLIP_DATA_TAG16_CONTINUATION_RESIDUE = 0x20  # residue of the post-`0x30 * k` run
+CLIP_DATA_CONTINUATION_TERMINATORS = (0x1710, 0x1800, 0x3C00)  # == 0x30 * {123,128,320}
+
 
 def tag16_prefix_length(payload: bytes) -> int:
     """Count leading u16 where ``payload`` equals ``0x30 * k`` (E-066).
@@ -559,6 +580,37 @@ def tag16_offset_table(payload: bytes) -> tuple:
         if values and value <= values[-1]:
             break
         values.append(value)
+        at += 2
+    return tuple(values)
+
+
+def stride_residue(value: int) -> int:
+    """``value`` modulo the observed 0x30-byte stride (E-068)."""
+    return value % CLIP_DATA_STRIDE
+
+
+def stride_offset_run(payload: bytes, start_word: int = 0,
+                      residue: int = CLIP_DATA_TAG16_CONTINUATION_RESIDUE
+                      ) -> tuple:
+    """The leading run of u16 equal to ``residue`` mod 0x30 and strictly increasing (E-068).
+
+    Starts at u16 index ``start_word`` and stops at the first value whose
+    ``% CLIP_DATA_STRIDE`` differs from ``residue`` or that does not exceed its
+    predecessor. With the observed residues (0x10/0x20) every value in the result
+    is a multiple of 16. As with :func:`tag16_offset_table`, only the run is
+    observed; the values are [UNKNOWN] offsets.
+    """
+    values = []
+    prev = None
+    at = 2 * start_word
+    while at + 2 <= len(payload):
+        value = struct.unpack_from("<H", payload, at)[0]
+        if value % CLIP_DATA_STRIDE != residue:
+            break
+        if prev is not None and value <= prev:
+            break
+        values.append(value)
+        prev = value
         at += 2
     return tuple(values)
 
@@ -608,6 +660,41 @@ class ClipSubBlock:
         """The increasing 16-byte-aligned table after the ``0x30 * k`` run (E-067)."""
         return tag16_offset_table(self.payload)
 
+    @property
+    def first_word(self) -> int:
+        """The sub-block's first u16, or 0 when it is empty (E-068)."""
+        return _read_u16(self.payload, 0)
+
+    @property
+    def first_word_residue(self) -> int:
+        """First u16 modulo the 0x30 stride; a tag-0x10 block is always 0x10 (E-068)."""
+        return self.first_word % CLIP_DATA_STRIDE
+
+    @property
+    def tag16_continuation(self) -> tuple:
+        """The residue-0x20 run after a tag-0x16 ``0x30 * k`` prefix (E-068)."""
+        return stride_offset_run(self.payload, self.tag16_prefix_length,
+                                 CLIP_DATA_TAG16_CONTINUATION_RESIDUE)
+
+    @property
+    def tag16_continuation_terminator(self) -> Optional[int]:
+        """The u16 right after a tag-0x16 continuation run, or ``None`` (E-068)."""
+        at = 2 * (self.tag16_prefix_length + len(self.tag16_continuation))
+        if at + 2 > len(self.payload):
+            return None
+        return struct.unpack_from("<H", self.payload, at)[0]
+
+    @property
+    def tag10_residue_ok(self) -> bool:
+        """A tag-0x10 block opens with a u16 ``== 0x10 (mod 0x30)`` (E-068, 245/245)."""
+        return (self.tag == CLIP_DATA_TAG10
+                and self.first_word_residue == CLIP_DATA_TAG10_RESIDUE)
+
+    @property
+    def tag16_terminator_ok(self) -> bool:
+        """A tag-0x16 continuation ends in one of the three observed words (E-068)."""
+        return self.tag16_continuation_terminator in CLIP_DATA_CONTINUATION_TERMINATORS
+
     def nested_preamble(self, min_records: int = CLIP_DATA_NESTED_MIN_RECORDS):
         """The nested preamble inside this sub-block, or ``None`` (E-066)."""
         return find_nested_preamble(self.payload, min_records)
@@ -641,6 +728,18 @@ class ClipSubBlocks:
         return any(block.tag == CLIP_DATA_TAG16
                    and block.tag16_prefix_length >= CLIP_DATA_TAG16_PREFIX_WORDS
                    for block in self.blocks)
+
+    @property
+    def tag10_residue_ok(self) -> bool:
+        """Every tag-0x10 sub-block opens with a u16 ``== 0x10 (mod 0x30)`` (E-068)."""
+        blocks = self.of_tag(CLIP_DATA_TAG10)
+        return bool(blocks) and all(block.tag10_residue_ok for block in blocks)
+
+    @property
+    def tag16_continuation_ok(self) -> bool:
+        """Every tag-0x16 continuation ends in an observed terminator (E-068)."""
+        blocks = self.of_tag(CLIP_DATA_TAG16)
+        return bool(blocks) and all(block.tag16_terminator_ok for block in blocks)
 
     def nested_preamble(self, min_records: int = CLIP_DATA_NESTED_MIN_RECORDS):
         """The nested preamble inside the tag-0x10 sub-block, or ``None`` (E-066)."""
