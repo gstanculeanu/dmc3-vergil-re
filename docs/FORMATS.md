@@ -76,10 +76,24 @@ whose presence inside the raw slot is unexplained. The remaining ~235 KB of
 the slot's span is non-zero and structured; its layout is undecoded.
 
 The other eight untagged slots (5, 6, 7, 9, 10, 11, 21, 22) have different
-leading bytes — slot 10 is a table of u16 pairs `(0x5C, x)` with `x`
-increasing by 20, slot 21 is a u16 table with `0xFFFF` separators, slots 9/11
-are f32 arrays (E-008) — so no single header shape is shared across the
-untagged slots. Every field in this section is [UNKNOWN].
+leading bytes (E-008) — so no single header shape is shared across them:
+
+* **slot 10** [PARTIAL structure / [UNKNOWN] semantics] — at file offset
+  `0x077ED0`, span `0x1E0` (480 bytes). Body-relative: 23 little-endian u16
+  pairs at stride 4 (`+0x00..+0x5B`), then a little-endian f32 stream
+  (`+0x5C..end`). Pair 0 is `(92, 132)`; pairs 0–14 have first element `92`
+  (`0x5C`) and second element `132 + 20*i` (`132..412`); pairs 15–22 are
+  `(112, 432)`, `(92, 432)`, `(92, 132)×6`. The f32 stream opens
+  `0.3, -0.01, -0.1, 0.0, 0.7` (raw `9a 99 99 3e 0a d7 a3 bc cc cc cc bd
+  00 00 00 00 66 66 66 3f`). What the pairs index, the pair count's source,
+  and the f32 stream's meaning are [UNKNOWN] (evidence E-037).
+* **slot 21** — a u16 table with `0xFFFF` separators; an arithmetic run of
+  u16s increasing by 14 (`36, 50, 64, …, 232`) appears at body+0x5C
+  (evidence E-008). Layout [UNKNOWN].
+* **slots 5, 6, 7, 9, 11, 22** — leading bytes differ per slot; slots 9/11 are
+  f32 arrays. Layouts [UNKNOWN].
+
+Every field meaning in this section is [UNKNOWN].
 
 ---
 

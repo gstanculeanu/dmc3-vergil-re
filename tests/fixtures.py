@@ -242,6 +242,37 @@ def raw_chunk_slot0() -> bytes:
     return bytes(blob)
 
 
+def raw_chunk_slot10() -> bytes:
+    """A synthetic raw chunk mirroring pl021.pac slot 10's layout (E-037).
+
+    Body-relative layout (little-endian)::
+
+        +0x00  u16 pairs, stride 4 (23 pairs, mirroring the real chunk):
+            pairs 0-14  (92, 132 + 20*i)
+            pair  15    (112, 432)
+            pair  16    (92, 432)
+            pairs 17-22 (92, 132) x 6
+        +0x5C  little-endian f32 stream (mirrors 0.3, ~0, -0.1, 0.0, 0.7,
+               then zero padding)
+
+    Every field meaning is [UNKNOWN]; this fixture locks the observed byte
+    layout so a parser can't silently drift from the real artifact.
+    """
+    blob = bytearray()
+    for i in range(15):
+        blob += struct.pack("<HH", 92, 132 + 20 * i)
+    blob += struct.pack("<HH", 112, 432)
+    blob += struct.pack("<HH", 92, 432)
+    for _ in range(6):
+        blob += struct.pack("<HH", 92, 132)
+    assert len(blob) == 4 * 23, "slot-10 pair table must be 23 pairs"
+    # f32 stream mirroring the real chunk's +0x5C.. verbatim
+    # (9A 99 99 3E, 0A D7 A3 BC, CD CC CC BD, 00 00 00 00, 66 66 66 3F):
+    blob += bytes.fromhex("9a99993e0ad7a3bccdccccbd000000006666663f")
+    blob += b"\x00" * 24
+    return bytes(blob)
+
+
 def cloth_text() -> bytes:
     return b";pl021_02.clt\r\n\r\nClothNum\t1\r\n\r\nClothNo     0\r\nClothId     0\r\n"
 

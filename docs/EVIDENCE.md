@@ -1566,3 +1566,66 @@ issue F2.
 **Consequence.** `tools/dmc3/shw.py` exposes `ShwHeader` decoding exactly this
 header from real bytes, exercised by unit tests on synthetic fixtures. The
 payload beyond the header remains [UNKNOWN]; F2 stays open.
+
+
+---
+## E-037 — `pl021.pac` slot 10: u16 pair table + f32 stream (F3, bounded slice)
+
+**Observation.** `pl021.pac` slot 10 is an untagged (raw) chunk at **file offset
+0x077ED0** with span **0x1E0 (480 bytes)** (distance to slot 11 at 0x0780B0).
+Its body, chunk-relative (little-endian):
+
+```
++0x00  u16 pairs, stride 4, 23 pairs (bytes +0x00..+0x5B):
+pair  0: (92, 132)   pair  1: (92, 152)   pair  2: (92, 172)
+pair  3: (92, 192)   pair  4: (92, 212)   pair  5: (92, 232)
+pair  6: (92, 252)   pair  7: (92, 272)   pair  8: (92, 292)
+pair  9: (92, 312)   pair 10: (92, 332)   pair 11: (92, 352)
+pair 12: (92, 372)   pair 13: (92, 392)   pair 14: (92, 412)
+pair 15: (112, 432)  pair 16: (92, 432)
+pair 17: (92, 132)   pair 18: (92, 132)   pair 19: (92, 132)
+pair 20: (92, 132)   pair 21: (92, 132)   pair 22: (92, 132)
+
+Raw bytes +0x00..+0x5B:
+5C 00 84 00 5C 00 98 00 5C 00 AC 00 5C 00 C0 00
+5C 00 D4 00 5C 00 E8 00 5C 00 FC 00 5C 00 10 01
+5C 00 24 01 5C 00 38 01 5C 00 4C 01 5C 00 60 01
+5C 00 74 01 5C 00 88 01 5C 00 9C 01 70 00 B0 01
+5C 00 B0 01 5C 00 84 00 5C 00 84 00 5C 00 84 00
+5C 00 84 00 5C 00 84 00 5C 00 84 00
+
++0x5C  little-endian f32 stream to end of chunk (first 5 groups):
++0x5C  9A 99 99 3E   -> f32 0.29999998 (~0.3)
++0x60  0A D7 A3 BC   -> f32 -1.0006e-02 (~-0.01)
++0x64  CD CC CC BD   -> f32 -0.10000000 (-0.1)
++0x68  00 00 00 00   -> f32 0.0
++0x6C  66 66 66 3F   -> f32 0.69999999 (~0.7)
+```
+The remainder of the stream (+0x70..+0x1DF) is zero runs interspersed with
+further small-magnitude f32s; no terminator or count field was observed.
+
+Raw bytes at +0x5C:
+`9a 99 99 3e 0a d7 a3 bc cc cc cc bd 00 00 00 00 66 66 66 3f ...`
+
+**Inference.** The slot has a clean two-part structure: a fixed u16 pair table
+(23 pairs = 92 bytes = 0x5C) followed by an f32 stream. The first u16 of every
+pair is 92 (0x5C, equal to the table's byte size in the observed chunk) and the
+second element rises by 20 across pairs 0–14 (132..412); pairs 15–22 deviate
+((112,432), (92,432), then (92,132)×6). Whether the pair count is stored
+somewhere or fixed, what the pairs index, and what the f32 stream encodes are
+**not** established.
+
+**Inference (marked [INFERRED], not observation).** 0x5C == 92 equals both the
+table's byte size and the constant first element of each pair; this may be a
+stride/size field or a coincidence. Not relied on.
+
+**Unknown.** Meaning of the pairs (indices, offsets, UV pairs, …), the pair
+count's source, the f32 stream's meaning, and whether this layout recurs in any
+other slot (all other untagged slots have different leading bytes, E-008). Not
+decodable from bytes alone; engine ground truth needed.
+
+**Consequence.** `tools/dmc3/raw.py` exposes `Slot10Table` (with
+`SLOT10_PAIR_COUNT`) decoding exactly this observed layout, exercised by unit
+tests on a synthetic fixture. F3 remains open: this slice decodes slot 10's
+leading table only; slot 10's f32 stream and all other untagged slots are still
+[UNKNOWN].

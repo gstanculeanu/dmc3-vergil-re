@@ -4,7 +4,14 @@ Read-only tooling.  Nothing here writes to a game installation.
 """
 
 from .mod import BODY_PREFIX_SIZE, ModBodyPrefix, ModHeader
-from .raw import SLOT0_HEADER_SIZE, RawHeader, maybe_raw_header
+from .raw import (
+    SLOT0_HEADER_SIZE,
+    SLOT10_PAIR_COUNT,
+    RawHeader,
+    Slot10Table,
+    maybe_raw_header,
+    maybe_slot10_table,
+)
 from .shw import (
     HEADER_SIZE as SHW_HEADER_SIZE,
     ShwHeader,
@@ -73,7 +80,9 @@ __all__ = [
     "ModBodyPrefix",
     "ModHeader",
     "SLOT0_HEADER_SIZE",
+    "SLOT10_PAIR_COUNT",
     "RawHeader",
+    "Slot10Table",
     "is_mot",
     "mot_summary",
     "parse_mot",
