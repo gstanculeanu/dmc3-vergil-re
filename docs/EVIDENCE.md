@@ -3115,7 +3115,64 @@ unit tests run on a synthetic clip record (no game data committed).
 `docs/FORMATS.md` §7.7 and `docs/BACKLOG.md` F9/G9 updated.
 
 
+## E-065 — GoW3R clip data section: each preamble record's last u16 is a 16-byte-aligned offset to a sub-block (G9/F9, bounded slice)
 
+**Observation.** E-064 decoded the record shapes at the start of a clip's data
+section but left every `value` field [UNKNOWN]. This slice rereads the preamble
+on **all 123 clips** (77 `R_HADES.WAD` + 46 `R_HERCULES.WAD`, read-only from
+`C:\Users\GigelCastel\Desktop\gow3\CUSA01715\EXEC\WAD\PS4_LE\`) and censuses the
+last u16 of every lead and tail record (the field E-064 called `value`):
 
+| relation | result |
+|---|---|
+| the record values strictly increase in file order | **123/123** |
+| every value is a multiple of 16 | **123/123** |
+| `values[0] == round_up(preamble byte length, 16)` | **123/123** |
+| every `data_start + value` is inside the clip (`< clip.offset + clip.size`) | **123/123** |
+
+The preamble byte length is `2 * (4·lead + 2 + 1 + 5·tail + 1)`
+(E-064's shape: 4 u16 per lead record, a two-u16 terminator, the `count`, 5 u16
+per tail record, a one-u16 terminator). Worked examples, raw bytes verbatim
+(`data_start` = the clip's `+0x15C`):
+
+```
+angryKratosWalk      lead 4 tail 5  preamble  90 B -> round_up 0x60  first value 0x60
+  values 0x60 0x90 0x870 0xAF0 0xB30 0xFB0 0x1140 0x1150 0x1160
+  data_at_0x5BD0: 15 00 08 00 0c 00 60 00 16 00 00 01 0c 00 90 00 ...
+csHadesIntroStruggle lead 5 tail 5  preamble  98 B -> round_up 0x70  first value 0x70
+  values 0x70 0x350 0x8F0 0xA50 0xC40 0xC90 0x12A0 0x1410 0x1460 0x14A0
+  raw: 15 00 38 00 0c 00 70 00 16 00 b8 00 0c 00 50 03 17 00 18 00 ...
+csHadesIntroWin      lead 5 tail 7  preamble 118 B -> round_up 0x80  first value 0x80
+cshadesRip01IdleR    lead 4 tail 4  preamble  80 B -> round_up 0x50  first value 0x50
+hitWallStuckWin1     lead 4 tail 7  preamble 110 B -> round_up 0x70  first value 0x70
+```
+
+The first value lands immediately after the preamble (90 B used, 96 reached), the
+last three `angryKratosWalk` values differ by exactly 16, and the largest value on
+every clip stays inside the clip's own `size`.
+
+**Inference.** The last u16 of a preamble record is an **offset relative to the
+clip's data-section start** (`clip.offset + CLIP_TAIL_END`), not a scalar: the
+preamble is a directory of 16-byte-aligned sub-blocks that begin right after it.
+The base is fixed by the alignment rule — only the data-section start makes
+`values[0] == round_up(preamble length, 16)` hold on all 123 clips; a clip-relative
+base would put `values[0]` inside the fixed header. This supersedes E-064's
+[UNKNOWN] verdict on the `value` field.
+
+**Unknown.** What each sub-block contains and what the tags, `arg`, `extra` and
+`count` mean. The keyframe/curve encoding inside the sub-blocks is **still the F9
+gap** — this slice proves where the sub-blocks are, not what they hold. The
+`value` fields are structurally offsets, but no pointer/type semantics are claimed
+beyond "offset from the data-section start".
+
+**Consequence.** `tools/gow3/anim.py`'s `ClipDataPreamble` gains `values`,
+`word_count`, `byte_length`, `increasing_ok`, `aligned_ok`, `first_offset_ok`,
+`data_targets()` and the extended `invariants()` (`increasing`, `aligned`,
+`first_offset`); the constants `CLIP_DATA_ALIGNMENT = 0x10`,
+`CLIP_DATA_LEAD_TERMINATOR_WORDS`, `CLIP_DATA_COUNT_WORDS`,
+`CLIP_DATA_TAIL_TERMINATOR_WORDS` are added. 7 new unit tests
+(`TestClipDataOffsets`) run on a synthetic clip record (no game data committed);
+the full suite is **379 tests, all green**. `docs/FORMATS.md` §7.7 and
+`docs/BACKLOG.md` F9/G9 are updated.
 
 

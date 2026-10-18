@@ -22,8 +22,10 @@ its reciprocal, and the clip frame count and loop flag; E-061: the descriptor's
 per-clip tail at +0x124..+0x148, with five 16-byte-aligned fields, and the data
 section beginning at +0x15C; E-064: the data section opens with a typed record
 preamble whose first record's tag and constant discriminator are E-061's two
-"markers"). The *internal* clip encoding (bone channels, keyframes) is [UNKNOWN]
-and is not interpreted here.
+"markers"; E-065: each preamble record's last u16 is a 16-byte-aligned,
+strictly increasing **offset** into the clip's data section, and the first one
+is the preamble's own length rounded up). The *internal* clip encoding (bone
+channels, keyframes) is [UNKNOWN] and is not interpreted here.
 """
 
 from __future__ import annotations
@@ -96,6 +98,17 @@ CLIP_DATA_TAIL_WORDS = 5
 CLIP_DATA_LEAD_TAGS = (0x15, 0x16, 0x17, 0x18, 0x0B)
 CLIP_DATA_TAIL_TAGS = (0x0B, 0x0F, 0x10, 0x1B, 0x1C, 0x1D, 0x1E)
 CLIP_DATA_PREAMBLE_LIMIT = 0x100  # bytes read at most when parsing the preamble
+
+# Each preamble record's last u16 is an **offset** into the clip's data section
+# (base = clip.offset + CLIP_TAIL_END), not a scalar (E-065). On all 123 clips the
+# offsets are strictly increasing, are multiples of 16, and the first one equals
+# the preamble's own byte length rounded up to 16 -- so the records form a
+# directory of 16-byte-aligned sub-blocks starting immediately after the preamble.
+# The meaning of every sub-block is [UNKNOWN]; only the offset relation is claimed.
+CLIP_DATA_ALIGNMENT = 0x10
+CLIP_DATA_LEAD_TERMINATOR_WORDS = 2  # the two zero u16 between lead and count
+CLIP_DATA_COUNT_WORDS = 1            # the u16 ``count``
+CLIP_DATA_TAIL_TERMINATOR_WORDS = 1  # the final zero u16
 
 
 class AnimError(ValueError):
@@ -314,7 +327,9 @@ class ClipDataPreamble:
     ``lead`` holds the 8-byte records before the two-zero terminator, ``count``
     the u16 that follows it, and ``tail`` the 10-byte records up to the final
     zero u16. Only observed values are exposed; the meaning of ``count`` and of
-    every tag is [UNKNOWN].
+    every tag is [UNKNOWN]. Each record's last u16 is an **offset** into the
+    clip's data section (E-065): strictly increasing, 16-byte aligned, and the
+    first equals the preamble's byte length rounded up to 16.
     """
 
     offset: int
@@ -342,11 +357,70 @@ class ClipDataPreamble:
         return (all(tag in CLIP_DATA_LEAD_TAGS for tag in self.lead_tags)
                 and all(tag in CLIP_DATA_TAIL_TAGS for tag in self.tail_tags))
 
+    @property
+    def values(self) -> tuple:
+        """Every record's last u16, lead records first (E-065).
+
+        On all 123 censused clips these are strictly increasing offsets into the
+        clip's data section; see :pyattr:`increasing_ok`.
+        """
+        return tuple(record.value for record in self.lead) \
+            + tuple(record.value for record in self.tail)
+
+    @property
+    def word_count(self) -> int:
+        """Number of u16 the preamble occupies, from its record counts (E-064)."""
+        return (CLIP_DATA_LEAD_WORDS * len(self.lead)
+                + CLIP_DATA_LEAD_TERMINATOR_WORDS
+                + CLIP_DATA_COUNT_WORDS
+                + CLIP_DATA_TAIL_WORDS * len(self.tail)
+                + CLIP_DATA_TAIL_TERMINATOR_WORDS)
+
+    @property
+    def byte_length(self) -> int:
+        """Bytes the preamble occupies (``2 * word_count``)."""
+        return 2 * self.word_count
+
+    @property
+    def increasing_ok(self) -> bool:
+        """The record offsets strictly increase in file order (E-065, 123/123)."""
+        values = self.values
+        return (len(values) >= 2
+                and all(values[i] < values[i + 1] for i in range(len(values) - 1)))
+
+    @property
+    def aligned_ok(self) -> bool:
+        """Every record offset is a multiple of 16 (E-065, 123/123 clips)."""
+        values = self.values
+        return bool(values) and all(value % CLIP_DATA_ALIGNMENT == 0
+                                    for value in values)
+
+    @property
+    def first_offset_ok(self) -> bool:
+        """``values[0]`` is the preamble's length rounded up to 16 (E-065)."""
+        values = self.values
+        if not values:
+            return False
+        rounded = (self.byte_length + CLIP_DATA_ALIGNMENT - 1) \
+            & ~(CLIP_DATA_ALIGNMENT - 1)
+        return values[0] == rounded
+
+    def data_targets(self, data_offset: int = 0) -> tuple:
+        """Absolute file offsets of the record targets (E-065).
+
+        ``data_offset`` is the clip's data-section start (``clip.offset +
+        CLIP_TAIL_END``); each target is ``data_offset + value``.
+        """
+        return tuple(data_offset + value for value in self.values)
+
     def invariants(self) -> dict:
-        """The E-064 relations, each as a name -> bool. Evidence, not a verdict."""
+        """The E-064/E-065 relations, each as a name -> bool. Evidence, not a verdict."""
         return {
             "discriminated": self.discriminated_ok,
             "tags_known": self.tags_known_ok,
+            "increasing": self.increasing_ok,
+            "aligned": self.aligned_ok,
+            "first_offset": self.first_offset_ok,
         }
 
 

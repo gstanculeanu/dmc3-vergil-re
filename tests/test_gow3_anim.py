@@ -361,7 +361,9 @@ class TestClipDataPreamble(unittest.TestCase):
         self.assertTrue(self.preamble.discriminated_ok)
         self.assertTrue(self.preamble.tags_known_ok)
         self.assertEqual(self.preamble.invariants(),
-                         {"discriminated": True, "tags_known": True})
+                         {"discriminated": True, "tags_known": True,
+                          "increasing": True, "aligned": True,
+                          "first_offset": True})
         for record in self.preamble.lead + self.preamble.tail:
             self.assertEqual(record.discriminator,
                              anim.CLIP_DATA_RECORD_DISCRIMINATOR)
@@ -402,6 +404,66 @@ class TestClipDataPreamble(unittest.TestCase):
         self.assertIsNotNone(parsed)
         self.assertFalse(parsed.tags_known_ok)
         self.assertTrue(parsed.discriminated_ok)
+
+
+class TestClipDataOffsets(unittest.TestCase):
+    """E-065: each record's last u16 is an offset to a 16-byte-aligned sub-block."""
+
+    def setUp(self):
+        self.data = anim_wad(["csHadesIntro", "hadesKnifeBlockEnter"])
+        self.clip = anim.parse_clips(self.data)[0]
+        self.offset = self.clip.offset + anim.CLIP_TAIL_END
+        self.preamble = anim.parse_clip_data_preamble(self.data, self.offset)
+
+    def test_values_are_all_record_tails_in_file_order(self):
+        self.assertEqual(self.preamble.values,
+                         (0x60, 0x90, 0x870, 0xAF0,
+                          0xB30, 0xFB0, 0x1140, 0x1150, 0x1160))
+        self.assertEqual(self.preamble.values,
+                         tuple(r.value for r in self.preamble.lead)
+                         + tuple(r.value for r in self.preamble.tail))
+
+    def test_byte_length_counts_every_word(self):
+        # 4 lead * 4 + 2 terminator + 1 count + 5 tail * 5 + 1 terminator = 45 u16
+        self.assertEqual(self.preamble.word_count, 45)
+        self.assertEqual(self.preamble.byte_length, 90)
+        self.assertEqual(anim.CLIP_DATA_ALIGNMENT, 0x10)
+
+    def test_offsets_are_increasing_and_sixteen_byte_aligned(self):
+        self.assertTrue(self.preamble.increasing_ok)
+        self.assertTrue(self.preamble.aligned_ok)
+        for value in self.preamble.values:
+            self.assertEqual(value % anim.CLIP_DATA_ALIGNMENT, 0)
+
+    def test_first_offset_is_the_rounded_up_preamble_length(self):
+        # 90 bytes rounds up to 96 == 0x60, exactly the first record's offset
+        self.assertTrue(self.preamble.first_offset_ok)
+        self.assertEqual(self.preamble.values[0], 0x60)
+
+    def test_data_targets_are_relative_to_the_data_section(self):
+        targets = self.preamble.data_targets(self.offset)
+        self.assertEqual(targets,
+                         tuple(self.offset + v for v in self.preamble.values))
+        # the first target lands immediately after the preamble, 16-byte aligned
+        self.assertEqual(targets[0], self.offset + 0x60)
+        self.assertEqual(targets[0], self.offset + 96)
+
+    def test_a_non_increasing_offset_is_reported_not_raised(self):
+        blob = bytearray(self.data)
+        # overwrite the second record's offset (word 7) with a smaller one
+        struct.pack_into("<H", blob, self.offset + 2 * 7, 0x20)
+        parsed = anim.parse_clip_data_preamble(bytes(blob), self.offset)
+        self.assertIsNotNone(parsed)
+        self.assertFalse(parsed.increasing_ok)
+        self.assertFalse(parsed.invariants()["increasing"])
+        self.assertTrue(parsed.discriminated_ok)
+
+    def test_a_misaligned_offset_is_reported_not_raised(self):
+        blob = bytearray(self.data)
+        struct.pack_into("<H", blob, self.offset + 2 * 7, 0x21)  # not a multiple of 16
+        parsed = anim.parse_clip_data_preamble(bytes(blob), self.offset)
+        self.assertIsNotNone(parsed)
+        self.assertFalse(parsed.aligned_ok)
 
 
 if __name__ == "__main__":

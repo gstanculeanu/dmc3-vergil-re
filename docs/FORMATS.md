@@ -877,14 +877,37 @@ terminator       u16:   0x0000
 | discriminator | `0x000C` in the third slot of every record, 123/123 |
 
 `count` is **not** the frame count (`csHadesIntro` is 141 frames, `count` 72).
-Every tag, `arg`, `value`, `extra` and `count` is **[UNKNOWN]**; the `0x8000 | n`
+Every tag, `arg`, `extra` and `count` is **[UNKNOWN]**; the `0x8000 | n`
 ids that recur in `lead[0x0B].arg` and `tail[0x1B].arg` are noted only. `[INFERRED]`
 the discriminator is a per-record type/kind field, and the lead/tail shapes are two
 groups of typed properties — unproven. The keyframe data that follows is the
 remaining F9 gap; `eboot.bin`/`eboot.elf` is the route.
 
+##### Record `value` fields are sub-block offsets — [VERIFIED] (E-065)
+
+The last u16 of every lead and tail record (E-064's `value`) is an **offset
+relative to the clip's data-section start** (`clip.offset + 0x15C`). Censused on
+all 123 clips:
+
+```
+values strictly increase in file order                    123/123
+every value is a multiple of 16                            123/123
+values[0] == round_up(preamble byte length, 16)            123/123
+data_start + value  <  clip.offset + clip.size             123/123
+```
+
+so the preamble is a directory of 16-byte-aligned sub-blocks starting
+immediately after the preamble (the first value is the preamble's own byte length,
+rounded up). Worked example `angryKratosWalk`: preamble length `0x5A` → first
+value `0x60`; values `0x60 0x90 0x870 0xAF0 0xB30 0xFB0 0x1140 0x1150 0x1160`;
+targets `0x5C30 … 0x6D30`, all below the clip's `end` (`0x96B4`). The largest
+value stays inside the clip's `size` on all 123 clips. The meaning of every
+sub-block, tag, `arg`, `extra` and `count` remains **[UNKNOWN]** — this fixes
+where the sub-blocks are, not what they hold.
+
 The reader is `ClipDataRecord` / `ClipDataPreamble` /
 `parse_clip_data_preamble()` / `maybe_clip_data_preamble()` with
-`discriminated_ok`, `tags_known_ok` and `invariants()`; it is strict (returns
-`None` on a wrong discriminator, a missing terminator or a truncated buffer) and
-asserts no field meaning.
+`discriminated_ok`, `tags_known_ok`, `values`, `word_count`, `byte_length`,
+`increasing_ok`, `aligned_ok`, `first_offset_ok`, `data_targets()` and
+`invariants()`; it is strict (returns `None` on a wrong discriminator, a missing
+terminator or a truncated buffer) and asserts no field meaning.

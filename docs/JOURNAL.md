@@ -1339,4 +1339,44 @@ moves and health bar and everything."*
   directory binding. F1/F4 remain blocked on DMC3-side engine ground truth and
   are not re-spun.
 
+---
+
+## 2026-10-18 — F9/G9 bounded slice: the clip preamble is a directory of sub-block offsets (E-065)
+
+- Did: followed the E-064 lead ("every field meaning [UNKNOWN]") and tested
+  whether the record `value` fields are offsets. Read real bytes (read-only) from
+  `R_HADES.WAD` (77 clips) and `R_HERCULES.WAD` (46) under
+  `C:\Users\GigelCastel\Desktop\gow3\CUSA01715\EXEC\WAD\PS4_LE\` and censused the
+  last u16 of every lead/tail record on all 123 clips. Added `values`,
+  `word_count`, `byte_length`, `increasing_ok`, `aligned_ok`, `first_offset_ok`,
+  `data_targets()` and the extended `invariants()` to `ClipDataPreamble` in
+  `tools/gow3/anim.py`; added the `CLIP_DATA_ALIGNMENT` /
+  `CLIP_DATA_*_TERMINATOR_WORDS` / `CLIP_DATA_COUNT_WORDS` constants and 7 tests
+  (`TestClipDataOffsets`). Full suite: **379 tests, all green** (372 baseline + 7).
+- Found (**E-065**), 123/123 clips with no exception:
+  - the record values **strictly increase** in file order and every one is a
+    **multiple of 16**;
+  - `values[0] == round_up(preamble byte length, 16)`, where the length is
+    `2·(4·lead + 2 + 1 + 5·tail + 1)` — so the first sub-block begins immediately
+    after the preamble (`angryKratosWalk`: 90 B used → first offset 96 = 0x60);
+  - every `data_start + value` is inside the clip's own `size` (123/123);
+  - worked examples on every shape: 4/5 lead, 4/5/7 tail, e.g.
+    `csHadesIntroStruggle` (5 lead, 98 B → 0x70) and `csHadesIntroWin`
+    (7 tail, 118 B → 0x80).
+- **Inference:** each record's last u16 is an **offset from the clip's
+  data-section start** (`+0x15C`), so the preamble is a directory of 16-byte-aligned
+  sub-blocks. The base is fixed by the alignment rule — a clip-relative base would
+  put `values[0]` inside the fixed header. E-064's `value = [UNKNOWN]` is
+  superseded for the offset relation.
+- Unknown (recorded, not guessed): the content of each sub-block and the meaning
+  of `count`, every tag, `arg` and `extra`; the keyframe/curve encoding inside the
+  sub-blocks remains the F9 gap. No pointer/type claim beyond "offset".
+- Docs: E-065 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §7.7 gains a
+  "Record `value` fields are sub-block offsets — [VERIFIED]" subsection;
+  `docs/BACKLOG.md` F9/G9 rows updated. No game data committed.
+- Next: the sub-block contents (keyframe/curve encoding) are now addressable and
+  are the remaining F9 gap, decodable from `eboot.elf`; otherwise F3 slots
+  6/7/11/22 and the G9/G10 directory binding. F1/F4 remain blocked on DMC3-side
+  engine ground truth and are not re-spun.
+
 
