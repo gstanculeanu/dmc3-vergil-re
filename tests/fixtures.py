@@ -277,6 +277,57 @@ def shw_chunk_with_tables(
     return bytes(blob)
 
 
+def pnst_archive() -> bytes:
+    """A synthetic ``PNST`` container mirroring plwp_vergilsword.pac (E-006).
+
+    Layout (little-endian), all values synthetic::
+
+        +0x00  char[4]  "PNST"
+        +0x04  u32      entry_count
+        +0x08  u32      offset[entry_count]   file-relative; 0 == empty slot
+        ...   zero padding to 16-byte alignment
+        data   chunks at the recorded offsets, gaps padded to 16 bytes
+
+    Slots: 0 = ``MOD ``, 1 = ``SHW ``, 2 = empty, 3 = text
+    (``;wp005.clt``), 4 = raw mystery block (``01 00 00 00 11 ...``).  No game
+    bytes are committed; every value below is invented to exercise the parser.
+    """
+    TAG_MODEL = b"MOD "
+    TAG_SHADER = b"SHW "
+    entries: list[Optional[tuple[Optional[bytes], bytes]]] = [
+        (TAG_MODEL, b"\x01\x02\x03\x04"),                    # slot 0: model
+        (TAG_SHADER, b"\xAA" * 8),                            # slot 1: shader
+        None,                                                  # slot 2: empty
+        (None, b";wp005.clt\r\n\r\nClothNum\t1\r\n\r\nClothNo     0\r\nClothId     0\r\n"),  # slot 3: text
+        (None, b"\x01\x00\x00\x00\x11\x00\x00\x00" + b"\x00" * 24),  # slot 4: raw
+    ]
+    count = len(entries)
+    table_end = 0x08 + 4 * count
+    body = bytearray()
+    cursor = (table_end + 15) & ~15
+    offsets: list[int] = [0] * count
+    for index, entry in enumerate(entries):
+        if entry is None:
+            continue
+        tag, payload = entry
+        chunk = bytearray()
+        if tag is not None:
+            chunk += tag
+        chunk += payload
+        offsets[index] = cursor
+        body += chunk
+        cursor += len(chunk)
+        pad = (-cursor) & 15
+        body += b"\x00" * pad
+        cursor += pad
+    header = bytearray(b"PNST")
+    header += struct.pack("<I", count)
+    for off in offsets:
+        header += struct.pack("<I", off)
+    header += b"\x00" * ((-len(header)) & 15)
+    return bytes(header) + bytes(body)
+
+
 def raw_chunk_slot0() -> bytes:
     """A synthetic raw chunk mirroring pl021.pac slot 0's header (E-033).
 

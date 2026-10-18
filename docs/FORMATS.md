@@ -97,22 +97,34 @@ Every field meaning in this section is [UNKNOWN].
 
 ---
 
-## 2. Weapon archives (`.pac` starting with `PNST`) — [UNKNOWN]
+## 2. Weapon archives (`.pac` starting with `PNST`) — header [VERIFIED], payload [UNKNOWN]
 
-**Evidence E-006.** `plwp_vergilsword.pac` begins with the magic `PNST`, not
-`PAC\0`:
+**Evidence E-006** — verified on both weapon archives
+(`plwp_vergilsword.pac`, `plwp_newvergilsword.pac`):
 
 ```
-0x00  "PNST"
-0x04  u32   9          (entry count?)
-0x08  u32   0x30
-0x0C  u32   0x9030
-...
+0x00  char[4]  "PNST"
+0x04  u32      entry_count
+0x08  u32      offset[entry_count]   file-relative; 0 == empty slot
+...   zero padding to 16-byte alignment
+data  chunks at the recorded offsets
 ```
 
-It is **not** the same container as a character `.pac`; the offset table layout
-is not yet established. All `plwp_*` weapon archives in the install use it.
-Open issue: *"Reverse the PNST weapon container"*.
+`align_up(0x08 + 4 * entry_count, 0x10) == offset[0]` holds on both files.
+Unlike `PAC`, no size-prefixed chunk framing has been observed: chunk tags,
+when present, sit at byte 0. Chunk kinds seen in the wild: `MOD ` mesh,
+`SHW ` shader, nested `PAC\0`, nested `PNST`, plain-text cloth config
+(`;wp005.clt`), and raw blocks beginning `01 00 00 00 11 00 00 00` whose
+meaning is [UNKNOWN].
+
+**Unknown.** The raw-block format, per-chunk payload layouts beyond the
+headers already decoded (MOD: E-030/E-031; SHW: E-036/E-038), whether offset
+`0` occurs as an empty slot, and the contents of nested containers. Open issue
+*"Reverse the PNST weapon container"* continues at the payload level.
+
+`tools/dmc3/pnst.py` exposes `PnstArchive`, decoding exactly the header and
+offset table above; exercised by unit tests on synthetic fixtures (no game
+data committed).
 
 ---
 

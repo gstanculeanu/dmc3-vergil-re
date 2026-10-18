@@ -49,6 +49,15 @@ from .mot import (
     walk_records,
     keyframe_groups,
 )
+from .pnst import (
+    MAGIC as PNST_MAGIC,
+    PnstArchive,
+    PnstChunk,
+    TAG_CONTAINER as PNST_TAG_CONTAINER,
+    TAG_MODEL as PNST_TAG_MODEL,
+    TAG_PNST as PNST_TAG_PNST,
+    TAG_SHADER as PNST_TAG_SHADER,
+)
 from .tm2 import (
     DdsInfo,
     Tm2Error,
@@ -89,6 +98,13 @@ __all__ = [
     "BODY_PREFIX_SIZE",
     "ModBodyPrefix",
     "ModHeader",
+    "PNST_MAGIC",
+    "PnstArchive",
+    "PnstChunk",
+    "PNST_TAG_CONTAINER",
+    "PNST_TAG_MODEL",
+    "PNST_TAG_PNST",
+    "PNST_TAG_SHADER",
     "SLOT0_HEADER_SIZE",
     "SLOT10_PAIR_COUNT",
     "RawHeader",

@@ -127,17 +127,54 @@ extraction is a single `find`.
 
 ## E-006 — Weapon archives use a `PNST` container
 
-**Observation.** `plwp_vergilsword.pac` (560,176 bytes) begins:
+**Observation.** Both weapon archives on disk (`plwp_vergilsword.pac`,
+560,176 bytes; `plwp_newvergilsword.pac`, 561,328 bytes) begin:
 
 ```
-0x00: 50 4E 53 54 09 00 00 00 30 00 00 00 30 90 00 00
-      "PNST"      count=9?     0x30        0x9030
+plwp_vergilsword.pac   0x00: 50 4E 53 54 09 00 00 00 30 00 00 00 30 90 00 00
+                       "PNST"      count=9       0x30           0x9030
+plwp_newvergilsword.pac 0x00: 50 4E 53 54 0A 00 00 00 30 00 00 00 30 90 00 00
+                         "PNST"      count=10      0x30           0x9030
 ```
 
-`PNST` is not `PAC\0`. The offset table layout has not been established.
+The `u32` at +0x08 starts an offset table of `count` file-relative u32s.
+Reading every entry on both files:
 
-**Unknown.** Everything about `PNST` beyond the magic. Open issue
-*"Reverse the PNST weapon container"*.
+| Slot | `plwp_vergilsword.pac` (count=9) | `plwp_newvergilsword.pac` (count=10) |
+|------|----------------------------------|--------------------------------------|
+| 0 | 0x0030 → raw block `01 00 00 00 11 00 00 00 …` | same |
+| 1 | 0x9030 → `MOD ` | same |
+| 2 | 0xAC00 → `SHW ` | same |
+| 3 | 0xB3A0 → raw block `01 00 00 00 11 00 00 00 …` | same |
+| 4 | 0x143A0 → `MOD ` | same |
+| 5 | 0x16370 → `;wp005.clt` cloth-config text | same |
+| 6 | 0x164D0 → `SHW ` | same |
+| 7 | 0x177B0 → `PNST` nested container | same |
+| 8 | 0x88600 → `PAC\0` nested container | same |
+| 9 | — | 0x88F20 → `06 00 DA 00 FF FF …` data |
+
+**Inference.** The `PNST` container mirrors the `PAC` container (E-001): magic,
+`u32 entry_count`, then `u32 offset[entry_count]` at +0x08 with `0` as the
+empty-slot sentinel (no zero entry observed yet). Data start is
+`align_up(0x08 + 4 * count, 0x10)` and equals `offset[0]` on both files.
+Unlike `PAC`, no size-prefixed chunk framing has been observed — chunk tags,
+when present, sit at byte 0. Chunks carry their own structure: `MOD ` mesh
+headers (E-030), `SHW ` shader headers (E-036/E-038), nested `PAC\0` and
+`PNST` containers, plain-text cloth configs (`;wp005.clt`, like E-004), and
+unidentified raw blocks whose leading `01 00 00 00 11 00 00 00` repeats at
+slots 0 and 3 in both files. The nested `PNST` at 0x177B0 holds a 2-entry
+table whose second entry points at a further `PNST` (0x17DB0).
+
+**Unknown.** Semantics of the raw blocks (`01 … 11 …`), per-chunk payload
+layouts beyond the headers already decoded, whether an offset of `0` is ever
+used as an empty slot, and the contents of the nested containers. Chunk
+payload semantics remain [UNKNOWN]; the open issue
+*"Reverse the PNST weapon container"* continues at the payload level.
+
+**Consequence.** `tools/dmc3/pnst.py` exposes `PnstArchive` (header + offset
+table, chunk accessors, tag classification), verified against both real weapon
+archives and exercised by unit tests on synthetic fixtures (no game data
+committed).
 
 ---
 
