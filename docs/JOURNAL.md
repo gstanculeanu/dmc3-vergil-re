@@ -2554,3 +2554,56 @@ moves and health bar and everything."*
   engine route and is not re-spun; F3 slots 6/7/11/22 and the GoW3R clip leaf
   keyframe encoding (F9) remain available.
 
+---
+
+## 2026-10-18 — F2 bounded slice: `SHW ` +0x30 is the triangle table, +0x38 its edge adjacency (E-102)
+
+- Did: left F1 alone — E-101 itself recorded that the remaining gap ("what the
+  three regions name") is not decodable by correlation, so another F1 slice
+  would have repeated the previous one. Picked **F2** (issue #3) instead and
+  tested a cross-structure hypothesis that E-038 had left as a noted oddity:
+  that the `+0x38` "index buffer" indexes the `+0x40` positions. Read all **58
+  `SHW ` chunks** across the 194 `*.pac` files read-only, plus the four
+  `pl021.pac` chunks in detail. Rewrote the `SHW ` sub-table reader
+  (`ShwTriangleTable` / `ShwAdjacencyTable` / `ShwPositionTable` /
+  `ShwSubTables.consistent` / `.shared_edges`), replaced the disproved
+  `ShwIndexTable`, corrected the fixture and `tests/test_shw.py`. Full suite:
+  **666 tests, all green**.
+- Found (**E-102**):
+  - **The `+0x30` table is the triangle list.** `[u32 i0,i1,i2,0]` × N, N =
+    `(field_38−field_30)/16`, and N == the `+0x38` entry count **58/58**. All
+    three indices are distinct and `< P` (`+0x40` positions) **58/58**, and
+    every position is referenced **58/58**. Example `pl021.pac` slot 8
+    (file `0x75470`): tri[0] at file `0x758d0` = `(0,1,2,0)`.
+  - **The `+0x38` table is per-triangle edge adjacency, not a vertex index
+    buffer.** `[u16 n0,n1,n2,0]` × N with every value `< N` **58/58**; the
+    multiset of all 3N values is exactly 3 copies of `0..N−1` **58/58**; the
+    relation is symmetric **58/58**; and each named neighbour shares ≥ 2
+    vertices (an edge) with the naming triangle **58/58**. So it is a closed
+    surface's edge-adjacency graph.
+  - **Disproved:** E-038's "index buffer over the +0x40 positions". The values
+    reach `N−1` and `N > P` on 58/58 (slot 8: max 15 vs 10 positions; slot 14:
+    max 39 vs 22) — the old class docstring's "additional vertex buffers may be
+    involved" was pointing at this. The count formula stands; only the referent
+    was wrong.
+  - **Supporting census:** size classes `(P,N)` include `(10,16)×16`,
+    `(39,66)×8`, `(12,20)×7`, `(22,40)×4`, `(21,38)×4`, `(60,116)×2`… For 16 of
+    18 classes `N = 2P−4` (closed triangulated genus-0); `(39,66)` (the swords)
+    and `(47,70)` do not, so the closed surfaces are not all genus-0.
+  - **[INFERRED]:** closed mesh + full edge adjacency is the input a
+    shadow-volume pass needs, so `SHW ` is most likely shadow geometry, not a
+    material payload. The four bytes do not spell "shadow"; the texture binding
+    F2 asks for is not in these tables. The `+0x48` region stays [UNKNOWN].
+  - Newly noted, not decoded: the four `pl021.pac` `SHW ` position clouds sit
+    near but not on the `MOD ` geometry (nearest-vertex median: slot 24/26 ↔
+    MOD 23/25 ≈ 0.70 units, slot 14 ↔ MOD 12 ≈ 2.80, slot 8 ↔ MOD 1 ≈ 8.6), so
+    these are simplified proxy meshes, not copies of the render mesh
+    [observation; no claim about the proxy's purpose beyond the inference above].
+- Docs: E-102; `FORMATS.md` §5.1.1 rewritten (title, tables, correction, worked
+  example with file offsets) and the §5 header bullets updated; `BACKLOG.md` F2
+  row updated.
+- Next: F2's remaining gap is the `+0x48` region and the header fields
+  (`alpha`, `+0x10`, `+0x14`, `+0x20` pair) — a bounded next slice could read
+  `+0x48` across the same 58 chunks with the E-102 tables in hand. F1 stays
+  parked on its documented correlation dead end; F4 stays on the engine route.
+

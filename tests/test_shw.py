@@ -146,29 +146,40 @@ class TestShwHeader(unittest.TestCase):
 
 
 class TestShwSubTables(unittest.TestCase):
-    """Decoded SHW sub-tables (E-038): the +0x38 index buffer and the +0x40
-    position buffer.  Only the observed structure is asserted; every field
-    meaning remains [UNKNOWN]."""
+    """Decoded SHW sub-tables (E-038, E-102): the +0x30 triangle table, the
+    +0x38 per-triangle adjacency table and the +0x40 position table.  Only the
+    observed structure is asserted; every field meaning remains [UNKNOWN]."""
 
     def _chunk(self, **kw) -> Chunk:
         return chunk_of(fixtures.shw_chunk_with_tables(**kw))
 
     def test_counts_derived_from_pointer_differences(self):
-        # Default fixture: 4 indices, 3 positions; field_38=0x50, field_40=0x70,
-        # field_48=0xA0 -> index bytes 0x20 = 4*8, position bytes 0x30 = 3*16.
+        # Default fixture: 4 triangles, 4 adjacency rows, 4 positions;
+        # field_30=0x50, field_38=0x90, field_40=0xB0, field_48=0xF0.
         chunk = self._chunk()
         header = ShwHeader.parse(chunk)
         sub = parse_shw_sub_tables(chunk.data, header)
+        self.assertEqual(header.field_38 - header.field_30, 4 * 16)
         self.assertEqual(header.field_40 - header.field_38, 4 * 8)
-        self.assertEqual(header.field_48 - header.field_40, 3 * 16)
-        self.assertEqual(sub.index_table.count, 4)
-        self.assertEqual(sub.position_table.count, 3)
+        self.assertEqual(header.field_48 - header.field_40, 4 * 16)
+        self.assertEqual(sub.triangle_table.count, 4)
+        self.assertEqual(sub.adjacency_table.count, 4)
+        self.assertEqual(sub.position_table.count, 4)
 
-    def test_index_entries_strip_trailing_zero(self):
-        chunk = self._chunk(indices=((10, 20, 30), (40, 50, 60)))
+    def test_triangle_entries_strip_trailing_zero(self):
+        chunk = self._chunk(triangles=((10, 20, 30), (40, 50, 60)))
         header = ShwHeader.parse(chunk)
         sub = parse_shw_sub_tables(chunk.data, header)
-        self.assertEqual(sub.index_table.indices, ((10, 20, 30), (40, 50, 60)))
+        self.assertEqual(sub.triangle_table.triangles, ((10, 20, 30), (40, 50, 60)))
+
+    def test_adjacency_entries_strip_trailing_zero(self):
+        chunk = self._chunk(
+            triangles=((0, 1, 2), (1, 2, 3)),
+            neighbours=((1, 1, 1), (0, 0, 0)),
+        )
+        header = ShwHeader.parse(chunk)
+        sub = parse_shw_sub_tables(chunk.data, header)
+        self.assertEqual(sub.adjacency_table.neighbours, ((1, 1, 1), (0, 0, 0)))
 
     def test_position_entries_keep_w(self):
         chunk = self._chunk(positions=((1.5, -2.5, 3.5, 1.0),))
@@ -176,20 +187,85 @@ class TestShwSubTables(unittest.TestCase):
         sub = parse_shw_sub_tables(chunk.data, header)
         self.assertEqual(sub.position_table.positions, ((1.5, -2.5, 3.5, 1.0),))
 
-    def test_rejects_index_size_not_multiple_of_8(self):
-        # field_40 - field_38 = 0x54 - 0x48 = 12, not divisible by 8.
-        chunk = self._chunk(field_38=0x48, field_40=0x54, indices=((1, 2, 3),))
+    def test_default_fixture_satisfies_every_e102_invariant(self):
+        # A closed tetrahedron: the triangles index the positions, the
+        # adjacency is symmetric and three-regular, neighbours share an edge.
+        chunk = self._chunk()
+        header = ShwHeader.parse(chunk)
+        sub = parse_shw_sub_tables(chunk.data, header)
+        self.assertTrue(sub.triangle_table.references(sub.position_table.count))
+        self.assertTrue(sub.adjacency_table.symmetric())
+        self.assertTrue(sub.adjacency_table.three_regular())
+        self.assertTrue(sub.shared_edges())
+        self.assertTrue(sub.consistent)
+
+    def test_consistent_rejects_triangle_out_of_position_range(self):
+        # E-102: every triangle index is inside the position table on 58/58.
+        chunk = self._chunk(
+            triangles=((0, 1, 4),), neighbours=((0, 0, 0),)
+        )
+        header = ShwHeader.parse(chunk)
+        sub = parse_shw_sub_tables(chunk.data, header)
+        self.assertFalse(sub.triangle_table.references(sub.position_table.count))
+        self.assertFalse(sub.consistent)
+
+    def test_consistent_rejects_asymmetric_adjacency(self):
+        # E-102: k appears in the row of every triangle that names it.
+        chunk = self._chunk(
+            triangles=((0, 1, 2), (1, 2, 3)),
+            neighbours=((1, 1, 1), (1, 1, 1)),
+        )
+        header = ShwHeader.parse(chunk)
+        sub = parse_shw_sub_tables(chunk.data, header)
+        self.assertFalse(sub.adjacency_table.symmetric())
+        self.assertFalse(sub.consistent)
+
+    def test_consistent_rejects_non_three_regular_adjacency(self):
+        # E-102: the multiset of neighbour values is 3 copies of 0..N-1.
+        chunk = self._chunk(
+            triangles=((0, 1, 2), (1, 2, 3)),
+            neighbours=((0, 0, 0), (0, 0, 0)),
+        )
+        header = ShwHeader.parse(chunk)
+        sub = parse_shw_sub_tables(chunk.data, header)
+        self.assertFalse(sub.adjacency_table.three_regular())
+        self.assertFalse(sub.consistent)
+
+    def test_rejects_triangle_count_differing_from_adjacency_count(self):
+        # E-102: the two +0x30/+0x38 table counts are always equal.
+        chunk = self._chunk(
+            field_38=0x50 + 16 * 2,
+            triangles=((0, 1, 2), (1, 2, 0)),
+            neighbours=((0, 0, 0),),
+        )
+        header = ShwHeader.parse(chunk)
+        with self.assertRaises(ValueError):
+            parse_shw_sub_tables(chunk.data, header)
+
+    def test_rejects_triangle_size_not_multiple_of_16(self):
+        # field_38 - field_30 = 0x5C - 0x50 = 12, not divisible by 16.
+        chunk = self._chunk(field_38=0x5C, triangles=((0, 1, 2),))
+        header = ShwHeader.parse(chunk)
+        with self.assertRaises(ValueError):
+            parse_shw_sub_tables(chunk.data, header)
+
+    def test_rejects_adjacency_size_not_multiple_of_8(self):
+        # field_40 - field_38 = 0x82 - 0x60 = 0x22 = 34, not divisible by 8.
+        chunk = self._chunk(field_40=0x82, triangles=((0, 1, 2),))
         header = ShwHeader.parse(chunk)
         with self.assertRaises(ValueError):
             parse_shw_sub_tables(chunk.data, header)
 
     def test_rejects_position_size_not_multiple_of_16(self):
-        # field_48 - field_40 = 0x60 - 0x50 = 16 -> 1 position OK; use 24.
-        chunk = self._chunk(
-            field_40=0x50,
-            field_48=0x68,
-            positions=((1.0, 2.0, 3.0, 1.0), (4.0, 5.0, 6.0, 1.0)),
-        )
+        # field_48 - field_40 = 0xB8 - 0xB0 = 8, not divisible by 16.
+        chunk = self._chunk(field_48=0xB8, positions=())
+        header = ShwHeader.parse(chunk)
+        with self.assertRaises(ValueError):
+            parse_shw_sub_tables(chunk.data, header)
+
+    def test_rejects_non_increasing_offsets(self):
+        # E-102: field_30 < field_38 <= field_40 <= field_48 on 58/58.
+        chunk = self._chunk(field_38=0x50)
         header = ShwHeader.parse(chunk)
         with self.assertRaises(ValueError):
             parse_shw_sub_tables(chunk.data, header)
@@ -201,10 +277,18 @@ class TestShwSubTables(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_shw_sub_tables(chunk.data, header)
 
-    def test_rejects_nonzero_fourth_u16_in_index_entry(self):
-        chunk = self._chunk(indices=((1, 2, 3), (4, 5, 6)))
+    def test_rejects_nonzero_fourth_u32_in_triangle_entry(self):
+        chunk = self._chunk()
         data = bytearray(chunk.data)
-        struct.pack_into("<H", data, 0x50 + 6, 0x0001)  # corrupt entry 0's pad
+        struct.pack_into("<I", data, 0x50 + 12, 0x00000001)  # corrupt entry 0's pad
+        header = ShwHeader.parse(chunk_of(bytes(data)))
+        with self.assertRaises(ValueError):
+            parse_shw_sub_tables(bytes(data), header)
+
+    def test_rejects_nonzero_fourth_u16_in_adjacency_entry(self):
+        chunk = self._chunk()
+        data = bytearray(chunk.data)
+        struct.pack_into("<H", data, 0x90 + 6, 0x0001)  # corrupt entry 0's pad
         header = ShwHeader.parse(chunk_of(bytes(data)))
         with self.assertRaises(ValueError):
             parse_shw_sub_tables(bytes(data), header)
@@ -215,24 +299,34 @@ class TestShwSubTables(unittest.TestCase):
         self.assertIsNone(maybe_shw_sub_tables(b"\x00" * 40, header))
 
     def test_slot_8_shape_mirrors_real_pointer_structure(self):
-        # Mirrors pl021.pac slot 8 (E-036/E-038): field_38=0x560, field_40=0x5E0,
-        # field_48=0x680 -> 16 indices, 10 positions; synthetic data values.
-        indices = tuple((i % 10, (i + 1) % 10, (i + 2) % 10) for i in range(16))
+        # Mirrors pl021.pac slot 8 (E-036/E-102): field_30=0x460, field_38=0x560,
+        # field_40=0x5E0, field_48=0x680 -> 16 triangles, 16 adjacency rows,
+        # 10 positions.  Synthetic data values.
         positions = tuple(
             (float(i), float(i + 1), float(i + 2), 1.0) for i in range(10)
         )
+        triangles = tuple(
+            (i % 10, (i + 1) % 10, (i + 2) % 10) for i in range(16)
+        )
+        neighbours = tuple(
+            ((i + 1) % 16, (i + 2) % 16, (i + 3) % 16) for i in range(16)
+        )
         chunk = self._chunk(
+            field_30=0x460,
             field_38=0x560,
             field_40=0x5E0,
             field_48=0x680,
-            indices=indices,
+            triangles=triangles,
+            neighbours=neighbours,
             positions=positions,
         )
         header = ShwHeader.parse(chunk)
         sub = parse_shw_sub_tables(chunk.data, header)
-        self.assertEqual(sub.index_table.count, 16)
+        self.assertEqual(sub.triangle_table.count, 16)
+        self.assertEqual(sub.adjacency_table.count, 16)
         self.assertEqual(sub.position_table.count, 10)
-        self.assertEqual(sub.index_table.indices, indices)
+        self.assertEqual(sub.triangle_table.triangles, triangles)
+        self.assertEqual(sub.adjacency_table.neighbours, neighbours)
         self.assertEqual(sub.position_table.positions, positions)
 
 

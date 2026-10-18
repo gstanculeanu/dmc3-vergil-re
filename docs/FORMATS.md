@@ -892,12 +892,12 @@ chunks; evidence E-036), all little-endian:
 +0x24  u32      0 x4/4
 +0x28  u32      0 x4/4
 +0x2C  u32      0 x4/4
-+0x30  u32      varies   (0x460, 0x1E0, 0x60, 0x60) — offsets a 16-byte-block
-                       index table in all four chunks   [table layout UNKNOWN]
++0x30  u32      varies   (0x460, 0x1E0, 0x60, 0x60) — offsets the triangle
+                        table `[u32 i0,i1,i2,0] x N` (E-102; §5.1.1)
 +0x34  u32      0 x4/4
-+0x38  u32      varies   (0x560, 0x460, 0x480, 0x480) — offsets an index
-                        buffer `[u16 i0,i1,i2,0] x count` (structure [PARTIAL];
-                        see §5.1.1, evidence E-038)
++0x38  u32      varies   (0x560, 0x460, 0x480, 0x480) — offsets the per-triangle
+                        adjacency table `[u16 n0,n1,n2,0] x N` (E-102; §5.1.1);
+                        E-038's "index buffer" reading is disproved
 +0x3C  u32      0 x4/4
 +0x40  u32      varies   (0x5E0, 0x5A0, 0x690, 0x690) — offsets a position
                         buffer `[f32 x,y,z,1.0] x count` (structure [PARTIAL];
@@ -913,55 +913,77 @@ chunks; evidence E-036), all little-endian:
 * Slots 24 and 26 are byte-identical `SHW ` chunks (a duplicated shader pair,
   like the MOD slots 23/25).
 * The four varying fields at +0x30/+0x38/+0x40/+0x48 each point at a sub-table
-  inside the chunk; +0x30's table holds three small u32 indices plus a zero
-  per 16-byte entry in all four chunks (E-036). The +0x38 index buffer and
-  +0x40 position buffer are structurally decoded (§5.1.1, evidence E-038);
-  the +0x48 table's layout and all field meanings are [UNKNOWN]; the texture
-  binding that issue F2 asks for is not yet decoded.
-* `tools/dmc3/shw.py` exposes `ShwHeader`, `ShwIndexTable`, `ShwPositionTable`,
-  `ShwSubTables` and `parse_shw_sub_tables` / `maybe_shw_sub_tables`, decoding
-  exactly the observed sub-table structure from real bytes, exercised by unit
-  tests on synthetic fixtures.
+  inside the chunk; +0x30 is the triangle table (three u32 vertex indices plus
+  a zero) and +0x38 is the per-triangle adjacency table, both with the same
+  entry count (E-102). The +0x40 position buffer is structurally decoded
+  (§5.1.1, evidence E-038); the +0x48 table's layout and all field meanings are
+  [UNKNOWN]; the texture binding that issue F2 asks for is not yet decoded.
+* `tools/dmc3/shw.py` exposes `ShwHeader`, `ShwTriangleTable`,
+  `ShwAdjacencyTable`, `ShwPositionTable`, `ShwSubTables` and
+  `parse_shw_sub_tables` / `maybe_shw_sub_tables`, decoding exactly the observed
+  sub-table structure from real bytes, exercised by unit tests on synthetic
+  fixtures.
 
-### 5.1.1 `SHW ` sub-tables — index buffer (+0x38) and position buffer (+0x40)
+### 5.1.1 `SHW ` sub-tables — triangles (+0x30), adjacency (+0x38), positions (+0x40)
 
-**[PARTIAL structure / [UNKNOWN] semantics]** — evidence E-038. The `field_38`
-(+0x38) and `field_40` (+0x40) header fields are chunk-relative offsets, and
-`field_48` (+0x48) is the offset of the next table. Buffer sizes come from the
-consecutive-pointer differences, verified as an invariant across all four
-chunks:
+**[PARTIAL structure / [UNKNOWN] semantics]** — evidence E-038, corrected and
+extended by **E-102**. Four chunk-relative offsets name consecutive tables:
 
-* index count   = `(field_40 - field_38) / 8`,  layout `[u16 i0, u16 i1, u16 i2, u16 0]`
-* position count = `(field_48 - field_40) / 16`, layout `[f32 x, f32 y, f32 z, f32 1.0]`
+| Header | Points at | Entry layout | Count |
+|---|---|---|---|
+| `+0x30` (`field_30`) | triangle table | `[u32 i0, u32 i1, u32 i2, u32 0]` | `(field_38 − field_30) / 16` |
+| `+0x38` (`field_38`) | adjacency table | `[u16 n0, u16 n1, u16 n2, u16 0]` | `(field_40 − field_38) / 8` |
+| `+0x40` (`field_40`) | position table | `[f32 x, f32 y, f32 z, f32 1.0]` | `(field_48 − field_40) / 16` |
+| `+0x48` (`field_48`) | next region | — | [UNKNOWN] |
 
-The index table occupies `[field_38, field_40)` and the position table
-`[field_40, field_48)`; the two are contiguous in all four chunks:
+**The triangle and adjacency counts are always equal** (58/58 `SHW ` chunks
+across the install, E-102). The tables are contiguous in the order above and
+`field_30 < field_38 < field_40 <= field_48` on 58/58.
 
-| Slot | field_38 | index count | field_40 | position count | field_48 |
-|------|----------|-------------|----------|----------------|----------|
-| 8 | 0x560 | 16 tris | 0x5E0 | 10 positions | 0x680 |
-| 14 | 0x460 | 40 tris | 0x5A0 | 22 positions | 0x700 |
-| 24/26 | 0x480 | 66 tris | 0x690 | 39 positions | 0x900 |
+**What the tables contain (E-102, 58/58 unless stated).**
 
-Worked example — slot 8 (file base 0x75470), raw bytes little-endian:
+* **Triangles.** Every `+0x30` entry has three *distinct* u32 indices, all
+  strictly below the position count, and every position is referenced at least
+  once. Reading this as the chunk's triangle list is [INFERRED] from that
+  structure; the fourth u32 is 0 in every entry.
+* **Adjacency.** Every `+0x38` value is a **triangle index** (`< N`), never a
+  vertex index; the multiset of all `3N` values is exactly three copies of
+  `0..N−1`; the relation is symmetric (`k ∈ neighbours[n]` for every
+  `n ∈ neighbours[k]`); and every neighbour shares at least two vertices with
+  the triangle that names it — i.e. the two triangles share an edge. This is
+  per-triangle edge adjacency on a **closed** surface.
+* **Positions.** Left/right symmetry and `w == 1.0` in every entry (E-038).
+  Object-space vs world-space is [UNKNOWN].
+
+**Correction to E-038.** E-038 read the `+0x38` table as a vertex index buffer
+over the `+0x40` positions. That is disproved: its values reach `N−1`, which
+exceeds the position count on 58/58 chunks (slot 8: max 15 vs 10 positions;
+slot 14: max 39 vs 22). The `+0x38` table indexes the `+0x30` triangle table.
+The count formula `(field_40 − field_38) / 8` from E-038 stands; only the
+referent changes.
+
+Worked example — `pl021.pac` slot 8 (file base `0x75470`); header fields
+`field_30=0x460`, `field_38=0x560`, `field_40=0x5E0`, `field_48=0x680`:
 
 ```
-file 0x759d0 (+0x38): 06 00 0e 00 07 00 00 00   -> index (6, 14, 7)
-                       06 00 05 00 0a 00 00 00   -> index (6, 5, 10)
-file 0x75a50 (+0x40): ce c4 8a c1 9d f7 08 43   -> position x=-17.3461
-                       a7 36 12 c1 00 00 80 3f   -> y=+136.9672 z=-9.1383 w=+1.0
+file 0x758d0 (+0x460) tri[0]:  00 00 00 00 01 00 00 00   -> triangle (0, 1, 2)
+                               02 00 00 00 00 00 00 00
+file 0x759d0 (+0x560) adj[0]:  06 00 0e 00 07 00 00 00   -> neighbours (6, 14, 7)
+file 0x75a50 (+0x5E0) pos[0]:  ce c4 8a c1 9d f7 08 43   -> x=-17.3461 y=+136.9672
+                               a7 36 12 c1 00 00 80 3f   -> z=-9.1383  w=+1.0
 ```
 
-Position values show left/right symmetry (e.g. slot 14 `(-14.87,+4.02,+7.75)`
-/ `(+15.30,+4.02,+7.75)`) and w is exactly 1.0 in every entry — consistent with
-vertex coordinates, but object-space vs world-space is [UNKNOWN].
+So slot 8 is a 10-vertex, 16-triangle closed mesh; slots 24/26 are a
+39-vertex, 66-triangle mesh, and slot 14 a 22-vertex, 40-triangle mesh.
 
-**Cross-reference [UNKNOWN]:** whether the index buffer references the position
-buffer is not established. It holds for slots 24/26 (max index 28 < 39
-positions) but not for slots 8/14 (slot 8 max index 15 > 10 positions; slot 14
-max index 30 > 22 positions), suggesting additional vertex buffers or separate
-sub-meshes. The +0x48 table's layout and all field meanings are [UNKNOWN];
-the texture binding issue F2 asks for remains [UNKNOWN].
+**Interpretation [INFERRED].** A closed triangle mesh plus full edge adjacency
+is the input a shadow-volume pass needs to find silhouette edges, so `SHW ` is
+most likely **shadow geometry** (a closed proxy mesh) rather than a material
+payload. The four ASCII bytes do not spell "shadow" and the texture binding
+issue F2 asks for is **not** present in this structure — it remains [UNKNOWN].
+The `+0x48` region's layout, and the meanings of `alpha`, `field_10`,
+`field_14` and the `+0x20` u16 pair, are also [UNKNOWN].
+
 
 > **Correction.** An earlier revision of this section listed the varying values
 > `0x460, 0x1E0, 0x60` at `+0x28`. Real bytes show `+0x28` is `0` in all four

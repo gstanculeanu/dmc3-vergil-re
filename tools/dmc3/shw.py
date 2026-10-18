@@ -1,11 +1,21 @@
 """DMC3 ``SHW `` chunk header reader.
 
-``SHW `` chunks are the plain-tagged shader/material payloads inside a PAC
-container (evidence E-002).  Only the header fields that are **observed**
-across real archives are exposed here; the header at +0x30/+0x38/+0x40/+0x48
-points at sub-tables, of which the +0x38 index buffer and +0x40 position
-buffer are structurally decoded (evidence E-038).  The texture binding and the
-remaining payload semantics stay open (issue F2).
+``SHW `` chunks are plain-tagged payloads inside a PAC container (evidence
+E-002).  Only the header fields that are **observed** across real archives are
+exposed here; the header at +0x30/+0x38/+0x40/+0x48 points at sub-tables, three
+of which are structurally decoded:
+
+* ``+0x30`` — the **triangle table**: ``[u32 i0, u32 i1, u32 i2, u32 0]`` per
+  triangle, indexing the ``+0x40`` positions (E-102).
+* ``+0x38`` — the **adjacency table**: ``[u16 n0, u16 n1, u16 n2, u16 0]`` per
+  triangle, naming the three edge-neighbour *triangles* (E-102).  E-038 read
+  these as a vertex index buffer; that reading is disproved (E-102).
+* ``+0x40`` — the **position table**: ``[f32 x, f32 y, f32 z, f32 1.0]`` per
+  vertex (E-038).
+
+The ``+0x48`` region, the texture binding and the remaining payload semantics
+stay open (issue F2).  ``SHW `` being shadow-volume geometry rather than a
+material payload is [INFERRED], not established.
 
 Header layout as read from the four ``SHW `` chunks of ``pl021.pac``
 (slots 8, 14, 24, 26; slots 24 and 26 are byte-identical), all integers
@@ -24,21 +34,24 @@ little-endian::
     +0x24  u32      0 in every observed chunk
     +0x28  u32      0 in every observed chunk
     +0x2C  u32      0 in every observed chunk
-    +0x30  u32      varies per chunk   (0x460, 0x1E0, 0x60, 0x60; points at a
-                                     16-byte-block index table in all four)
+    +0x30  u32      varies per chunk   (0x460, 0x1E0, 0x60, 0x60; offset of the
+                                      triangle table, E-102)
     +0x34  u32      0 in every observed chunk
-    +0x38  u32      varies per chunk   (0x560, 0x460, 0x480, 0x480)
+    +0x38  u32      varies per chunk   (0x560, 0x460, 0x480, 0x480; offset of
+                                      the adjacency table, E-102)
     +0x3C  u32      0 in every observed chunk
-    +0x40  u32      varies per chunk   (0x5E0, 0x5A0, 0x690, 0x690)
+    +0x40  u32      varies per chunk   (0x5E0, 0x5A0, 0x690, 0x690; offset of
+                                      the position table, E-038)
     +0x44  u32      0 in every observed chunk
     +0x48  u32      varies per chunk   (0x680, 0x700, 0x900, 0x900)
     +0x4C  u32      0 in every observed chunk
     +0x50  zero bytes                         (16 bytes of padding)
 
-The four varying fields at +0x30/+0x38/+0x40/+0x48 each point at a sub-table
-inside the chunk (+0x30's table holds three small u32 indices plus a zero per
-16-byte entry in all four chunks); the sub-table layouts and the fields'
-meanings are [UNKNOWN] and deliberately not decoded here.
+The four varying fields at +0x30/+0x38/+0x40/+0x48 each point at a sub-table.
+The +0x30 and +0x38 tables have the **same entry count** N, the +0x30 entries
+index the +0x40 position table, and the +0x38 entries index the +0x30 triangle
+table — see E-102 and :func:`parse_shw_sub_tables`.  The +0x48 region's layout
+and every field's *meaning* remain [UNKNOWN] and are deliberately not decoded.
 
 See docs/EVIDENCE.md E-036 for the raw-byte observations and docs/FORMATS.md
 §5 for the spec.  This module never writes into a game installation.
@@ -106,19 +119,19 @@ class ShwHeader:
     """``+0x2C`` — u32, 0 in every observed chunk."""
 
     field_30: int
-    """``+0x30`` — u32, varies per chunk (0x460, 0x1E0, 0x60, 0x60).  It
-    points at a sub-table of 16-byte entries (three small u32 indices plus a
-    zero) in all four observed chunks — an inference from the bytes, not
-    engine-verified; the field's meaning is [UNKNOWN]."""
+    """``+0x30`` — u32, varies per chunk (0x460, 0x1E0, 0x60, 0x60).  It is the
+    chunk-relative offset of the **triangle table** decoded by
+    :func:`parse_shw_sub_tables` (E-102; structure [VERIFIED], semantics
+    [INFERRED] as the chunk's triangle list)."""
 
     field_34: int
     """``+0x34`` — u32, 0 in every observed chunk."""
 
     field_38: int
-    """``+0x38`` — u32, varies per chunk.  Chunk-relative offset of a buffer of
-    ``[u16 i0, u16 i1, u16 i2, u16 0]`` index entries; decoded by
-    :func:`parse_shw_sub_tables` (structure [PARTIAL], semantics [UNKNOWN];
-    evidence E-038)."""
+    """``+0x38`` — u32, varies per chunk.  Chunk-relative offset of the
+    **adjacency table**: ``[u16 n0, u16 n1, u16 n2, u16 0]`` per triangle,
+    naming edge-neighbour triangle indices (E-102; structure [VERIFIED]).
+    E-038 read this as a vertex index buffer; that reading is disproved."""
 
     field_3c: int
     """``+0x3C`` — u32, 0 in every observed chunk."""
@@ -188,34 +201,90 @@ def maybe_shw_header(chunk: Chunk) -> Optional[ShwHeader]:
 # Payload sub-tables (the part of issue F2 that is still [UNKNOWN] in meaning)
 # ---------------------------------------------------------------------------
 
-INDEX_STRIDE = 8
-"""Stride of the index table at ``SHW +0x38``: ``[u16 i0, u16 i1, u16 i2, u16 0]``."""
+TRIANGLE_TABLE_OFFSET = 0x30
+"""Header offset of the triangle table (``SHW +0x30``)."""
+
+TRIANGLE_STRIDE = 16
+"""Stride of the triangle table at ``SHW +0x30``: ``[u32 i0, u32 i1, u32 i2, u32 0]``."""
+
+ADJACENCY_STRIDE = 8
+"""Stride of the adjacency table at ``SHW +0x38``: ``[u16 n0, u16 n1, u16 n2, u16 0]``."""
 
 POSITION_STRIDE = 16
 """Stride of the position table at ``SHW +0x40``: ``[f32 x, f32 y, f32 z, f32 1.0]``."""
 
 
 @dataclass(frozen=True)
-class ShwIndexTable:
-    """Triangle index buffer pointed at by ``SHW +0x38`` (evidence E-038).
+class ShwTriangleTable:
+    """Triangle list pointed at by ``SHW +0x30`` (evidence E-102).
 
-    Layout: ``[u16 i0, u16 i1, u16 i2, u16 0]`` repeated ``count`` times.  The
-    fourth u16 of every entry is observed to be zero in all four real chunks.
-    The count is derived from the pointer difference ``field_40 - field_38``,
-    which is a verified invariant across all four ``SHW `` chunks.
-
-    What the indices reference is [UNKNOWN]: for slots 24/26 the indices fall
-    within the +0x40 position table, but for slots 8 and 14 the maximum index
-    exceeds that table's count, so additional vertex buffers or separate
-    sub-meshes may be involved.
+    Layout: ``[u32 i0, u32 i1, u32 i2, u32 0]`` repeated ``count`` times.  The
+    count is derived from ``field_38 - field_30`` (stride 16) and equals the
+    ``+0x38`` adjacency entry count.  E-038 saw these entries but did not name
+    them; E-102 shows all three indices are distinct and fall within the
+    ``+0x40`` position table on 58/58 ``SHW `` chunks in the install, and that
+    every position is referenced at least once (58/58).  Reading them as the
+    chunk's triangles is [INFERRED] from that structure.
     """
 
     count: int
-    """Number of index entries (triangles)."""
+    """Number of triangle entries."""
 
-    indices: tuple[tuple[int, int, int], ...]
-    """The ``(i0, i1, i2)`` triples; the trailing zero u16 of each entry is
-    stripped, as it is constantly zero and carries no information."""
+    triangles: tuple[tuple[int, int, int], ...]
+    """The ``(i0, i1, i2)`` vertex indices; the fourth u32 is zero on 58/58
+    real chunks and is stripped."""
+
+    def references(self, position_count: int) -> bool:
+        """True when every index falls inside ``[0, position_count)``."""
+        return all(0 <= i < position_count for t in self.triangles for i in t)
+
+
+@dataclass(frozen=True)
+class ShwAdjacencyTable:
+    """Per-triangle edge-neighbour table pointed at by ``SHW +0x38`` (E-102).
+
+    Layout: ``[u16 n0, u16 n1, u16 n2, u16 0]`` repeated ``count`` times.  The
+    three u16s are **triangle** indices into the ``+0x30`` table, not vertex
+    indices: on all 58 ``SHW `` chunks of the install the multiset of values is
+    exactly three copies of ``0..count-1``, the relation is symmetric
+    (``k in neighbours[n]`` for every ``n in neighbours[k]``), and each
+    neighbour triangle shares at least two vertices with the triangle it names
+    — i.e. they share an edge.  E-038's "vertex index buffer" reading is
+    disproved by the value range alone (``count`` exceeds the position count on
+    58/58 chunks).
+
+    The adjacency relation is what a shadow-volume pass needs to find
+    silhouette edges; that semantic use is [INFERRED], not established.
+    """
+
+    count: int
+    """Number of adjacency entries (equal to the triangle count)."""
+
+    neighbours: tuple[tuple[int, int, int], ...]
+    """The ``(n0, n1, n2)`` edge-neighbour triangle indices; the fourth u16 is
+    zero on 58/58 real chunks and is stripped."""
+
+    def symmetric(self) -> bool:
+        """True when every named neighbour names this entry back (58/58 real)."""
+        for k, row in enumerate(self.neighbours):
+            for n in row:
+                if n >= self.count or k not in self.neighbours[n]:
+                    return False
+        return True
+
+    def three_regular(self) -> bool:
+        """True when every triangle index occurs as a neighbour exactly 3 times.
+
+        Holds on 58/58 real chunks; that is the signature of a closed surface
+        where every triangle has three edge-adjacent faces.
+        """
+        counts = [0] * self.count
+        for row in self.neighbours:
+            for n in row:
+                if n >= self.count:
+                    return False
+                counts[n] += 1
+        return all(c == 3 for c in counts)
 
 
 @dataclass(frozen=True)
@@ -242,62 +311,124 @@ class ShwPositionTable:
 
 @dataclass(frozen=True)
 class ShwSubTables:
-    """The two decoded ``SHW`` sub-tables (evidence E-038).
+    """The decoded ``SHW`` sub-tables (evidence E-038, E-102).
 
-    ``field_38``/``field_40``/``field_48`` are chunk-relative offsets into the
-    chunk's data.  Buffer sizes come from the consecutive-pointer differences:
+    ``field_30``/``field_38``/``field_40``/``field_48`` are chunk-relative
+    offsets into the chunk's data, in that order.  Buffer sizes come from the
+    consecutive-pointer differences:
 
-    * index bytes   = ``field_40 - field_38``   (stride 8)
-    * position bytes = ``field_48 - field_40``  (stride 16)
+    * triangle bytes  = ``field_38 - field_30``  (stride 16)
+    * adjacency bytes = ``field_40 - field_38``  (stride 8)
+    * position bytes  = ``field_48 - field_40``  (stride 16)
 
-    This held exactly for all four real chunks (slots 8, 14, 24, 26).
+    The triangle and adjacency tables always have the same entry count (E-102).
+    The first two differences held exactly on all four ``pl021.pac`` chunks in
+    E-038 as well, but the ``+0x30`` table was not decoded then.
     """
 
-    index_table: ShwIndexTable
+    triangle_table: ShwTriangleTable
+    adjacency_table: ShwAdjacencyTable
     position_table: ShwPositionTable
+
+    @property
+    def consistent(self) -> bool:
+        """True when the tables satisfy every structural invariant seen on the
+        install: the triangles index the positions, the adjacency names only
+        triangles, is symmetric, and is three-regular (E-102)."""
+        return (
+            self.triangle_table.references(self.position_table.count)
+            and self.adjacency_table.count == self.triangle_table.count
+            and self.adjacency_table.symmetric()
+            and self.adjacency_table.three_regular()
+        )
+
+    def shared_edges(self) -> bool:
+        """True when every adjacency neighbour shares at least two vertices
+        with the triangle that names it (58/58 real chunks, E-102)."""
+        triangles = self.triangle_table.triangles
+        for k, row in enumerate(self.adjacency_table.neighbours):
+            for n in row:
+                if n >= len(triangles):
+                    return False
+                if len(set(triangles[k]) & set(triangles[n])) < 2:
+                    return False
+        return True
 
 
 def parse_shw_sub_tables(data: bytes, header: ShwHeader) -> ShwSubTables:
-    """Decode the index and position sub-tables of a ``SHW `` chunk.
+    """Decode the triangle, adjacency and position sub-tables of a ``SHW `` chunk.
 
-    ``data`` is the chunk's raw bytes (``chunk.data``); the ``field_38``,
-    ``field_40`` and ``field_48`` offsets are chunk-relative.  Raises
-    ``ValueError`` if a pointer difference is not divisible by the observed
-    stride, if a table runs past the end of the data, or if a table offset lies
-    inside the header.
+    ``data`` is the chunk's raw bytes (``chunk.data``); the ``field_30``,
+    ``field_38``, ``field_40`` and ``field_48`` offsets are chunk-relative.
+    Raises ``ValueError`` if the offsets are not strictly increasing, if a
+    pointer difference is not divisible by the observed stride, if a table runs
+    past the end of the data, if a table offset lies inside the header, or if
+    the triangle and adjacency counts differ (a 58/58 invariant, E-102).
     """
-    if header.field_38 < HEADER_SIZE:
+    if header.field_30 < HEADER_SIZE:
         raise ValueError(
-            f"SHW +0x38 offset {header.field_38:#x} lies inside the 0x{HEADER_SIZE:X}-byte header"
+            f"SHW +0x30 offset {header.field_30:#x} lies inside the 0x{HEADER_SIZE:X}-byte header"
+        )
+    if not (
+        header.field_30
+        < header.field_38
+        <= header.field_40
+        <= header.field_48
+    ):
+        raise ValueError(
+            "SHW sub-table offsets are not increasing: "
+            f"+0x30={header.field_30:#x} +0x38={header.field_38:#x} "
+            f"+0x40={header.field_40:#x} +0x48={header.field_48:#x}"
         )
     if header.field_48 > len(data):
         raise ValueError(
             f"SHW +0x48 offset {header.field_48:#x} runs past {len(data)} bytes of chunk data"
         )
 
-    index_bytes = header.field_40 - header.field_38
+    triangle_bytes = header.field_38 - header.field_30
+    adjacency_bytes = header.field_40 - header.field_38
     position_bytes = header.field_48 - header.field_40
-    if index_bytes % INDEX_STRIDE != 0:
+    if triangle_bytes % TRIANGLE_STRIDE != 0:
         raise ValueError(
-            f"SHW index size {index_bytes} is not a multiple of the {INDEX_STRIDE}-byte index stride"
+            f"SHW triangle size {triangle_bytes} is not a multiple of the {TRIANGLE_STRIDE}-byte triangle stride"
+        )
+    if adjacency_bytes % ADJACENCY_STRIDE != 0:
+        raise ValueError(
+            f"SHW adjacency size {adjacency_bytes} is not a multiple of the {ADJACENCY_STRIDE}-byte adjacency stride"
         )
     if position_bytes % POSITION_STRIDE != 0:
         raise ValueError(
             f"SHW position size {position_bytes} is not a multiple of the {POSITION_STRIDE}-byte position stride"
         )
 
-    index_count = index_bytes // INDEX_STRIDE
+    triangle_count = triangle_bytes // TRIANGLE_STRIDE
+    adjacency_count = adjacency_bytes // ADJACENCY_STRIDE
     position_count = position_bytes // POSITION_STRIDE
+    if triangle_count != adjacency_count:
+        raise ValueError(
+            f"SHW triangle count {triangle_count} differs from adjacency count "
+            f"{adjacency_count} (equal on every real chunk, E-102)"
+        )
 
-    indices: list[tuple[int, int, int]] = []
-    for i in range(index_count):
-        base = header.field_38 + INDEX_STRIDE * i
-        i0, i1, i2, pad = struct.unpack_from("<HHHH", data, base)
+    triangles: list[tuple[int, int, int]] = []
+    for i in range(triangle_count):
+        base = header.field_30 + TRIANGLE_STRIDE * i
+        i0, i1, i2, pad = struct.unpack_from("<IIII", data, base)
         if pad != 0:
             raise ValueError(
-                f"SHW index entry {i} has nonzero fourth u16 {pad:#x} (observed 0 in all real chunks)"
+                f"SHW triangle entry {i} has nonzero fourth u32 {pad:#x} (observed 0 in all real chunks)"
             )
-        indices.append((i0, i1, i2))
+        triangles.append((i0, i1, i2))
+
+    neighbours: list[tuple[int, int, int]] = []
+    for i in range(adjacency_count):
+        base = header.field_38 + ADJACENCY_STRIDE * i
+        n0, n1, n2, pad = struct.unpack_from("<HHHH", data, base)
+        if pad != 0:
+            raise ValueError(
+                f"SHW adjacency entry {i} has nonzero fourth u16 {pad:#x} (observed 0 in all real chunks)"
+            )
+        neighbours.append((n0, n1, n2))
 
     positions: list[tuple[float, float, float, float]] = []
     for i in range(position_count):
@@ -305,8 +436,15 @@ def parse_shw_sub_tables(data: bytes, header: ShwHeader) -> ShwSubTables:
         positions.append(struct.unpack_from("<4f", data, base))
 
     return ShwSubTables(
-        index_table=ShwIndexTable(count=index_count, indices=tuple(indices)),
-        position_table=ShwPositionTable(count=position_count, positions=tuple(positions)),
+        triangle_table=ShwTriangleTable(
+            count=triangle_count, triangles=tuple(triangles)
+        ),
+        adjacency_table=ShwAdjacencyTable(
+            count=adjacency_count, neighbours=tuple(neighbours)
+        ),
+        position_table=ShwPositionTable(
+            count=position_count, positions=tuple(positions)
+        ),
     )
 
 

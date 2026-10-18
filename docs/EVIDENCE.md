@@ -5829,3 +5829,83 @@ independent small classification, not a tag alias.
 API against the real install (1,210 descriptors; 1,210 shift-ok; 1,210
 inside-next-block; 1,148 next-count spacing). No game data committed.
 
+## E-102 — `SHW ` `+0x30` is the triangle table and `+0x38` its per-triangle edge adjacency (F2, bounded slice)
+
+**Observation (read-only).** All **58 `SHW ` chunks** in the 194 `*.pac` files
+under `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\` were read; the
+four chunks of `pl021.pac` (slots 8, 14, 24, 26) were read in detail. Three
+chunk-relative tables are consecutive, and each header field is the start of the
+next one:
+
+| header | table | entry | count |
+|---|---|---|---|
+| `+0x30` | triangles | `[u32 i0, u32 i1, u32 i2, u32 0]` (16 B) | `N = (field_38 − field_30)/16` |
+| `+0x38` | adjacency | `[u16 n0, u16 n1, u16 n2, u16 0]` (8 B) | `N = (field_40 − field_38)/8` |
+| `+0x40` | positions | `[f32 x, f32 y, f32 z, f32 1.0]` (16 B) | `P = (field_48 − field_40)/16` |
+
+Raw bytes, `pl021.pac` slot 8 (chunk base file `0x75470`; header fields
+`0x460`, `0x560`, `0x5E0`, `0x680`):
+
+```
+file 0x758d0 (+0x460) tri[0]: 00 00 00 00 01 00 00 00 02 00 00 00 00 00 00 00  -> (0, 1, 2, 0)
+file 0x759d0 (+0x560) adj[0]: 06 00 0e 00 07 00 00 00                          -> (6, 14, 7, 0)
+file 0x75a50 (+0x5E0) pos[0]: ce c4 8a c1 9d f7 08 43 a7 36 12 c1 00 00 80 3f  -> (-17.3461, 136.9672, -9.1383, 1.0)
+```
+
+| observation | result |
+|---|---|
+| `field_38 − field_30` divisible by 16 | **58 / 58** |
+| `field_40 − field_38` divisible by 8 | **58 / 58** |
+| triangle count == adjacency count | **58 / 58** |
+| `field_30 < field_38 < field_40 <= field_48` | **58 / 58** |
+| every `+0x30` index `< P` | **58 / 58** |
+| every `+0x30` entry has three **distinct** indices | **58 / 58** |
+| every position `0..P−1` referenced at least once | **58 / 58** |
+| every `+0x38` value `< N` | **58 / 58** |
+| multiset of all `3N` `+0x38` values == 3 copies of `0..N−1` | **58 / 58** |
+| adjacency symmetric (`k ∈ neighbours[n]` for every `n ∈ neighbours[k]`) | **58 / 58** |
+| each neighbour shares ≥ 2 vertices with the naming triangle (an edge) | **58 / 58** |
+| 4th u32 of every triangle entry / 4th u16 of every adjacency entry == 0 | **58 / 58** |
+
+The `(P, N)` size census over the 58 chunks is
+`(10,16)×16, (39,66)×8, (12,20)×7, (22,40)×4, (21,38)×4, (8,12)×3,
+(60,116)×2, (7,10)×2, (19,34)×2, (58,112)×2`, then one each of `(11,18),
+(13,22), (14,24), (16,28), (30,56), (41,78), (47,70), (49,94)`. For **16 of the
+18** distinct size classes `N = 2P − 4`, the Euler relation for a closed
+triangulated genus-0 surface; `(47,70)` and `(39,66)` do not satisfy it, so the
+surfaces are closed but not all genus-0 (or not all 2-manifold). The relation is
+reported, not relied on.
+
+**Inference.** The `+0x30` table is the chunk's triangle list over the `+0x40`
+positions [INFERRED from the index range and full position coverage]. The
+`+0x38` table is **per-triangle edge adjacency**: three neighbour *triangle*
+indices per triangle, symmetric, three-regular and always sharing an edge. A
+closed triangle mesh plus full edge adjacency is exactly what a shadow-volume
+pass consumes to find silhouette edges, so `SHW ` is most likely **shadow
+geometry** (a closed low-poly proxy), not a material payload — [INFERRED]; the
+four ASCII bytes do not spell "shadow".
+
+**Correction to E-038 (recorded).** E-038 read `+0x38` as a *vertex* index
+buffer over the `+0x40` positions and noted the cross-reference failed for slots
+8/14. It is disproved: on 58/58 chunks the `+0x38` values reach `N−1` and the
+count `N` exceeds `P` (slot 8: max 15 vs 10 positions; slot 14: max 39 vs 22).
+The `+0x38` table indexes the `+0x30` triangle table. E-038's count formula
+`(field_40 − field_38)/8` stands; only the referent was wrong.
+
+**Unknown.** The `+0x48` region's layout (it begins with a byte run on some
+chunks and not others); the meanings of `alpha` (+0x04), `field_10`, `field_14`
+and the `+0x20` u16 pair; object-space vs world-space; whether the engine uses
+this mesh for shadows, collision or something else; and why `(39,66)` (the two
+swords in each of four entities) departs from the Euler relation above. The
+texture binding F2 asks for is **not** present in these three tables.
+
+**Tooling.** `tools/dmc3/shw.py` now exposes `ShwTriangleTable`,
+`ShwAdjacencyTable`, `ShwPositionTable` and `ShwSubTables` (`consistent`,
+`shared_edges`), with `TRIANGLE_TABLE_OFFSET`, `TRIANGLE_STRIDE` and
+`ADJACENCY_STRIDE`; the disproved `ShwIndexTable` is removed.
+`tests/test_shw.py` was corrected to the new reading and extended with the
+E-102 invariant tests (21 tests in the class). Validated read-only through the
+shipped API against the real install: **58/58 `consistent`, 58/58
+`shared_edges`**. No game data committed.
+
+
