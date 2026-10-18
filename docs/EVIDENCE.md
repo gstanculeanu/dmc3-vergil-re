@@ -5623,3 +5623,77 @@ from `dmc3`. `tests/fixtures.py` gains `mod_two_block_tail_body()` (a
 `TestModBodyTailNext` (6 tests). Validated read-only through the new API: it
 reproduces `1,556` blocks / `1,251` with a forward entry / `1,210` `tail_next_ok`
 and the entry-count census above. No game data committed.
+
+---
+
+## E-099 - A mesh group's four offsets point at record blocks, and their tables do not index vertices (G9/G10)
+
+**Observation.** Continuing E-088. ``MG_3c8ec52_0``'s descriptor (0x4C8F770) gives
+four offsets ``3140, 11664, 12912, 14344``, all relative to the descriptor. Walking
+the resulting boundaries:
+
+```
+block 0  0x4C8F798..0x4C903B4     3,100   the 155 declared vertices
+block 1  0x4C903B4..0x4C92500     8,524
+block 2  0x4C92500..0x4C929E0     1,248
+block 3  0x4C929E0..0x4C92F78     1,432
+block 4  0x4C92F78..0x4DA85D4 1,136,220
+```
+
+**Blocks 1..3 open with the same 20-byte record**, and so does block 4:
+
+```
+u16 0x0001 ; u16 0x0001 ; u32 12 ; u32 <id> ; u32 0x4F000000
+```
+
+with ``<id>`` = **6, 162, 163, 0** for blocks 1..4. ``u32 12`` is constant across
+all four, and the ``0x4F000000`` tail is the same marker that ends the vertex block
+in E-088 -- so the marker is a **block terminator/separator**, not a vertex field.
+
+**Block 4's directory.** Block 4 (1.1 MB of the 1.15 MB payload) then continues:
+
+```
++0x10  u16 0x0011 ; u16 0x0001 ; u32 0 ; u32 12 ; u32 8
++0x20  u32 173,188          <- a size
++0x24  u32 68               <- a count
++0x28  u32 x16, strictly ascending, 23,192 .. 172,460, all below the size
+```
+
+**A negative worth keeping.** Those 16 targets are **not vertex records**. For each
+entry the block was probed at 17 alignments (``-16 .. +16`` by 4) and scored on
+"plausible bone index (< 512) plus four sane floats" over 40 candidate records:
+
+```
+entry      target      best alignment   score
+23,192     0x4C98A10   +16             0.00
+30,052     0x4C9A4DC   +16             0.00
+48,696     0x4C9EDB0   +16             0.00
+...                                      0.00 for all 16
+172,460    0x4CBD124   +16             0.03
+```
+
+**Every entry scores 0.00**, so the table does not index the remaining vertices.
+Read at face value the targets do hold vertex-shaped floats (e.g. ``-1.766, 7.231,
+0.230, 0.000``) but the preceding ``u16`` pair is not a plausible bone index
+(32317, 3795, 54779 ...), so the records there are either a different stream or
+need an alignment this probe did not cover.
+
+**Inference.** The mesh group is a **container of typed sub-blocks** -- one vertex
+block plus a record block and a directory block -- not one vertex stream. The
+marker ``0x4F000000`` separates them. ``vertex_bytes = 187,840`` declares 9,392
+vertices, but only the first 155 are located, so **the remaining ~9,237 are still
+unfound** and are *not* behind the 16-entry table.
+
+**Corrects nothing, but closes two tempting routes.** ``offsets[0] == 0x28 +
+first_count * 20`` (E-088) and "the 16-entry table indexes vertex blocks" are both
+false. The second was the natural next assumption, so it is recorded here rather
+than discovered again.
+
+**Unknown.** What blocks 1..3 hold (ids 6, 162, 163); what the 16-entry table
+indexes; where the other 9,237 vertices are; and therefore whether the 20-byte
+record really is one vertex or a record covering more than one.
+
+**Tooling.** None added: this was reconnaissance, and the measurements above are
+reproducible from `tools/gow3/meshes.py` (`find_mesh_groups`, `MeshGroup.header`,
+`MeshGroup.descriptor`). Recorded as measurements with explicit thresholds rather
+than as a format claim.
