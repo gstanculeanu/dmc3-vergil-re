@@ -21,6 +21,7 @@ from .mod import (
     BODY_BLOCK_TAIL_OFFSET_COUNT,
     BODY_BLOCK_TAIL_RECORD_UNIT,
     BODY_BLOCK_TAIL_TAG_GAP,
+    BODY_BLOCK_TAIL_TARGET_SHIFT,
     BODY_BLOCK_TUPLE_SIZE,
     BODY_BLOCK_VALUE_SIZE,
     BODY_BLOCK_VALUE_UNIT,
@@ -55,6 +56,7 @@ from .mod import (
     tail_forward_entries,
     tail_next_ok,
     tail_descriptor,
+    tail_descriptor_spacing,
     unit_triple,
 )
 from .raw import (
@@ -250,6 +252,7 @@ __all__ = [
     "BODY_BLOCK_TAIL_OFFSET_COUNT",
     "BODY_BLOCK_TAIL_RECORD_UNIT",
     "BODY_BLOCK_TAIL_TAG_GAP",
+    "BODY_BLOCK_TAIL_TARGET_SHIFT",
     "ModBodyBlock",
     "ModBodyDescriptor",
     "ModBodyDirectory",
@@ -270,6 +273,7 @@ __all__ = [
     "tail_forward_entries",
     "tail_next_ok",
     "tail_descriptor",
+    "tail_descriptor_spacing",
     "unit_triple",
     "PNST_MAGIC",
     "PnstArchive",

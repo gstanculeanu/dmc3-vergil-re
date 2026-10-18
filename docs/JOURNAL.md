@@ -2509,3 +2509,48 @@ moves and health bar and everything."*
   the three targets. F4 stays blocked on the engine route and is not re-spun;
   F3 slots 6/7/11/22 and the GoW3R clip leaf keyframe encoding (F9) remain
   available.
+
+---
+
+## 2026-10-18 — F1 bounded slice: tail descriptors are forward references inside the next block at a fixed `+0x24` (E-101)
+
+- Did: picked the critical path **F1** (issue #1) and followed E-100's own stated
+  next step — "correlate `n`/`class_id` with the next block's descriptor and trace
+  the three targets". Read the block tails read-only across all 194 `*.pac` files
+  under `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\` (286 `MOD `
+  chunks, paired each accepted descriptor with the block that follows). Added
+  `BODY_BLOCK_TAIL_TARGET_SHIFT` (0x24), `tail_descriptor_spacing(count)` and
+  `ModBodyTailDescriptor.spacing_ok_for(count)` / `expected_offsets_for(count)` to
+  `tools/dmc3/mod.py`, exported from `dmc3`; added
+  `TestModBodyTailForwardReference` (6 tests) to `tests/test_mod.py`. Full suite:
+  **657 tests, all green** (651 baseline + 6). Nothing written to the game; no game
+  data committed.
+- Found (**E-101**), read-only on the install (1,210 accepted descriptors):
+  - **`v1 - next.payload_offset == 0x24` on 1,210/1,210** and **`v3 <= next.end`
+    on 1,210/1,210** — all three targets sit inside the *immediately following*
+    block at a fixed `+0x24` (`= BODY_BLOCK_TAIL_NEXT_DELTA 0x50 − prefix 0x2C`,
+    the same `BODY_BLOCK_OFFSET_SLACK` of E-096). So the descriptor is a forward
+    reference *within the next block*, refining E-097/E-098's "cross-reference".
+  - **Refinement of E-100:** the spacing is better predicted by the **next
+    block's count** — `align_up(12 * next.count, 16)` fits **1,148/1,210**
+    (94.9 %) vs E-100's own-`n` `align_up(12 * n, 16)` at 1,131/1,210 (93.5 %).
+    `n == next.count` on 1,142/1,210; the 62 that match neither spacing are all
+    still equally spaced at another stride. Meaning of either count [UNKNOWN].
+  - **Disproved hypothesis:** the `+0x24` is **not** a three-`f32[3]` payload
+    prefix — on the 511 blocks with a unit run the normals still start at triple
+    index `count` (305) / `count±1` (126), not `count+3` (3), and the payload's
+    first three triples are unit on 0/511. E-094/E-096's "positions start at
+    `payload + 0`" stands, so the descriptor's regions are *not* the next block's
+    positions/normals at their starts; what they name is [UNKNOWN].
+  - **Negative:** the class id (0..6; `0`×940, `1`×161, `2`×70, `3`×27, `4`×9,
+    `5`×2, `6`×1) is **not** the block's own or the next block's record tag (both
+    mostly `0x8001`); `next.count - n` is 0 for 928/940 of class 0 and 0/1/2 for
+    classes 1–3.
+- Docs: E-101 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §5.1 gains the "E-101
+  update" subsection (and the §5.1 title gains E-101); `docs/BACKLOG.md` F1 row
+  updated (evidence cell adds E-101, status rewritten).
+- Next: what the three regions *name* is still the F1 gap and is not decodable by
+  correlation alone; the class id and `n` remain unnamed. F4 stays blocked on the
+  engine route and is not re-spun; F3 slots 6/7/11/22 and the GoW3R clip leaf
+  keyframe encoding (F9) remain available.
+

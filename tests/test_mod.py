@@ -3,7 +3,14 @@ import struct
 import unittest
 
 import fixtures
-from dmc3 import Chunk, ModBodyBlock, ModBodyDirectory, ModBodyPrefix, ModHeader
+from dmc3 import (
+    Chunk,
+    ModBodyBlock,
+    ModBodyDirectory,
+    ModBodyPrefix,
+    ModBodyTailDescriptor,
+    ModHeader,
+)
 from dmc3.mod import (
     BODY_BLOCK_ATTRIBUTE_SIZE,
     BODY_BLOCK_ATTRIBUTE_UNIT,
@@ -22,6 +29,7 @@ from dmc3.mod import (
     BODY_BLOCK_TAIL_OFFSET_COUNT,
     BODY_BLOCK_TAIL_RECORD_UNIT,
     BODY_BLOCK_TAIL_TAG_GAP,
+    BODY_BLOCK_TAIL_TARGET_SHIFT,
     BODY_BLOCK_TUPLE_SIZE,
     BODY_BLOCK_VALUE_SIZE,
     BODY_BLOCK_VALUE_UNIT,
@@ -52,6 +60,7 @@ from dmc3.mod import (
     tail_forward_entries,
     tail_next_ok,
     tail_descriptor,
+    tail_descriptor_spacing,
     unit_triple,
 )
 
@@ -661,7 +670,8 @@ class TestModBodyTailNext(unittest.TestCase):
 class TestModBodyTailDescriptor(unittest.TestCase):
     """E-100: the tail's last 36 bytes are `[tag][0][0][0][v1][0][v2][0][v3]`,
     the three offsets equally spaced by `align_up(12 * n, 16)` where `n` is the
-    low u16 of the tag word (1,148/1,210 install blocks)."""
+    low u16 of the tag word (1,131/1,210 install blocks; E-101 shows the next
+    block's count fits 1,148/1,210)."""
 
     def test_layout_constants(self):
         self.assertEqual(BODY_BLOCK_TAIL_TAG_GAP, 0x10)
@@ -723,6 +733,70 @@ class TestModBodyTailDescriptor(unittest.TestCase):
         body = fixtures.mod_tail_descriptor_body(count=4, n=5, gap_zero=False)
         block = ModBodyDirectory.parse(body).blocks[0]
         self.assertIsNone(tail_descriptor(body, block, 4))
+
+
+class TestModBodyTailForwardReference(unittest.TestCase):
+    """E-101: the tail descriptor points *inside the immediately following*
+    block at a fixed ``+0x24`` (``BODY_BLOCK_TAIL_TARGET_SHIFT``), and its
+    spacing is better predicted by the next block's count than by its own ``n``.
+    """
+
+    def test_target_shift_constant(self):
+        self.assertEqual(BODY_BLOCK_TAIL_TARGET_SHIFT, 0x24)
+        # the E-098 forward delta = block prefix + this shift
+        self.assertEqual(
+            BODY_BLOCK_TAIL_NEXT_DELTA,
+            BODY_BLOCK_PREFIX_SIZE + BODY_BLOCK_TAIL_TARGET_SHIFT,
+        )
+        # and it is the same slack E-096 saw between the record and offset_a
+        self.assertEqual(BODY_BLOCK_TAIL_TARGET_SHIFT, BODY_BLOCK_OFFSET_SLACK)
+
+    def test_first_offset_is_the_next_payload_plus_the_shift(self):
+        body = fixtures.mod_tail_descriptor_body(count=6, n=6)
+        directory = ModBodyDirectory.parse(body)
+        block0, block1 = directory.blocks[0], directory.blocks[1]
+        descriptor = tail_descriptor(body, block0, 6)
+        self.assertIsNotNone(descriptor)
+        self.assertEqual(
+            descriptor.offsets[0],
+            block1.payload_offset + BODY_BLOCK_TAIL_TARGET_SHIFT,
+        )
+
+    def test_every_target_is_inside_the_next_block(self):
+        body = fixtures.mod_tail_descriptor_body(count=6, n=6)
+        directory = ModBodyDirectory.parse(body)
+        block1 = directory.blocks[1]
+        descriptor = tail_descriptor(body, directory.blocks[0], 6)
+        for offset in descriptor.offsets:
+            self.assertLessEqual(offset, block1.end)
+
+    def test_spacing_is_better_than_the_tag_count(self):
+        # the fixture spaces the offsets by align_up(12 * n) with n=5 (0x40);
+        # the next block's count is 4, whose aligned spacing is 0x30
+        body = fixtures.mod_tail_descriptor_body(count=4, n=5)
+        directory = ModBodyDirectory.parse(body)
+        descriptor = tail_descriptor(body, directory.blocks[0], 4)
+        self.assertTrue(descriptor.spacing_ok)
+        self.assertFalse(descriptor.spacing_ok_for(4))
+        self.assertEqual(tail_descriptor_spacing(4), 0x30)
+        self.assertEqual(tail_descriptor_spacing(5), 0x40)
+
+    def test_expected_offsets_for_uses_an_explicit_count(self):
+        body = fixtures.mod_tail_descriptor_body(count=4, n=5)
+        directory = ModBodyDirectory.parse(body)
+        descriptor = tail_descriptor(body, directory.blocks[0], 4)
+        step = tail_descriptor_spacing(4)
+        self.assertEqual(
+            descriptor.expected_offsets_for(4),
+            tuple(descriptor.offsets[0] + k * step for k in range(3)),
+        )
+
+    def test_expected_offsets_for_is_empty_without_offsets(self):
+        descriptor = ModBodyTailDescriptor(
+            tag_word=0, offsets=(), stride=0
+        )
+        self.assertEqual(descriptor.expected_offsets_for(4), ())
+        self.assertFalse(descriptor.spacing_ok_for(4))
 
 
 if __name__ == "__main__":

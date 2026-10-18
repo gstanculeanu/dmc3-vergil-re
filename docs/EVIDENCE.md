@@ -5762,3 +5762,70 @@ game data committed.
 **Note on IDs.** This entry was drafted as E-099; a parallel writer committed
 E-099 (a GoW3 mesh-group finding) while it was in progress, so it takes the next
 free id, **E-100**, and all code/doc references use E-100.
+
+---
+
+## E-101 — `MOD ` tail descriptors point *inside the immediately following block* at a fixed `+0x24`, and their spacing is the next block's vertex size (F1, bounded slice)
+
+**Observation (read-only from `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\`, all 194 `*.pac` files; 286 `MOD ` chunks).**
+E-100 left open what the descriptor's three offsets *are*. Pairing every accepted
+`tail_descriptor()` with the block that follows it shows the targets are contained
+inside the next block, and that the spacing tracks the next block's own count:
+
+| observation | result |
+|---|---|
+| accepted tail descriptors | 1,210 |
+| `v1 - next.payload_offset == 0x24` | **1,210 / 1,210** |
+| `v3 <= next.end` (all three targets inside the next block) | **1,210 / 1,210** |
+| spacing `== align_up(12 * next.count, 16)` | 1,148 / 1,210 (94.9 %) |
+| spacing `== align_up(12 * n, 16)` (E-100's `n`) | 1,131 / 1,210 (93.5 %) |
+| `n == next.count` | 1,142 / 1,210 (94.4 %) |
+| of the 62 that match **neither** spacing: `v2-v1 == v3-v2` (equally spaced, other stride) | 62 / 62 |
+
+`next.payload_offset == next.data_offset + BODY_BLOCK_PREFIX_SIZE (0x2C)`, so the
+fixed `+0x24` is exactly `BODY_BLOCK_TAIL_NEXT_DELTA (0x50) - 0x2C` — the same
+`BODY_BLOCK_OFFSET_SLACK` E-096 measured between the record and `offset_a`.
+`v1` is therefore a **structural** constant, not a per-block quantity, and the
+descriptor is a forward reference *within the next block*, not an arbitrary
+cross-block pointer — a refinement of E-097's "cross-reference table" reading
+(E-097 already saw the targets land inside some block; E-101 pins them to the
+*immediately following* one).
+
+Class-id census (E-100's `tag >> 16`), and `next.count - n` per class:
+
+| class | count | `next.count - n` |
+|---|---|---|
+| 0 | 940 | `0`×928, `1`×8, `2`×4 |
+| 1 | 161 | `0`×138, `2`×15, `1`×6, `-1`×1, `3`×1 |
+| 2 | 70 | `0`×44, `2`×22, `-1`×2, `1`×2 |
+| 3 | 27 | `0`×20, `1`×2, `2`×2, `-1`×1, `-518`×1, `-31`×1 |
+| 4 / 5 / 6 | 9 / 2 / 1 | `0` for every block |
+
+Worked example continued from E-100 (`em013.pac` slot 1, block 0, `count = 44`,
+`end = 0x10B0`, `v1 = 0x1100`, `v2 = 0x1390`, `v3 = 0x1620`): block 1 is
+`@body+0x10B0`, `payload = 0x10DC`, `count = 54`, `end = 0x1850`. So
+`v1 = 0x10DC + 0x24`, `v3 = 0x1620 <= 0x1850`, and
+`stride = align_up(12*54, 16) = 0x290 = v2 - v1 = v3 - v2`.
+
+**Disproved hypothesis (recorded).** The `+0x24` shift could be an artifact of the
+block *payload* actually starting three `f32[3]` triples late. Reading all 511
+blocks with a unit run shows the normal array still starts at triple index `count`
+(305), `count±1` (126) or nearby, **not** `count+3` (3 blocks), and the payload's
+first three triples are unit on **0/511** blocks (1 block has 3). So positions do
+start at `payload + 0` (E-094/E-096 stand) and the `+0x24` is a genuine offset into
+the position array, not a payload prefix — meaning the descriptor's "three arrays"
+are *not* the next block's positions/normals at their starts. What they name stays
+**[UNKNOWN]**.
+
+**Negative (recorded).** `class_id` matches neither the block's **own** record tag
+nor the **next** block's record tag: class `0` is `0x8001` on 928/940, but classes
+`1`/`2`/`3` are also mostly `0x8001` (153/161, 67/70, 25/27), so the class is an
+independent small classification, not a tag alias.
+
+**Tooling.** `tools/dmc3/mod.py` gains `BODY_BLOCK_TAIL_TARGET_SHIFT = 0x24`,
+`tail_descriptor_spacing(count)` and `ModBodyTailDescriptor.spacing_ok_for(count)` /
+`expected_offsets_for(count)`, exported from `dmc3`; `tests/test_mod.py` gains
+`TestModBodyTailForwardReference` (6 tests). Validated read-only through the new
+API against the real install (1,210 descriptors; 1,210 shift-ok; 1,210
+inside-next-block; 1,148 next-count spacing). No game data committed.
+

@@ -511,7 +511,7 @@ files**; evidence E-030), all little-endian:
 +0x24  ...     payload body (vertices, indices, normals, UVs, skin weights)  [UNKNOWN layout]
 ```
 
-### 5.1 `MOD ` payload body prefix - first decoded fields [E-031, E-091, E-092, E-093, E-094, E-095, E-096, E-097, E-098, E-100]
+### 5.1 `MOD ` payload body prefix - first decoded fields [E-031, E-091, E-092, E-093, E-094, E-095, E-096, E-097, E-098, E-100, E-101]
 
 **Status: [PARTIAL]** — evidence E-031 (pl021.pac), E-091 (all 286 install
 `MOD ` chunks). The body begins at `+0x24` (immediately after the header). Its
@@ -837,6 +837,42 @@ on 1,204 blocks and why E-098 could only ask about the "second" one.
 * `tools/dmc3/mod.py` exposes `BODY_BLOCK_TAIL_TAG_GAP = 0x10`,
   `BODY_BLOCK_TAIL_OFFSET_COUNT = 3`, `BODY_BLOCK_TAIL_RECORD_UNIT = 0x0C`,
   `ModBodyTailDescriptor` and `tail_descriptor()`. See **E-100**.
+
+#### E-101 update: the tail descriptor points *inside the next block* at a fixed `+0x24`, spaced by the next block's vertex size - structure [PARTIAL]
+
+Pairing every accepted descriptor with the block that follows it (1,210 / 1,556):
+
+| observation | result |
+|---|---|
+| `v1 - next.payload_offset == 0x24` | **1,210 / 1,210** |
+| `v3 <= next.end` — all three targets inside the next block | **1,210 / 1,210** |
+| spacing `== align_up(12 * next.count, 16)` | 1,148 / 1,210 (94.9 %) |
+| spacing `== align_up(12 * n, 16)` (E-100) | 1,131 / 1,210 (93.5 %) |
+| `n == next.count` | 1,142 / 1,210 |
+| the 62 matching neither spacing are still equally spaced (other stride) | 62 / 62 |
+
+`next.payload_offset = next.data_offset + 0x2C`, so the fixed shift is
+`BODY_BLOCK_TAIL_NEXT_DELTA (0x50) - 0x2C = 0x24`, the same
+`BODY_BLOCK_OFFSET_SLACK` of E-096. So `v1` is a **structural** constant and the
+descriptor is a forward reference *within the immediately following block* — a
+refinement of E-097/E-098. The spacing is better predicted by the **next block's
+count** than by the descriptor's own `n`; neither meaning is proven.
+
+* Class id census: `0`×940, `1`×161, `2`×70, `3`×27, `4`×9, `5`×2, `6`×1.
+  `next.count - n` is `0` for essentially all of class 0 (928/940) and takes
+  `0`/`1`/`2` for classes 1–3. Recorded negative: the class id is **not** the
+  block's own or the next block's record tag (both are mostly `0x8001`).
+* Disproved: the `+0x24` is **not** a three-triple payload prefix — on the 511
+  blocks with a unit run, the normals still start at triple index `count`
+  (305) / `count±1` (126), not `count+3` (3), and the payload's first three
+  triples are unit on 0/511. E-094/E-096's "positions start at `payload + 0`"
+  stands; the `+0x24` is a genuine offset into the position array, so the three
+  named regions are **not** the next block's positions/normals at their starts.
+  What they name is **[UNKNOWN]**.
+* `tools/dmc3/mod.py` exposes `BODY_BLOCK_TAIL_TARGET_SHIFT = 0x24`,
+  `tail_descriptor_spacing(count)` and
+  `ModBodyTailDescriptor.spacing_ok_for(count)` / `expected_offsets_for(count)`.
+  See **E-101**.
 
 
 `SHW ` chunk header (verified bytes across all four `pl021.pac` `SHW `

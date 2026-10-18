@@ -879,6 +879,18 @@ def tail_next_ok(body: bytes, block: ModBodyBlock, count: int) -> bool:
     return bool(entries) and entries[0] == block.tail_next_target
 
 
+BODY_BLOCK_TAIL_TARGET_SHIFT = 0x24
+"""``36`` — fixed distance from the *next* block's payload start to the tail
+descriptor's first offset (E-101, 1,210/1,210 install blocks).
+
+Because ``body_blocks`` sets ``block.end`` to the next block's ``data_offset``
+and a block's payload begins :data:`BODY_BLOCK_PREFIX_SIZE` later, E-098's
+``+0x50`` forward delta decomposes as ``BODY_BLOCK_PREFIX_SIZE +
+BODY_BLOCK_TAIL_TARGET_SHIFT``; the value equals :data:`BODY_BLOCK_OFFSET_SLACK`.
+So ``v1 == next.payload_offset + 0x24`` exactly, and all three offsets land inside
+the next block (``v3 <= next.end``, E-101).
+"""
+
 BODY_BLOCK_TAIL_TAG_GAP = 0x10
 """``16`` — bytes between the tail descriptor's tag word and its first offset (E-100).
 
@@ -910,6 +922,13 @@ class ModBodyTailDescriptor:
     1,148/1,210 install blocks, where ``n`` is the low u16 of the tag word.  The
     tag word's high u16 is a small class id (0..6).  What the three offsets name
     and what ``n`` counts are **[UNKNOWN]**; only the arithmetic is claimed.
+
+    **E-101.** ``v1`` is exactly ``next.payload_offset +
+    :data:`BODY_BLOCK_TAIL_TARGET_SHIFT``` on 1,210/1,210 blocks and ``v3 <=
+    next.end`` on 1,210/1,210, so the descriptor is a forward reference *inside the
+    immediately following block*, not an arbitrary cross-block pointer.  The
+    spacing is better predicted by the next block's count (1,148/1,210) than by
+    ``n`` (1,131/1,210) — see :meth:`spacing_ok_for`.
 
     The offset count is fixed at :data:`BODY_BLOCK_TAIL_OFFSET_COUNT`.  ``v3`` is
     always the block's final u32, so its trailing zero word is the *next* block's
@@ -948,6 +967,40 @@ class ModBodyTailDescriptor:
     def spacing_ok(self) -> bool:
         """True when the offsets are equally spaced by :attr:`stride` (E-100)."""
         return bool(self.offsets) and self.offsets == self.expected_offsets
+
+    def expected_offsets_for(self, count: int) -> tuple[int, ...]:
+        """The offsets implied by ``offsets[0]`` and the spacing for ``count`` (E-101).
+
+        Uses :func:`tail_descriptor_spacing` — the *aligned* per-vertex size — rather
+        than :attr:`stride`, which E-100 derived from the descriptor's own low u16.
+        """
+        if not self.offsets:
+            return ()
+        base = self.offsets[0]
+        step = tail_descriptor_spacing(count)
+        return tuple(base + k * step for k in range(len(self.offsets)))
+
+    def spacing_ok_for(self, count: int) -> bool:
+        """True when the offsets are equally spaced for an explicit ``count`` (E-101).
+
+        On the install ``align_up(12 * next.count, 16)`` reproduces the spacing on
+        1,148/1,210 blocks, better than :attr:`spacing_ok`'s
+        ``align_up(12 * n, 16)`` (1,131/1,210), so the *next block's* vertex count
+        is the driver of the spacing and the descriptor's ``n`` only usually tracks
+        it.  Recorded, not proven: the meaning of either count is [UNKNOWN].
+        """
+        return bool(self.offsets) and self.offsets == self.expected_offsets_for(count)
+
+
+def tail_descriptor_spacing(count: int) -> int:
+    """The tail descriptor's offset spacing for ``count`` vertices (E-101).
+
+    ``align_up(12 * count, 16)`` — the 16-byte-aligned size of ``count``
+    :data:`BODY_BLOCK_TUPLE_SIZE`-byte triples.  This is the spacing that fits
+    1,148/1,210 install blocks when ``count`` is the *next* block's vertex count.
+    Whether the triples are positions, normals or something else is [UNKNOWN].
+    """
+    return align_up(BODY_BLOCK_TAIL_RECORD_UNIT * count, ALIGNMENT)
 
 
 def tail_descriptor(
