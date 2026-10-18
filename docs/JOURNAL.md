@@ -781,3 +781,25 @@ moves and health bar and everything."*
 - Next: T7b is advanced, not complete — the 0x80+ record structure and the
   body mesh layout remain. F1/F4 still blocked on engine ground truth.
 - Tests: full suite **190 tests, all green**. Commented issue #34.
+
+## 2026-10-18 — T7b: FLVER section table decoded from real bytes
+
+- Did: decoded the section table of ``BD_M_10100.flver`` (Vergil's body from
+  the prior-art Bloodborne package): six 32-byte section entries at file
+  offset 0x80..0x140, each eight u32s. Added ``FlverSection`` /
+  ``parse_flver_sections()`` to ``tools/priorart/flver.py``, exported them
+  from ``priorart/__init__.py``, added a synthetic fixture mirroring the real
+  bytes and 5 unit tests. Full suite: **195 tests, all green**. Committed as
+  8851ee5, pushed to origin main.
+- Found (**E-040**): verified structure — u32_08 == 7, u32_0c == 7 * entry
+  index, u32_1c == 0, u32_18 in 0..5, u32_14 = 48160 + 240 * index; u32_00
+  is a running offset stepping by the previous entry's u32_10 (49600, +366,
+  +360, +362, +370, +374). u32_14 points at "GX**" magic blocks; entry 0's
+  u32_00 (0xC1C0) opens a UTF-16LE name string ("costume_parsn_..."); header
+  +0x0C (0xF030) points at u16 index data; header +0x10 (0x63010) points at
+  further record data. Also corrected E-039's example record values, which did
+  not match the verified bytes.
+- Next: all field meanings remain [UNKNOWN]; count source (header +0x18 vs
+  +0x24) and the "GX**" block semantics are open — engine ground truth or a
+  FLVER spec needed, same as F1/F4. GX block internals are the natural next
+  T7b slice.
