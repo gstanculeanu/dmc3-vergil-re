@@ -705,3 +705,29 @@ moves and health bar and everything."*
 - Next: F1/F4 remain blocked on engine ground truth and are not retried;
   pick another resolved-dependency slice (H1/H2/H3 research, F2 sub-tables,
   or similar).
+
+---
+
+## 2026-10-18 — F2 bounded slice: SHW sub-tables decoded from real bytes
+
+- Did: picked F2 (issue #3) from the always-available list since F1/F4 remain
+  blocked on engine ground truth and are not re-spun. Read real bytes from all
+  four `SHW ` chunks of `pl021.pac` (slots 8/14/24/26); implemented
+  `ShwIndexTable`, `ShwPositionTable`, `ShwSubTables` and
+  `parse_shw_sub_tables`/`maybe_shw_sub_tables` in `tools/dmc3/shw.py`, a
+  `shw_chunk_with_tables` fixture, and 9 unit tests on synthetic fixtures.
+  Committed as f898a3f, pushed to origin main; commented issue #3 (left open).
+  Full suite: 169 tests, all green.
+- Found (**E-038**): `field_38` (+0x38) → index buffer `[u16 i0,i1,i2,u16 0] x
+  count`, `field_40` (+0x40) → position buffer `[f32 x,y,z,f32 1.0] x count`;
+  counts derived from consecutive-pointer differences, a verified invariant
+  across all 4 chunks (slot 8: 16 tris/10 positions at file 0x759d0/0x75a50;
+  slot 14: 40 tris/22 positions; slots 24/26: 66 tris/39 positions); tables
+  contiguous. Position values show L/R symmetry with w==1.0 (vertex-like).
+- Unknown (recorded honestly): field semantics; index↔position cross-reference
+  fails for slots 8/14 (max index exceeds position count), holds only for
+  slots 24/26; layout/meaning of the +0x48 table; the texture binding.
+- Docs: `docs/EVIDENCE.md` E-038, `docs/FORMATS.md` §5.1.1, `docs/BACKLOG.md`
+  F2 row updated. F2 stays open — needs engine ground truth for the binding.
+- Next: another resolved-dependency slice (F3 slot-10 f32 stream / other
+  untagged slots, or F8 pending more TM2 samples).
