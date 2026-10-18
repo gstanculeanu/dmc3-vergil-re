@@ -511,7 +511,7 @@ files**; evidence E-030), all little-endian:
 +0x24  ...     payload body (vertices, indices, normals, UVs, skin weights)  [UNKNOWN layout]
 ```
 
-### 5.1 `MOD ` payload body prefix — first decoded fields [E-031, E-091, E-092, E-093, E-094, E-095, E-096]
+### 5.1 `MOD ` payload body prefix — first decoded fields [E-031, E-091, E-092, E-093, E-094, E-095, E-096, E-097]
 
 **Status: [PARTIAL]** — evidence E-031 (pl021.pac), E-091 (all 286 install
 `MOD ` chunks). The body begins at `+0x24` (immediately after the header). Its
@@ -738,6 +738,39 @@ payload + 0x20*count      fill tail        0x001F001F / 0x801F801F words  [UNKNO
   `BODY_BLOCK_RECORD_SIZE = 0x20`, `BODY_BLOCK_VALUE_UNIT = 0x1C`,
   `BODY_BLOCK_VALUE_SIZE = 0x04`, `BODY_BLOCK_OFFSET_SLACK = 0x24`,
   `BODY_BLOCK_FILL_WORDS` constants. See **E-096**.
+
+#### E-097 update: the block tail ends with a `(body-offset, 0)` table; no u16 index buffer — structure [PARTIAL]
+
+The bytes after the 32-byte-per-vertex record (`payload + 32*count`) are **not**
+pure fill and hold no index buffer. On the **286** `MOD ` chunks (1,657
+non-empty tails):
+
+```
+payload + 0x20*count      fill words (0x001F001F / 0x801F801F)      [UNKNOWN]
+payload + 0x20*count + …  zeros, a small word (e.g. 0x36, 0x08)     [UNKNOWN]
+… then an 8-byte-aligned table of (u32 body-offset, u32 0) entries  [UNKNOWN meaning]
+```
+
+* The tail is pure `0x1F` fill in **0 / 1,657** blocks. **1,305 / 1,657** carry a
+  run of ≥ 2 `(offset, 0)` entries — a non-zero, 16-byte-aligned body offset
+  followed by a zero u32 — with **2,619 / 2,619** targets landing inside a data
+  block. [INFERRED] a block-level cross-reference table; what it references is
+  **[UNKNOWN]**.
+* The `0x40`-byte descriptor has no free index field: `+0x00`/`+0x20`/`+0x28`
+  are zero on **1,665 / 1,665** records, and `+0x04`/`+0x08` are non-zero only on
+  the E-093 anomaly records (17 and 37).
+* No block payload read as `u16` is an index run bounded by `count`
+  (**0 / 1,660**), and `offset_c` does not point at one (it reads as `f32`/vertex
+  bytes). So block connectivity is **not** stored in-block as u16 indices.
+  A sequential-triple winding test was inconclusive (237 / 313 clean blocks at
+  ~50 % sign agreement; strips alternate winding) and is recorded in E-097 so it
+  is not re-run.
+* Worked example — `em013.pac` slot 1 descriptor 0 (`count = 44`), block
+  `@body+0xA80`: the 132-byte tail ends `… 0x36, 0, 0, 0, (0x1100, 0),
+  (0x1390, 0)`; both targets are inside block 1 (`@body+0x10B0`).
+* `tools/dmc3/mod.py` exposes `block_tail`, `tail_entries` and the
+  `BODY_BLOCK_TAIL_ENTRY_SIZE = 0x08`, `BODY_BLOCK_TAIL_MIN_VALUES = 2`
+  constants. See **E-097**.
 
 
 `SHW ` chunk header (verified bytes across all four `pl021.pac` `SHW `

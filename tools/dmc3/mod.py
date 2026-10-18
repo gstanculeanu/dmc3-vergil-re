@@ -773,6 +773,65 @@ def fill_start(body: bytes, block: ModBodyBlock) -> Optional[int]:
     return None
 
 
+BODY_BLOCK_TAIL_ENTRY_SIZE = 0x08
+"""``8`` — size of one ``(body-offset, 0)`` entry in a block's tail (E-097).
+
+The bytes after the 32-byte-per-vertex record (:data:`BODY_BLOCK_RECORD_SIZE`)
+end in a table of little-endian pairs: a 16-byte-aligned body-relative offset
+followed by a zero word.  On the install 1,305/1,657 non-empty tails carry a run
+of at least two such entries and every target lands inside another block; the
+*meaning* of the entries is [UNKNOWN] and is not asserted.
+"""
+
+BODY_BLOCK_TAIL_MIN_VALUES = 2
+"""Fewest consecutive entries :func:`tail_entries` treats as a recovered table."""
+
+
+def block_tail(body: bytes, block: ModBodyBlock, count: int) -> bytes:
+    """The bytes of a block *after* its 32-byte-per-vertex record (E-097).
+
+    That is ``body[block.tail_offset(count) : min(block.end, len(body))]`` — the
+    region E-096's ``fill_start`` scans.  E-097 shows it is **not** pure fill:
+    it is a fill/zero region followed by a table of ``(body-offset, 0)`` entries.
+    """
+    start = block.tail_offset(count)
+    if start >= len(body):
+        return b""
+    return body[start:min(block.end, len(body))]
+
+
+def tail_entries(
+    body: bytes,
+    block: ModBodyBlock,
+    count: int,
+    min_offset: Optional[int] = None,
+) -> tuple[int, ...]:
+    """The body offsets of the ``(offset, 0)`` entries at the end of a tail (E-097).
+
+    Scans the block tail (:func:`block_tail`) in :data:`BODY_BLOCK_TAIL_ENTRY_SIZE`
+    steps and keeps every pair whose value is non-zero and 16-byte aligned, whose
+    second word is zero and which lies inside ``body``.  When ``min_offset`` is
+    given, only values ``>= min_offset`` are kept (pass ``block.end`` to keep the
+    forward references the E-097 census counted).
+
+    This is a **face-value parse**: the values read exactly like body-relative
+    offsets and the census shows every one lands inside a block, but what they
+    reference is [UNKNOWN].
+    """
+    tail = block_tail(body, block, count)
+    limit = len(body)
+    entries = []
+    for offset in range(0, len(tail) - BODY_BLOCK_TAIL_ENTRY_SIZE + 1, BODY_BLOCK_TAIL_ENTRY_SIZE):
+        value = u32(tail, offset)
+        zero = u32(tail, offset + 4)
+        if value == 0 or zero != 0 or value % 16 != 0 or value >= limit:
+            continue
+        if min_offset is not None and value < min_offset:
+            continue
+        entries.append(value)
+    return tuple(entries)
+
+
 def normal_run(
     body: bytes, block: ModBodyBlock, min_run: int = BODY_BLOCK_NORMAL_MIN_RUN
 ) -> Optional[tuple[int, int]]:

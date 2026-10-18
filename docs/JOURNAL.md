@@ -2241,10 +2241,10 @@ moves and health bar and everything."*
   the engine route and is not re-spun; F2/F3/F5/F6/F8 and the GoW3R clip leaf
   encoding (F9) remain available.
 
-## 2026-10-18 — F1 bounded slice: a `MOD ` data block's payload opens with `count` positions then `count` normals (E-094)
+## 2026-10-18 ï¿½ F1 bounded slice: a `MOD ` data block's payload opens with `count` positions then `count` normals (E-094)
 
 - Did: picked the critical path **F1** (issue #1) and followed E-093's own stated
-  next step — "within each block, the three regions are the next lead". Read the
+  next step ï¿½ "within each block, the three regions are the next lead". Read the
   block payloads read-only across all `*.pac` files under
   `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\` (1,535
   ordered+in_block record descriptors). Added `unit_triple`, `block_positions`,
@@ -2259,12 +2259,12 @@ moves and health bar and everything."*
     block payload (`+0x2C`) shows the first `count` triples (the descriptor's own
     count field) read as coordinates and the next `count` triples are
     **unit length**. Worked example `em013.pac` slot 8 (`count = 36`): positions
-    `(2.3638, -0.0, 0.0454)` … `(0.0, -1.7709, -0.7894)` at payload+0x00, unit
-    triples `(0.2224, 0.0, 0.9750)` … `(0.0, -0.7315, -0.6818)` at payload+0x1B0,
+    `(2.3638, -0.0, 0.0454)` ï¿½ `(0.0, -1.7709, -0.7894)` at payload+0x00, unit
+    triples `(0.2224, 0.0, 0.9750)` ï¿½ `(0.0, -0.7315, -0.6818)` at payload+0x1B0,
     then a run of 36 u32 `0x400` at payload+0x3F0 = **28 bytes per vertex**.
   - **Census (1,535 blocks):** 502 contain a run of >= 8 unit triples; 305 start
-    at exactly `count`, 431 within `count` ± 1, 418 have run length == `count`.
-    The **689** blocks with `count == 4` (all tag `0x8001`) contain **none** — a
+    at exactly `count`, 431 within `count` ï¿½ 1, 418 have run length == `count`.
+    The **689** blocks with `count == 4` (all tag `0x8001`) contain **none** ï¿½ a
     different shape, recorded not explained.
   - **Correction to E-093:** the interior offsets are **not** array boundaries.
     In `em013.pac` slot 2 (`count = 230`) a uniform run of 230 u32 `0x400`
@@ -2274,12 +2274,12 @@ moves and health bar and everything."*
   - **[INFERRED]/[UNKNOWN]:** positions/normals *meaning* and the `0x400` run
     (a likely Q10 `1.0`, unproven) stay marked; the position array's length is
     not always exactly `count` (slot 2's triple at k=230 is `(0,0,-0.8774)`).
-- Docs: E-094 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §5.1 gains the
+- Docs: E-094 in `docs/EVIDENCE.md`; `docs/FORMATS.md` ï¿½5.1 gains the
   "E-094 update" subsection and the E-093 correction; `docs/BACKLOG.md` F1 row
   updated (evidence cell adds E-094, status rewritten).
-- Next: the block's **residual arrays** — the 4-byte field between the normals
-  and the `0x400` run, and the `0x1F`/`0x12` words after it — are the fresh lead,
-  alongside the descriptor tag (`0x8001`/`0x8002`/`0x8008`…). F4 stays blocked on
+- Next: the block's **residual arrays** ï¿½ the 4-byte field between the normals
+  and the `0x400` run, and the `0x1F`/`0x12` words after it ï¿½ are the fresh lead,
+  alongside the descriptor tag (`0x8001`/`0x8002`/`0x8008`ï¿½). F4 stays blocked on
   the engine route and is not re-spun; F2/F3/F5/F6/F8 and the GoW3R clip leaf
   encoding (F9) remain available.
 
@@ -2375,3 +2375,47 @@ moves and health bar and everything."*
   agree, and/or take the 4-byte value / attribute pair to the engine. F4 stays
   blocked on the engine route and is not re-spun; F2/F3/F5/F6/F8 and the GoW3R
   clip leaf encoding (F9) remain available.
+
+---
+
+## 2026-10-18 â€” F1 bounded slice: the block tail is a `(body-offset, 0)` table, not an index buffer (E-097)
+
+- Did: picked the critical path **F1** (issue #1) and followed E-096's own stated
+  next step â€” "the block's remaining unknown is **connectivity**". Read the bytes
+  after the 32-byte-per-vertex record read-only across all `*.pac` files under
+  `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\` (286 `MOD ` chunks,
+  1,657 non-empty block tails) and censused the descriptor's undecoded fields and
+  every block's `offset_c`. Added `BODY_BLOCK_TAIL_ENTRY_SIZE`,
+  `BODY_BLOCK_TAIL_MIN_VALUES`, `block_tail()` and `tail_entries()` to
+  `tools/dmc3/mod.py`, exported from `dmc3`; added the `mod_tail_block()` /
+  `mod_tail_directory_body()` fixtures and `TestModBodyTailEntries` (8 tests).
+  Full suite: **638 tests, all green** (630 baseline + 8). Nothing written to the
+  game; no game data committed.
+- Found (**E-097**), read-only on the install:
+  - **The tail is not fill.** After `payload + 32Â·count` the bytes are pure
+    `0x1F` fill in **0/1,657** blocks; **1,305/1,657** carry a run of â‰¥ 2
+    8-byte `(u32 body-offset, u32 0)` entries whose offsets are non-zero,
+    16-byte aligned and in-body. **2,619/2,619** targets land inside a data
+    block, so the tail is [INFERRED] a block-level cross-reference table; what it
+    references is **[UNKNOWN]**.
+  - **No index buffer is in the descriptor.** `+0x00`/`+0x20`/`+0x28` are zero
+    on **1,665/1,665** records; `+0x04`/`+0x08` are non-zero only on the E-093
+    anomaly records (17 and 37). And no block payload read as `u16` is a run of
+    valid indices (**0/1,660**); `offset_c` reads as `f32`/vertex bytes, not a
+    u16 run.
+  - **Recorded inconclusive test:** treating `p[i], p[i+1], p[i+2]` as
+    consecutive triangles, the geometric normal agrees with the vertex normal in
+    ~50 % of triangles for **237/313** clean blocks (only 23/313 at > 90 %).
+    Triangle strips alternate winding, so this neither proves nor disproves strip
+    order â€” recorded so it is not re-run.
+  - Worked example `em013.pac` slot 1 descriptor 0 (`count = 44`): the 132-byte
+    tail ends `â€¦ 0x36, 0, 0, 0, (0x1100, 0), (0x1390, 0)`, both targets inside
+    block 1; reproduced read-only through `tail_entries(..., min_offset=block.end)`.
+- Docs: E-097 in `docs/EVIDENCE.md`; `docs/FORMATS.md` Â§5.1 gains the "E-097
+  update" subsection and the title gains E-097; `docs/BACKLOG.md` F1 row updated
+  (evidence cell adds E-097, status rewritten).
+- Next: connectivity is still locatable â€” the tail's cross-reference table is the
+  fresh lead (what does a `(offset, 0)` entry name?), and the `0x36`/`0x08` word
+  before it is unexplained; the GoW3R clip leaf keyframe encoding (F9) and
+  F3 slots 6/7/11/22 remain available. F4 stays blocked on the engine route and
+  is not re-spun.

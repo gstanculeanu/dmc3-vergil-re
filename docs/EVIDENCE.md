@@ -5511,3 +5511,62 @@ words, and of the `0x24` slack all remain **[UNKNOWN]**.
 `mod_record_block()` / `mod_record_directory_body()`; `tests/test_mod.py` gains
 `TestModBodyRecord` (8 tests). Validated read-only against the real `em013.pac`
 chunk above. No game data committed.
+
+---
+
+## E-097 — `MOD ` block tails end with a table of `(body-offset, 0)` entries; the payload is not a u16 index buffer (F1, bounded slice)
+
+**Observation (read-only from
+`G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\`, all `*.pac`
+files).** E-096 located the per-vertex record; E-095's own next note asked for
+the "next array" and the fill after it. Reading the bytes after the 32-byte
+record (`payload + 32·count`) shows the region is not a fill-only area and
+contains a table of 8-byte `(body-offset, 0)` entries.
+
+Census on the **286** `MOD ` chunks (1,657 non-empty block tails):
+
+| observation | result |
+|---|---|
+| tail after `payload + 32·count` is pure `0x1F` fill | 0 / 1,657 |
+| tail carries a run of ≥ 2 `(offset, 0)` entries (`offset` non-zero, 16-byte aligned, in body) | 1,305 / 1,657 |
+| such targets that land inside a data block | 2,619 / 2,619 |
+| descriptors whose `+0x00` / `+0x20` / `+0x28` are zero | 1,665 / 1,665 |
+| descriptors whose `+0x04` / `+0x08` are non-zero | 17 / 1,665 and 37 / 1,665 |
+| blocks whose payload, read as u16, has `max < count` (an index run) | 0 / 1,660 |
+
+Worked example — `em013.pac` slot 1, descriptor 0 (`count = 44`), block
+`@body+0xA80`, payload `@body+0xAAC`. The tail is **132 bytes**: fill words
+(`0x801F801F`/`0x001F001F`), then `0x36`, then zeros, then
+`(0x1100, 0), (0x1390, 0)`. `0x1100` and `0x1390` are inside block 1
+(`@body+0x10B0`). The tail is read back through the new API as
+`(0x1100, 0x1390)`.
+
+**Inference (marked, unproven).** The tail entries are a block-level
+**cross-reference table**: every value is a 16-byte-aligned body offset and every
+one lands inside another block. What they reference (child meshes, shared
+vertices, a hierarchy) is **[UNKNOWN]**; no index buffer was found, so block
+connectivity is *not* stored in-block as u16 indices.
+
+**Recorded negatives (not re-run).**
+- The descriptor has no free index field: `+0x00`, `+0x20`, `+0x28` are zero on
+  all 1,665 records; the only non-zero exceptions at `+0x04`/`+0x08` are the
+  E-093 anomaly records that read as `f32` content.
+- `offset_c` does not point at an index buffer: reading bytes at every block's
+  `offset_c` gives `f32`/vertex bytes in `em013.pac` slot 1 (e.g. block 0's
+  `offset_c = 0x1CDB0` opens `00*12 d0 56 00 00`, not a u16 run). `offset_c`
+  decreases monotonically with block index on that chunk.
+- Sequential-triple winding test (inconclusive): treating positions
+  `p[i], p[i+1], p[i+2]` as triangles, the sign of
+  `dot(cross(e1, e2), mean vertex normal)` agrees in ~50% of triangles for
+  **237 / 313** clean blocks; only **23 / 313** agree on > 90%. Triangle strips
+  alternate winding, so this neither proves nor disproves strip order —
+  recorded so the experiment is not repeated.
+
+**Tooling.** `tools/dmc3/mod.py` gains `BODY_BLOCK_TAIL_ENTRY_SIZE = 0x08`,
+`BODY_BLOCK_TAIL_MIN_VALUES = 2`, `block_tail()` (the post-record tail bytes)
+and `tail_entries()` (the `(offset, 0)` values with an optional `min_offset`
+filter), exported from `dmc3`. `tests/fixtures.py` gains
+`mod_tail_block()` / `mod_tail_directory_body()`; `tests/test_mod.py` gains
+`TestModBodyTailEntries` (8 tests). Validated read-only through the new API: it
+reproduces the 1,305 / 1,657 census and the worked example above. No game data
+committed.

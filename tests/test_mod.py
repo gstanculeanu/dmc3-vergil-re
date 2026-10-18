@@ -16,6 +16,8 @@ from dmc3.mod import (
     BODY_BLOCK_OFFSET_SLACK,
     BODY_BLOCK_PREFIX_SIZE,
     BODY_BLOCK_RECORD_SIZE,
+    BODY_BLOCK_TAIL_ENTRY_SIZE,
+    BODY_BLOCK_TAIL_MIN_VALUES,
     BODY_BLOCK_TUPLE_SIZE,
     BODY_BLOCK_VALUE_SIZE,
     BODY_BLOCK_VALUE_UNIT,
@@ -34,6 +36,7 @@ from dmc3.mod import (
     block_attributes,
     block_normals,
     block_positions,
+    block_tail,
     block_values,
     descriptor_count,
     fill_start,
@@ -41,6 +44,7 @@ from dmc3.mod import (
     maybe_mod_body_prefix,
     maybe_mod_header,
     normal_run,
+    tail_entries,
     unit_triple,
 )
 
@@ -537,6 +541,70 @@ class TestModBodyRecord(unittest.TestCase):
         for offset in range(tail, len(patched) - 3, 4):
             struct.pack_into("<I", patched, offset, 0x7F7F7F7F)
         self.assertIsNone(fill_start(bytes(patched), block))
+
+
+class TestModBodyTailEntries(unittest.TestCase):
+    """E-097: the block tail after the 32-byte-per-vertex record ends with a
+    table of 8-byte `(body-offset, 0)` entries; the payload itself is not a u16
+    index buffer bounded by `count`."""
+
+    def test_layout_constants(self):
+        self.assertEqual(BODY_BLOCK_TAIL_ENTRY_SIZE, 0x08)
+        self.assertEqual(BODY_BLOCK_TAIL_MIN_VALUES, 2)
+
+    def test_block_tail_follows_the_record(self):
+        body = fixtures.mod_tail_directory_body(count=6, tail_words=4, entries=(0x100, 0x120))
+        block = ModBodyDirectory.parse(body).blocks[0]
+        tail = block_tail(body, block, 6)
+        self.assertEqual(len(tail), block.end - block.tail_offset(6))
+        self.assertEqual(tail, body[block.tail_offset(6):block.end])
+
+    def test_tail_entries_only_at_the_end(self):
+        body = fixtures.mod_tail_directory_body(
+            count=4, tail_words=3, entries=(0x100, 0x120, 0x140)
+        )
+        block = ModBodyDirectory.parse(body).blocks[0]
+        self.assertEqual(tail_entries(body, block, 4), (0x100, 0x120, 0x140))
+
+    def test_tail_entries_ignore_fill_and_zero(self):
+        # the fill/zero prefix of the tail contributes no entries
+        body = fixtures.mod_tail_directory_body(count=4, tail_words=4, entries=())
+        block = ModBodyDirectory.parse(body).blocks[0]
+        self.assertEqual(tail_entries(body, block, 4), ())
+
+    def test_tail_entries_reject_unaligned_and_out_of_body(self):
+        body = fixtures.mod_tail_directory_body(
+            count=4, tail_words=2, entries=(0x101, 0x120, 0x100000)
+        )
+        block = ModBodyDirectory.parse(body).blocks[0]
+        # 0x101 is not 16-byte aligned, 0x100000 is past the body
+        self.assertEqual(tail_entries(body, block, 4), (0x120,))
+
+    def test_tail_entries_min_offset_filters(self):
+        body = fixtures.mod_tail_directory_body(
+            count=4, tail_words=2, entries=(0x100, 0x120, 0x140)
+        )
+        block = ModBodyDirectory.parse(body).blocks[0]
+        self.assertEqual(tail_entries(body, block, 4, min_offset=0x120), (0x120, 0x140))
+        self.assertEqual(tail_entries(body, block, 4, min_offset=block.end), ())
+
+    def test_tail_entries_stop_at_the_body_end(self):
+        body = fixtures.mod_tail_directory_body(
+            count=3, tail_words=1, entries=(0x120,)
+        )
+        block = ModBodyDirectory.parse(body).blocks[0]
+        # asking for a larger count still returns only entries inside the body
+        for value in tail_entries(body, block, 3):
+            self.assertLess(value, len(body))
+
+    def test_record_payload_is_not_a_u16_index_run(self):
+        # E-097 negative: the payload's u16 reading is not bounded by count
+        body = fixtures.mod_tail_directory_body(count=5, tail_words=2, entries=(0x120,))
+        block = ModBodyDirectory.parse(body).blocks[0]
+        payload = body[block.payload_offset:block.end]
+        values = struct.unpack_from(f"<{len(payload) // 2}H", payload)
+        # a synthetic position array is not a set of small indices
+        self.assertGreater(max(values), 5)
 
 
 if __name__ == "__main__":

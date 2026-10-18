@@ -349,6 +349,66 @@ def mod_record_directory_body(
     )
 
 
+def mod_tail_block(
+    count: int = 4,
+    start: int = 0x80,
+    values: tuple = None,
+    fill: int = 0x001F001F,
+    tail_words: int = 4,
+    entries: tuple = (),
+) -> bytes:
+    """A synthetic ``MOD `` block whose tail ends with ``(offset, 0)`` entries (E-097).
+
+    Like :func:`mod_record_block`, but after the ``tail_words`` fill words the
+    payload carries ``entries`` as 8-byte little-endian ``(u32 offset, u32 0)``
+    pairs — the table shape E-097 observes at the end of a real block tail.
+    """
+    blob = bytearray(0x2C)
+    payload = bytearray()
+    for k in range(count):
+        payload += struct.pack("<3f", k + 0.5, -(k + 0.25), k * 0.125)
+    for _ in range(count):
+        payload += struct.pack("<3f", 0.0, 0.0, 1.0)
+    for k in range(count):
+        payload += struct.pack("<2H", 0x0100 + k, 0x0200 + k)
+    if values is None:
+        values = [0x0C040800] * count
+    for value in values:
+        payload += struct.pack("<I", value)
+    payload += struct.pack("<I", fill) * tail_words
+    # the real tail has zeros between its fill region and the entry table; pad so
+    # the 8-byte-aligned entries begin on an 8-byte boundary (E-097)
+    payload += b"\x00" * 4
+    if (len(payload) % 8) != 0:
+        payload += b"\x00" * 4
+    for entry in entries:
+        payload += struct.pack("<II", entry, 0)
+    payload_offset = start + 0x2C
+    value_offset = payload_offset + 28 * count
+    offset_a = value_offset + 0x24
+    offset_b = offset_a + 4 * count
+    struct.pack_into("<I", blob, 0x04, offset_a)
+    struct.pack_into("<I", blob, 0x0C, offset_b)
+    struct.pack_into("<I", blob, 0x1C, payload_offset + 32 * count + 4 * tail_words)
+    return bytes(blob) + bytes(payload)
+
+
+def mod_tail_directory_body(
+    count: int = 4, tail_words: int = 4, entries: tuple = ()
+) -> bytes:
+    """A synthetic one-record ``MOD `` body carrying an E-097 tail table."""
+    array_size = 2 * 0x40
+    record = mod_descriptor(tag=0x8001, count=count, data_offset=array_size)
+    footer = mod_descriptor(tag_word=(0 << 16) | 0x2C, data_offset=0, aux=4)
+    return (
+        record
+        + footer
+        + mod_tail_block(
+            count=count, start=array_size, tail_words=tail_words, entries=entries
+        )
+    )
+
+
 def shw_chunk(
     alpha: float = 0.5,
     field_08: int = 0,
