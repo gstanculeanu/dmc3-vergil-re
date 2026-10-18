@@ -1978,3 +1978,76 @@ Not decodable from bytes alone; engine ground truth needed.
 unit tests on a synthetic fixture (no game data committed). `docs/FORMATS.md`
 §1.3 and `docs/BACKLOG.md` F3 are updated below. F3 remains open: segment
 internal layout and all field meanings are [UNKNOWN].
+
+
+---
+## E-044 — WAD bulk header and `DC_` id `0x10` table (G9, bounded slice)
+
+**Observation.** Read-only from two real assets:
+`C:\Users\GigelCastel\Desktop\gow3\CUSA01715\EXEC\WAD\PS4_LE\R_SWORD00.WAD`
+(87,840 bytes) and `GAZ650.WAD` (13,152 bytes). In both files the record
+directory ends at `0xD80` and the bulk data region begins at `0xD80`. The bulk
+header is byte-identical except for the u32 at +0x4 and the 16-byte name:
+
+```
+file 0xD80: 01 00 77 00   u16 1, u16 0x77
+file 0xD84: 69 0d 00 00   u32 3433 (R_SWORD00); GAZ650.WAD: 59 0d 00 00 -> u32 3417
+file 0xD88: 30 33 35 32 41 35 38 42   "0352A58B" (R_SWORD00);
+            37 32 31 46 42 46 42 32   "721FBFB2" (GAZ650.WAD)
+file 0xD90: 5f 46 46 46 46 46 46 46 46   "_FFFFFFFF"
+file 0xD98..0xDBF   zero bytes
+file 0xDC0: 08 00 01 00 00 00 00 00 01 00 00 00 10 00 00 00   u32s 8, 1, 1, 16
+file 0xDD0: 01 00 00 00 00 00 00 00                             u32 1, u32 0
+file 0xDE0: 18 00 00 00 00 00 00 00                             u32 24 (R_SWORD00);
+            GAZ650.WAD: 20 00 00 00 -> u32 32
+file 0xDE8: 69 67 68 74 69 6e 67 20   "ighting " (R_SWORD00)
+            b8 06 00 00 00 00 00 00                             (GAZ650.WAD: u32 1720)
+```
+
+**The `DC_` id `0x10` chunk** — `R_SWORD00.WAD`: chunk prefix at file `0x14AD8`,
+id `0x10`, size 3064, payload at `0x14B1C`. The 3064-byte payload reads as 766
+little-endian u32s:
+
+```
+idx 0-3   header u32s            0, 0x77 (119), 0, 0x598 (1432)
+idx 4-357 118 entries            (u32 flag, u32 offset, u32 value)
+idx 358   u32                    0xA4
+idx 359+  NUL strings            "CRT_Sword00", "FX", "Bubbles", "Ripples",
+                                  "Freezing", "Stoned", "ShatterSystem",
+                                  "BasePhysicalAttributes", "Light", "Tint",
+                                  "Fire", "Joints", "tSoldier_0",
+                                  "PushableMinSpeed", ... ("MOV_*", "BRA_*",
+                                  "tActionSetFlags_*", … script object names)
+```
+
+All 118 entries carry small u32s. Offsets ascend overall from `0x20` to `0x1654`;
+entries at `>= 0xD80` point into the bulk region and land on real object data:
+file `0xD84` begins `69 0d 00 00 "0352A58B_FFFFFFFF"` (bulk header + 4);
+file `0xDE4` begins `00 00 00 00 "ighting "`; file `0xE44` reads as u16s
+`90, 88, 84, 96, …`; file `0x15BC` reads f32 `50.0`; file `0x1654` reads
+`54, f32 2.5078, …`. Values ascend overall from `0x5A4` to `0xBED`. Flags are
+small u32s (observed `0x18`, `0x21`, `0x30`, `0x97`, `0x143`-`0x153`,
+`0x9F`, `0xA4`; early entries use `0x143`-`0x153`, later ones alternate
+`0x9F`/`0xA4`). `GAZ650.WAD`'s id `0x10` chunk is degenerate: six u32s
+`(0, 1, 0, 0x10, 0x15D, "WAD_")`, no entries, no strings.
+
+**Inference.** The id `0x10` chunk describes named objects: the triplets pair a
+flag with a file offset and a value, and the trailing string pool holds object
+names (script/FX objects: "CRT_Sword00", "MOV_SwordPickupWalk",
+"tActionSetFlags_86", "BRA_SwordPickupWalk", "NB_SwordBank"). The entry count
+(~118) is of the same order as the string count (~100 visible), consistent with
+one entry per named object — **not proven**.
+
+**Unknown.** The exact meaning of `flag`, `offset` (reference frame — file
+offsets match object data at 0xD84+, but early entries point at the directory
+and header regions) and `value`; whether each entry binds to one directory
+resource name, one string, or one bulk object; whether the layout generalizes
+beyond `R_SWORD00.WAD` (single sample). The entry → directory-resource binding
+is therefore still **[UNKNOWN]** and a WAD writer remains blocked.
+
+**Consequence.** `tools/gow3/wad.py` gains `parse_dc10_table()` — a face-value
+parser returning exactly the observed layout (header, entries, strings), with no
+semantic claims, exercised by unit tests on synthetic fixtures (no game data
+committed). `docs/FORMATS.md` §7 records this structure as
+[PARTIAL structure / UNKNOWN semantics]. Binding entries to resources and the
+`WadGraph` name→WAD binding stay open (issues G9/G10).

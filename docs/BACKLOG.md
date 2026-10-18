@@ -50,7 +50,7 @@ Labels used: `re`, `tooling`, `format`, `phase-1`, `phase-2`, `phase-3`, `blocke
 | # | Title | Status |
 |---|---|---|
 | G1 | Locate GoW3R character asset containers in `CUSA01715` | **answered** (E-016): per-entity `R_*.WAD` in `EXEC/WAD/PS4_LE/` |
-| G9 | Decode the `R_*.WAD` container and the `WadGraph` manifest | **taxonomy decoded** (E-023/E-024): every WAD = the same 16 typed resource groups (MDLX/TXRX/ANMX/BHVX/...). Marker *length* still open → no writer yet — **critical path** |
+| G9 | Decode the `R_*.WAD` container and the `WadGraph` manifest | E-016, E-022–E-025, E-044 | open — directory structure decoded (record stream; 16 typed resource groups in fixed order; `DC_` footer chunks 0 or 6; marker length resolved via `round_up(resource size, 16)`, E-025); **bulk header at `0xD80` decoded on 2 files**; **`DC_` id `0x10` table structure decoded** (header u32s + `(flag, offset, value)` triplets + NUL string pool of script/FX object names — E-044 on `R_SWORD00.WAD`); entry→resource/object binding, `flag`/`offset`/`value` semantics, and the `WadGraph` name→WAD binding [UNKNOWN]; no writer yet — **critical path** |
 | G8 | Can a **new** entity be added, or must Vergil replace a boss? | open — **critical path** |
 | G2 | Reverse GoW3R's model/material container | blocked by G9 |
 | G3 | Decide retarget vs standalone mesh for the replaced boss's rig | open |

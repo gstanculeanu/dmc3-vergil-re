@@ -871,6 +871,36 @@ moves and health bar and everything."*
 
 ---
 
+## 2026-10-18 — G9: WAD bulk header and DC_ id 0x10 table decoded from real bytes
+
+- Did: picked G9 (issue #36) from the resolved-dependency list because the Phase 1
+  format critical path (F1/F4/F2/F3/F5/F8) stays blocked on engine ground truth.
+  Read real bytes from two WADs (R_SWORD00.WAD 87,840 B and GAZ650.WAD 13,152 B)
+  under C:\Users\GigelCastel\Desktop\gow3\CUSA01715\EXEC\WAD\PS4_LE\ — read only,
+  no writes to the install.
+- Found (E-044): in both files the record directory ends at 0xD80 and the bulk
+  region opens with an identical header (`01 00 77 00`, u32 0x0D69/0x0D59,
+  16-byte name "NNNNNNNN_FFFFFFFFF", then u32s 8/1/1/16, 1/0, 0x18/0x20, …).
+  The `DC_` id `0x10` chunk payload of R_SWORD00.WAD (file 0x14AD8, size 3064)
+  decodes as header u32s `(0, 0x77, 0, 0x598)`, 118 triplets
+  `(u32 flag, u32 offset, u32 value)` with ascending offsets (0x20 → 0x1654;
+  entries >= 0xD80 land on bulk object data, byte-verified at 0xD84, 0xDE4,
+  0xE44, 0x15BC, 0x1654), then a NUL string pool ("CRT_Sword00", "FX",
+  "Bubbles", "MOV_*", "BRA_*", "tActionSetFlags_86" …). GAZ650.WAD's id 0x10
+  chunk is degenerate (6 u32s, no entries, no strings).
+- Added: `Dc10Entry` / `Dc10Table` / `parse_dc10_table()` in
+  `tools/gow3/wad.py` — face-value parse only, no semantic claims — exported
+  from `gow3/__init__.py`; `TestDc10Table` (3 tests) in
+  `tests/test_gow3_wad.py` on synthetic fixtures. Full suite: **224 tests, all
+  green**.
+- Unknown (recorded, not inferred): flag/offset/value semantics, the offset
+  reference frame, and the entry → directory-resource binding — so a WAD writer
+  remains blocked; G9/G10 stay open.
+- Docs: E-044 in docs/EVIDENCE.md; new §7 in docs/FORMATS.md; BACKLOG.md G9 row
+  updated (marker length now resolved per E-025).
+- Next: WadGraph name→WAD binding (G10, #39), or retry the G9 entry binding on
+  a larger entity WAD (e.g. R_HADES.WAD).
+
 ## 2026-10-18 — T6: CI workflow runs the unit tests on push (issue #12)
 
 - Did: added `.github/workflows/test.yml` (Python 3.13, ubuntu-latest) that runs

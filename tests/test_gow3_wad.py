@@ -1,4 +1,5 @@
 import _bootstrap  # noqa: F401
+import struct
 import unittest
 
 import fixtures
@@ -211,6 +212,51 @@ class TestNameFamilies(unittest.TestCase):
     def test_is_wad_probe(self):
         self.assertTrue(wad.is_wad(fixtures.wad_bytes()))
         self.assertFalse(wad.is_wad(b"not a wad at all"))
+
+
+class TestDc10Table(unittest.TestCase):
+    def test_parses_header_entries_and_strings(self):
+        # Synthetic payload mirroring the observed layout of R_SWORD00.WAD's
+        # DC_ id 0x10 chunk (E-044): header, triplets (flag, offset, value),
+        # u32 0xA4, then NUL-terminated strings. No game data committed.
+        payload = struct.pack(
+            "<4I", 0, 0x77, 0, 0x598
+        ) + struct.pack(
+            "<12I",
+            0x153, 0x20, 0x5A4,
+            0x9F, 0xD84, 0x9C9,
+            0xA4, 0xDAC, 0x9D6,
+            0x9F, 0x1654, 0xBED,
+        ) + struct.pack("<I", 0xA4)
+        payload += b"CRT_Sword00\x00FX\x00Bubbles\x00"
+
+        table = wad.parse_dc10_table(payload)
+        self.assertIsNotNone(table)
+        self.assertEqual(table.header, (0, 0x77, 0, 0x598))
+        self.assertEqual(
+            table.entries,
+            [
+                wad.Dc10Entry(flag=0x153, offset=0x20, value=0x5A4),
+                wad.Dc10Entry(flag=0x9F, offset=0xD84, value=0x9C9),
+                wad.Dc10Entry(flag=0xA4, offset=0xDAC, value=0x9D6),
+                wad.Dc10Entry(flag=0x9F, offset=0x1654, value=0xBED),
+            ],
+        )
+        self.assertEqual(table.strings, ["CRT_Sword00", "FX", "Bubbles"])
+
+    def test_degenerate_chunk_has_no_entries(self):
+        # GAZ650.WAD's id 0x10 chunk: six u32s, no table, no strings. The last
+        # u32 is non-printable on purpose so the tail scan finds no strings.
+        payload = struct.pack("<6I", 0, 1, 0, 0x10, 0x15D, 0)
+        table = wad.parse_dc10_table(payload)
+        self.assertIsNotNone(table)
+        self.assertEqual(table.header, (0, 1, 0, 0x10))
+        self.assertEqual(table.entries, [])
+        self.assertEqual(table.strings, [])
+
+    def test_rejects_payload_smaller_than_header(self):
+        self.assertIsNone(wad.parse_dc10_table(b"\x00" * 12))
+        self.assertIsNone(wad.parse_dc10_table(b""))
 
 
 if __name__ == "__main__":

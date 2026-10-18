@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 import re
+import struct
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
@@ -500,3 +501,94 @@ def resource_histogram(records: List[WadRecord]) -> dict:
     for record in resources(records):
         histogram[record.class_name] = histogram.get(record.class_name, 0) + 1
     return histogram
+
+
+# ---------------------------------------------------------------------------
+# DC_ chunk with id 0x10 — table + string pool (E-044)
+# ---------------------------------------------------------------------------
+#
+# The id 0x10 ``DC_<banner>`` chunk holds an u32 table followed by a NUL
+# terminated string pool. Observed on real ``R_SWORD00.WAD`` (single sample):
+#
+#   header u32s: (0, 0x77, 0, 0x598)
+#   entries   : (u32 flag, u32 offset, u32 value) x 118, offsets ascending
+#               from 0x20 into the bulk region (>= 0xD80)
+#   u32 0xA4
+#   strings   : "CRT_Sword00", "FX", "Bubbles", "Ripples", ... (object names)
+#
+# GAZ650.WAD's id 0x10 chunk is degenerate: six u32s, no entries, no strings.
+# Field meanings and the entry <-> resource / object binding are [UNKNOWN];
+# this parser returns exactly the observed layout and claims no semantics.
+
+#: A u32 at or above this value is treated as the start of the string pool:
+#: entry fields are small u32s (observed <= 0x1654), string data is not.
+_DC10_STRING_THRESHOLD = 0x10000
+
+
+@dataclass(frozen=True)
+class Dc10Entry:
+    """One triplet ``(flag, offset, value)`` of the id ``0x10`` table.
+
+    Layout (E-044): ``u32 flag; u32 offset; u32 value``. All field meanings
+    are [UNKNOWN]. ``offset`` is observed ascending through the table; values
+    >= 0xD80 land in the WAD's bulk data region.
+    """
+
+    flag: int
+    offset: int
+    value: int
+
+
+@dataclass(frozen=True)
+class Dc10Table:
+    """Face-value parse of a ``DC_`` id ``0x10`` chunk payload (E-044).
+
+    No field is assigned a meaning; the parse matches the single real sample
+    (``R_SWORD00.WAD``) and is deliberately conservative elsewhere.
+    """
+
+    header: tuple[int, int, int, int]
+    entries: List[Dc10Entry]
+    strings: List[str]
+
+
+def parse_dc10_table(payload: bytes) -> Optional[Dc10Table]:
+    """Parse a ``DC_`` id ``0x10`` chunk payload at face value (E-044).
+
+    Returns ``None`` for payloads smaller than the four-u32 header. Entries
+    are triplets of small u32s starting at u32 index 4; the scan stops at the
+    first triplet that does not fit (observed: the string pool follows). The
+    tail is scanned for NUL-terminated printable strings.
+    """
+    if len(payload) < 16:
+        return None
+    count = len(payload) // 4
+    values = struct.unpack_from("<%dI" % count, payload, 0)
+    header = (values[0], values[1], values[2], values[3])
+
+    entries: List[Dc10Entry] = []
+    index = 4
+    while index + 3 <= count:
+        flag, offset, value = values[index], values[index + 1], values[index + 2]
+        if (
+            flag >= _DC10_STRING_THRESHOLD
+            or offset >= _DC10_STRING_THRESHOLD
+            or value >= _DC10_STRING_THRESHOLD
+        ):
+            break
+        entries.append(Dc10Entry(flag=flag, offset=offset, value=value))
+        index += 3
+
+    strings: List[str] = []
+    run: List[int] = []
+    for byte in payload[index * 4 :]:
+        if 32 <= byte < 127:
+            run.append(byte)
+        else:
+            if len(run) >= 2:
+                strings.append(bytes(run).decode("latin-1"))
+            run = []
+    if len(run) >= 2:
+        strings.append(bytes(run).decode("latin-1"))
+
+    return Dc10Table(header=header, entries=entries, strings=strings)

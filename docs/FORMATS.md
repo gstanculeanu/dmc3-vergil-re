@@ -555,3 +555,80 @@ and `FlverSection` / `parse_flver_sections()`, decoding exactly this header
 and table from real bytes, exercised by unit tests on synthetic fixtures
 (no game data committed). The body mesh beyond the table remains [UNKNOWN];
 T7b is advanced but not complete.
+
+---
+## 7. GoW3R `R_*.WAD` container — header, directory, data region [PARTIAL]
+
+**Status: [PARTIAL]** — evidence E-016, E-022, E-023, E-024, E-025, E-044.
+Read-only from `C:\Users\GigelCastel\Desktop\gow3\CUSA01715\EXEC\WAD\PS4_LE\`.
+All integers little-endian.
+
+### 7.1 Header
+
+```
+0x00  u32  20
+0x04  u32  8
+0x08  char[]  banner, zero-padded ("WAD_R_Hades", "WAD_R_Sword00", …)
+```
+
+### 7.2 Record directory [VERIFIED structure]
+
+From `0x40`: a record stream (E-023/E-025). Named records are 0x40 bytes:
+`u32 type; u32 size; char name[0x38]`. Commands: `1` resource,
+`2` GroupStart, `3` GroupEnd, `0x12` root (repeats the banner at the
+directory end), `0x15` PopHeap. Typed markers `0x80000000 | class_id`
+follow each resource and take `round_up(preceding resource size, 16)` bytes
+(E-025 — marker length resolved on 87 small WADs). The stream ends where the
+next u32 is not a valid type — `0xD80` for standard WADs, `0xDC0` for
+`R_HADES.WAD` (65 records).
+
+Every WAD examined carries the same 16 typed resource groups in fixed order:
+`root TXRX WPTX CXT ANMX LGTX SCRX BHVX MDLX PRTX CAMX SNDX COLX FX OCCX MATX`.
+The class id resolved from the name prefix agreed with the following marker's
+id on every occurrence (E-024). Class ids: `CXT` 1, `ANMX` 3, `SCRX` 4,
+`LGTX` 6, `TXRX` 7, `MATX` 8, `CAMX` 9, `MDLX` 13, `COLX` 14, `PRTX` 15,
+`WPTX` 16, `BHVX` 18, `SNDX` 19, root 20, `FX` 21, `OCCX` 24.
+
+### 7.3 Bulk data region and `DC_` footer [PARTIAL / UNKNOWN]
+
+The bulk region starts where the directory ends (`0xD80` standard). It begins
+with a small header whose fields are all **[UNKNOWN]** (verified byte-identical
+on `R_SWORD00.WAD` and `GAZ650.WAD`): `u16 1`, `u16 0x77`, u32 (`0x0D69` /
+`0x0D59`), a 16-byte NUL name (`"0352A58B_FFFFFFFFF"` /
+`"721FBFB2_…"`), then zero padding and small u32s (see E-044 for the raw
+bytes).
+
+Near the end of the file sit six `DC_<banner>` footer chunks (ids `0x0B`..`0x10`;
+0 or 6 per file — E-025), each with a 16-byte prefix
+(`u64 0`, `u16 id`, `u16 0x0009`, `u32 size`) and a 0x34-byte name field.
+
+### 7.4 `DC_` id `0x10` table [PARTIAL structure / UNKNOWN semantics] (E-044)
+
+The id `0x10` chunk payload of `R_SWORD00.WAD` (file `0x14AD8`, size 3064,
+payload at `0x14B1C`) reads as 766 little-endian u32s:
+
+```
+header u32s:   (0, 0x77, 0, 0x598)
+entries:       (u32 flag, u32 offset, u32 value) x N — 118 entries observed,
+               offsets ascending overall from 0x20 into the bulk region
+               (>= 0xD80), values ascending overall from 0x5A4
+u32 0xA4
+NUL strings:   "CRT_Sword00", "FX", "Bubbles", "Ripples", "Freezing", "Stoned",
+               "ShatterSystem", "BasePhysicalAttributes", "Light", "Tint",
+               "Fire", "Joints", "tSoldier_0", "PushableMinSpeed", …
+```
+
+The trailing strings are object names — script/FX objects such as
+`"MOV_SwordPickupWalk"`, `"tActionSetFlags_86"`, `"BRA_SwordPickupWalk"`,
+`"NB_SwordBank"`. Entry offsets `>= 0xD80` land on bulk object data (verified
+at file `0xD84`, `0xDE4`, `0xE44`, `0x15BC`, `0x1654`), but early entries
+point at the directory/header regions, so `offset`'s reference frame is
+[UNKNOWN]. What `flag` and `value` mean, whether one entry binds one directory
+resource name / one string / one bulk object, and whether the layout
+generalizes beyond `R_SWORD00.WAD` (single sample) are **[UNKNOWN]**.
+On `GAZ650.WAD` the id `0x10` chunk is degenerate: six u32s, no entries, no
+strings.
+
+`tools/gow3/wad.py` parses exactly this layout via `parse_dc10_table()` and
+claims no semantics; a WAD writer remains blocked (the entry → resource
+binding and the `WadGraph` name→WAD binding are open — issues G9/G10).
