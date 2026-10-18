@@ -114,3 +114,60 @@ def maybe_raw_header(data: bytes) -> Optional[RawHeader]:
         return RawHeader.parse(data)
     except ValueError:
         return None
+
+
+SLOT21_SEPARATOR = 0xFFFF
+"""u16 value that delimits segments within ``pl021.pac`` slot 21.
+
+Observed (evidence E-043): slot 21's payload is a little-endian u16 stream
+split into 14 segments by ``0xFFFF`` separators. ``0x7FFF`` also appears
+inside segments and is *not* a delimiter. Every field meaning is [UNKNOWN].
+"""
+
+
+@dataclass(frozen=True)
+class Slot21Table:
+    """``pl021.pac`` slot 21 as ``0xFFFF``-delimited u16 segments (E-043).
+
+    Observed at file offset `0x07FF00` of ``pl021.pac`` (span `0x2E0`,
+    368 u16s) — the payload splits into 14 segments of sizes
+    2, 6, 1, 8, 10, 31, 111, 34, 1, 6, 8, 27, 84, 26 u16s, separated by
+    ``0xFFFF``. Segment 0 is verbatim ``(6, 408)``; segment index 5 ends in an
+    arithmetic run ``36, 50, 64, …, 232`` stepping by 14; segment index 6
+    repeats a 7-u16 sub-record ``32767, 0, 32767, 1, 1, 0, VALUE`` with
+    ``VALUE`` stepping by 256. All segment-internal semantics are [UNKNOWN];
+    the parser reads exactly the observed segmentation and interprets nothing.
+    """
+
+    segments: tuple[tuple[int, ...], ...]
+    """Tuple of u16 segments; the ``0xFFFF`` separators are not included."""
+
+    @classmethod
+    def parse(cls, data: bytes) -> "Slot21Table":
+        """Parse the slot-21 segmentation from ``data`` (chunk-relative bytes).
+
+        Interprets ``data`` as a little-endian u16 stream and splits it on
+        every ``0xFFFF`` separator. Raises :exc:`ValueError` if ``data`` has
+        an odd length (incomplete trailing u16).
+        """
+        if len(data) % 2 != 0:
+            raise ValueError(
+                f"slot-21 data is {len(data)} bytes, need an even number of bytes for u16s"
+            )
+        count = len(data) // 2
+        values = [u16(data, 2 * index) for index in range(count)]
+        segments: list[list[int]] = [[]]
+        for value in values:
+            if value == SLOT21_SEPARATOR:
+                segments.append([])
+            else:
+                segments[-1].append(value)
+        return cls(segments=tuple(tuple(seg) for seg in segments))
+
+
+def maybe_slot21_table(data: bytes) -> Optional[Slot21Table]:
+    """Like :meth:`Slot21Table.parse` but returns ``None`` on bad input."""
+    try:
+        return Slot21Table.parse(data)
+    except ValueError:
+        return None

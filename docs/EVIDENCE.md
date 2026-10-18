@@ -1936,3 +1936,45 @@ for all three files but is not a rule — all three are 256×256 DXT3.
 from local bytes: more TM2 samples do not exist in this install, and engine
 ground truth (or a genuinely different-dimension/format TM2 sample) is
 required. F8 stays [UNKNOWN] and is not retried from bytes alone.
+
+
+---
+## E-043 — `pl021.pac` slot 21: u16 segments delimited by `0xFFFF` (F3, bounded slice)
+
+**Observation.** `pl021.pac` slot 21 at file offset `0x07FF00`, span `0x2E0`
+(736 bytes = 368 u16s; the next occupied slot is 22 at `0x0801E0`). The
+payload carries no ASCII tag, so `pac.py` classifies it as "raw" (E-002). It
+is a little-endian u16 stream split into **14 segments** by `0xFFFF`
+separators (13 separators). Segment sizes, in u16s:
+2, 6, 1, 8, 10, 31, 111, 34, 1, 6, 8, 27, 84, 26 (sum 355 data values + 13
+separators = 368 u16s).
+
+Segment 0 verbatim: `(6, 408)`. Separators sit at u16 indices
+2, 9, 11, 20, 31, 63, 175, 210, 212, 219, 228, 256, 341.
+
+Two internal regularities are observed (not relied on, not interpreted):
+
+* segment index 5 (size 31) ends in an arithmetic run
+  `36, 50, 64, …, 232` stepping by 14, i.e. `36, 36, 36, 50, 64, …, 232`;
+* segment index 6 (size 111) repeats a 7-u16 sub-record
+  `32767, 0, 32767, 1, 1, 0, VALUE` fourteen times with `VALUE` stepping by
+  256 from `771` to `4099`, followed by a tail
+  `32767, 0, 32767, 1, 14, 14, 14, 28, 42, 56`.
+
+`0x7FFF` occurs inside segments (e.g. as part of the repeating sub-record)
+and is *not* a delimiter.
+
+**Inference.** None beyond structure: the top-level layout of slot 21 is
+`0xFFFF`-delimited u16 segments. What each segment indexes, and the meaning of
+`0x7FFF` and of the arithmetic runs / repeating sub-records, are [UNKNOWN].
+
+**Unknown.** Segment semantics; whether `0x7FFF` is a sub-delimiter or a data
+value (-1 as a signed u16); what the arithmetic runs and repeating
+sub-records encode; whether this layout recurs in any other untagged slot.
+Not decodable from bytes alone; engine ground truth needed.
+
+**Consequence.** `tools/dmc3/raw.py` gains `Slot21Table` (with
+`SLOT21_SEPARATOR`) decoding exactly the observed segmentation, exercised by
+unit tests on a synthetic fixture (no game data committed). `docs/FORMATS.md`
+§1.3 and `docs/BACKLOG.md` F3 are updated below. F3 remains open: segment
+internal layout and all field meanings are [UNKNOWN].

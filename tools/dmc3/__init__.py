@@ -7,10 +7,13 @@ from .mod import BODY_PREFIX_SIZE, ModBodyPrefix, ModHeader
 from .raw import (
     SLOT0_HEADER_SIZE,
     SLOT10_PAIR_COUNT,
+    SLOT21_SEPARATOR,
     RawHeader,
     Slot10Table,
+    Slot21Table,
     maybe_raw_header,
     maybe_slot10_table,
+    maybe_slot21_table,
 )
 from .shw import (
     HEADER_SIZE as SHW_HEADER_SIZE,
@@ -107,8 +110,11 @@ __all__ = [
     "PNST_TAG_SHADER",
     "SLOT0_HEADER_SIZE",
     "SLOT10_PAIR_COUNT",
+    "SLOT21_SEPARATOR",
     "RawHeader",
     "Slot10Table",
+    "Slot21Table",
+    "maybe_slot21_table",
     "is_mot",
     "mot_summary",
     "parse_mot",

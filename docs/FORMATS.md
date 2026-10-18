@@ -87,9 +87,14 @@ leading bytes (E-008) — so no single header shape is shared across them:
   `0.3, -0.01, -0.1, 0.0, 0.7` (raw `9a 99 99 3e 0a d7 a3 bc cc cc cc bd
   00 00 00 00 66 66 66 3f`). What the pairs index, the pair count's source,
   and the f32 stream's meaning are [UNKNOWN] (evidence E-037).
-* **slot 21** — a u16 table with `0xFFFF` separators; an arithmetic run of
-  u16s increasing by 14 (`36, 50, 64, …, 232`) appears at body+0x5C
-  (evidence E-008). Layout [UNKNOWN].
+* **slot 21** — 14 little-endian u16 segments delimited by `0xFFFF`
+  separators (13 separators; segment sizes 2/6/1/8/10/31/111/34/1/6/8/27/84/26
+  u16s) at file offset `0x07FF00`, span `0x2E0` (evidence E-043). Segment 0 is
+  verbatim `(6, 408)`. Segment index 5 ends in an arithmetic run
+  `36, 50, 64, …, 232` stepping by 14; segment index 6 repeats a 7-u16
+  sub-record `32767, 0, 32767, 1, 1, 0, VALUE` with `VALUE` stepping by 256.
+  `0x7FFF` occurs inside segments and is not a delimiter. Segment-internal
+  layout and all field meanings [UNKNOWN] (evidence E-043).
 * **slots 5, 6, 7, 9, 11, 22** — leading bytes differ per slot; slots 9/11 are
   f32 arrays. Layouts [UNKNOWN].
 

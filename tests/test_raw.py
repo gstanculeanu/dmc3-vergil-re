@@ -7,10 +7,13 @@ from dmc3 import RawHeader
 from dmc3.raw import (
     SLOT0_HEADER_SIZE,
     SLOT10_PAIR_COUNT,
+    SLOT21_SEPARATOR,
     maybe_raw_header,
     maybe_slot10_table,
+    maybe_slot21_table,
     RawHeader,
     Slot10Table,
+    Slot21Table,
 )
 
 
@@ -20,6 +23,10 @@ def chunk_data() -> bytes:
 
 def slot10_data() -> bytes:
     return fixtures.raw_chunk_slot10()
+
+
+def slot21_data() -> bytes:
+    return fixtures.raw_chunk_slot21()
 
 
 class TestRawHeader(unittest.TestCase):
@@ -97,6 +104,39 @@ class TestSlot10Table(unittest.TestCase):
         with self.assertRaises(ValueError):
             Slot10Table.parse(slot10_data()[:4 * SLOT10_PAIR_COUNT - 1])
         self.assertIsNone(maybe_slot10_table(b"\x00" * 10))
+
+
+class TestSlot21Table(unittest.TestCase):
+    """Decoded slot-21 u16 segment table (E-043). All values are verbatim
+    observations from pl021.pac slot 21; every field meaning is [UNKNOWN] and
+    is only asserted, never interpreted."""
+
+    REAL_SEGMENT_SIZES = (2, 6, 1, 8, 10, 31, 111, 34, 1, 6, 8, 27, 84, 26)
+    """Segment sizes (u16s each) observed in pl021.pac slot 21 (E-043)."""
+
+    def test_parses_slot_21_segments(self):
+        table = Slot21Table.parse(slot21_data())
+        self.assertEqual(len(table.segments), len(self.REAL_SEGMENT_SIZES))
+        self.assertEqual(
+            [len(seg) for seg in table.segments], list(self.REAL_SEGMENT_SIZES)
+        )
+        # Segment 0 is verbatim from pl021.pac slot 21 (E-043).
+        self.assertEqual(table.segments[0], (6, 408))
+
+    def test_separators_are_not_segment_data(self):
+        table = Slot21Table.parse(slot21_data())
+        self.assertFalse(
+            any(SLOT21_SEPARATOR in segment for segment in table.segments)
+        )
+
+    def test_rejects_odd_length(self):
+        with self.assertRaises(ValueError):
+            Slot21Table.parse(b"\x00" * 5)
+        self.assertIsNone(maybe_slot21_table(b"\x00" * 5))
+
+    def test_empty_input_yields_one_empty_segment(self):
+        table = Slot21Table.parse(b"")
+        self.assertEqual(table.segments, ((),))
 
 
 if __name__ == "__main__":

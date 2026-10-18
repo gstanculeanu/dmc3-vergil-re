@@ -376,6 +376,34 @@ def raw_chunk_slot10() -> bytes:
     return bytes(blob)
 
 
+def raw_chunk_slot21() -> bytes:
+    """A synthetic ``pl021.pac`` slot-21 chunk mirroring the observed u16
+    segment layout (evidence E-043).
+
+    Layout (body-relative, little-endian)::
+        14 u16 segments separated by the ``0xFFFF`` separator; the last
+        segment is not followed by a separator.
+
+    Segment sizes mirror the real chunk (2, 6, 1, 8, 10, 31, 111, 34, 1, 6,
+    8, 27, 84, 26 u16s). Segment 0 uses the verbatim real values ``(6, 408)``;
+    the remaining segments hold synthetic distinct values. No game bytes are
+    committed; the fixture locks the observed segmentation so a parser can't
+    silently drift from the real artifact.
+    """
+    SEP = 0xFFFF
+    sizes = (2, 6, 1, 8, 10, 31, 111, 34, 1, 6, 8, 27, 84, 26)
+    blob = bytearray()
+    for index, size in enumerate(sizes):
+        if index:
+            blob += struct.pack("<H", SEP)
+        if index == 0:
+            # Verbatim real segment 0 from pl021.pac slot 21 (E-043).
+            blob += struct.pack("<HH", 6, 408)
+        else:
+            blob += struct.pack(f"<{size}H", *range(1000 + index, 1000 + index + size))
+    return bytes(blob)
+
+
 def cloth_text() -> bytes:
     return b";pl021_02.clt\r\n\r\nClothNum\t1\r\n\r\nClothNo     0\r\nClothId     0\r\n"
 
