@@ -2051,3 +2051,75 @@ semantic claims, exercised by unit tests on synthetic fixtures (no game data
 committed). `docs/FORMATS.md` §7 records this structure as
 [PARTIAL structure / UNKNOWN semantics]. Binding entries to resources and the
 `WadGraph` name→WAD binding stay open (issues G9/G10).
+
+---
+
+## E-045 — WadGraph registry structure: header and 32-byte name records (G10, bounded slice)
+
+**Observation.** Read-only from
+`C:\Users\GigelCastel\Desktop\gow3\CUSA01715\EXEC\WAD\PS4_LE\DEPENDENCYGRAPH.IFF`
+(265,776 bytes; read only — no writes to the install). The banner `"WadGraph"` sits
+at offset 0x08 (E-021). Header, all little-endian:
+
+```
+file 0x00: 17 00 01 00 f0 0d 04 00   u16=23   u16=1   u32=265712 (0x00040DF0)
+file 0x08: "WadGraph" + zero padding to 0x3F   (banner field, 0x38 bytes)
+```
+
+`u32 265712 == file_size - 0x40` on this single sample — [UNKNOWN] whether it is
+a size, an end offset, or a coincidence.
+
+From `0x40` the file holds **32-byte records at stride 0x20**; non-matching
+windows are skipped, so the record list is non-contiguous (388 breaks). Every
+matching record, verified on all **2,617 records** spanning `0x40`..`0x2D440`:
+
+```
++0x00  u32 name_offset   correlates with the NUL-terminated name strings stored
+                          later in the file (~0x2C000..EOF): observed to point
+                          exactly at a name start for 198/2617 records, and
+                          within a few bytes of one for 2,337/2,617 (the
+                          remainder land on non-printable bytes). Relation
+                          [UNKNOWN].
++0x04  u32 0                             [VERIFIED zero on all records]
++0x08  u32 field_b                       varies (0 in many records; 2,151 distinct
+                          values overall, max 99,604,228)                 [UNKNOWN]
++0x0C  u32 field_d                       0 in 2,472/2,617 records; scattered
+                          large values otherwise                         [UNKNOWN]
++0x10  u16 field_c                       0..65,535                       [UNKNOWN]
++0x12  u64 0xFFFFFFFFFFFFFFFF (-1)       constant sentinel               [VERIFIED]
++0x1A  u8  0                             [VERIFIED zero on all records]
++0x1B  u8  pad_byte                      observed 0x00/0x01/0x02/0x24/0x2C/0x34/0x3C [UNKNOWN]
++0x1C  u32 0x55555555                    constant trailer                [VERIFIED]
+```
+
+Worked example — record at file `0x1C7E0`:
+
+```
+2e af 03 00 00 00 00 00 00 00 00 00 00 00 00 00   name_offset=241454 (0x0003AF2E)
+53 08 ff ff ff ff ff ff ff ff 00 02 55 55 55 55   field_c=0x0853, sentinel=-1,
+                                                    pad=0x02, trailer=0x55555555
+```
+
+`name_offset == 241454` lands exactly on the NUL-terminated string
+`"Stub_1472"` at file `0x3AF2E` (`53 74 75 62 5f 31 34 37 32 00`). Other records
+resolve to names such as `ARArcher01`, `R_GP_055.xvag`; `record_name()` in
+`tools/gow3/wadgraph.py` is a best-effort heuristic (marked as such) because the
+exact `name_offset` → string relation is not established.
+
+**Inference.** None beyond structure: the registry is a header plus name records
+referencing the file's embedded NUL-separated name table (which E-021 sampled as
+~3,693 names incl. entities `R_*`, actors `AR*`, levels, 2,109 `.xvag` audio
+names and ~3,344 `Stub_*` placeholders).
+
+**Unknown.** Exact `name_offset` → string relation; semantics of `field_b`,
+`field_d`, `field_c`, `pad_byte`; and — the binding G10 asks for — how a
+registry name maps to a physical WAD (no WAD name table or index observed in
+this file). `field_b` is not a small WAD index (values up to ~10^8), so it is
+probably not a direct binding; engine ground truth or a second WadGraph sample
+is needed. **A registry writer is not possible from these bytes.**
+
+**Consequence.** `tools/gow3/wadgraph.py` exposes `WadGraphHeader`,
+`WadGraphRecord`, `parse()`, `parse_records()` and `record_name()`, decoding
+exactly the observed layout from real bytes, exercised by unit tests on
+synthetic fixtures (no game data committed). Issue G10 stays open: the name→WAD
+binding remains [UNKNOWN].

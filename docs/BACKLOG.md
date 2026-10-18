@@ -58,7 +58,7 @@ Labels used: `re`, `tooling`, `format`, `phase-1`, `phase-2`, `phase-3`, `blocke
 | G5 | Package as a `gow3_pc` mod and verify the encounter in the port | blocked by G4 |
 | G6 | Choose the sword-wielding **boss** Vergil replaces (inherits the health bar) | **ANSWERED: Hades** — save `SD-261017161301` (`Hades' Palace`, 1:43:35) sits immediately before the fight. `R_HADES.WAD` (85,727,632 B) + AI `HDS675AI1HADES.WAD` (47,136 B) |
 | G7 | Confirm the boss health bar, and try to rename it to "Vergil" | **mechanism confirmed** (E-020): the name is the string `Hades` in `R_LANG_EN.WAD`; needs one in-game check at the locked save |
-| G10 | Decode the `WadGraph` registry: bind names to WADs; test a `Stub_` slot | open — **critical path for a *new* boss** (E-021) |
+| G10 | Decode the `WadGraph` registry: bind names to WADs; test a `Stub_` slot | open — **critical path for a *new* boss** (E-021, E-045: registry structure decoded — 2,617 name records, header, constant sentinel/trailer; `name_offset`→string relation [UNKNOWN]; name→WAD binding still [UNKNOWN]) |
 
 ## Research / hygiene
 

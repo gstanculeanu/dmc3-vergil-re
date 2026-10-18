@@ -901,6 +901,37 @@ moves and health bar and everything."*
 - Next: WadGraph name→WAD binding (G10, #39), or retry the G9 entry binding on
   a larger entity WAD (e.g. R_HADES.WAD).
 
+## 2026-10-18 — WadGraph registry structure decoded from real bytes (G10 bounded slice)
+
+- Did: picked G10 (#39) from the always-available list since the Phase 1 format
+  critical path (F1/F4/F2/F3/F6) stays blocked on engine ground truth and is not
+  re-spun, and F8 is a recorded dead end (E-042). Read real bytes from
+  `DEPENDENCYGRAPH.IFF` (read-only, outside the repo); implemented
+  `tools/gow3/wadgraph.py` (`WadGraphHeader`, `WadGraphRecord`, `parse()`,
+  `parse_records()`, best-effort heuristic `record_name()`) and
+  `tests/test_gow3_wadgraph.py` (7 new tests on synthetic fixtures). Full suite:
+  **232 tests, all green**. Committed and pushed; commenting issue #39 (left
+  open).
+- Found (**E-045**): header = u16 23, u16 1, u32 265712 (== file_size − 0x40),
+  banner `"WadGraph"` at 0x08. Records are 32 bytes at stride 0x20 from 0x40:
+  u32 name_offset, u32 0, u32 field_b, u32 field_d, u16 field_c, u64 −1
+  sentinel, u8 0, u8 pad_byte, u32 0x55555555 trailer. 2,617 matching records
+  observed spanning `0x40`..`0x2D440`; sentinel and trailer constant on every
+  record. `name_offset` points at or within a few bytes of NUL-terminated name
+  strings (exact start for 198/2,617; e.g. record@0x1C7E0 name_offset=241454 →
+  `"Stub_1472"` at file `0x3AF2E`).
+- Unknown: exact name_offset → string relation; field_b/field_c/field_d/pad_byte
+  semantics; no name→WAD binding resolved, so G10 stays open (engine ground
+  truth or a second WadGraph sample needed; **no writer possible from these
+  bytes**).
+- Docs: E-045 in docs/EVIDENCE.md; new docs/FORMATS.md §7.5; docs/BACKLOG.md
+  G10 row updated.
+- Next: pick another resolved-dependency slice (G9 entry→resource binding on a
+  larger WAD such as `R_HADES.WAD`, or H1/H2/H3 research); F1/F4 remain blocked
+  on engine ground truth.
+
+---
+
 ## 2026-10-18 — T6: CI workflow runs the unit tests on push (issue #12)
 
 - Did: added `.github/workflows/test.yml` (Python 3.13, ubuntu-latest) that runs

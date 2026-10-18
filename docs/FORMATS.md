@@ -632,3 +632,47 @@ strings.
 `tools/gow3/wad.py` parses exactly this layout via `parse_dc10_table()` and
 claims no semantics; a WAD writer remains blocked (the entry → resource
 binding and the `WadGraph` name→WAD binding are open — issues G9/G10).
+
+### 7.5 `DEPENDENCYGRAPH.IFF` WadGraph registry — [PARTIAL structure / UNKNOWN semantics]
+
+**Evidence E-021, E-045** — read-only from
+`C:\Users\GigelCastel\Desktop\gow3\CUSA01715\EXEC\WAD\PS4_LE\DEPENDENCYGRAPH.IFF`
+(265,776 bytes). All integers little-endian.
+
+```
+0x00  u16  field_00          23 on the sample                              [UNKNOWN]
+0x02  u16  field_02          1                                             [UNKNOWN]
+0x04  u32  size_field        265712 == file_size - 0x40                    [UNKNOWN]
+0x08  char[0x38] banner      "WadGraph", zero-padded                       [VERIFIED]
+0x40  u32  name_offset                                      [UNKNOWN relation]
+0x04  u32  0                                              [VERIFIED on all records]
+0x08  u32  field_b                                        [UNKNOWN]
+0x0C  u32  field_d                                        [UNKNOWN]
+0x10  u16  field_c                                        [UNKNOWN]
+0x12  u64  0xFFFFFFFFFFFFFFFF (-1) constant sentinel      [VERIFIED]
+0x1A  u8   0                                              [VERIFIED]
+0x1B  u8   pad_byte                                       [UNKNOWN]
+0x1C  u32  0x55555555 constant trailer                    [VERIFIED]
+```
+
+Records are 32 bytes at stride 0x20 starting at 0x40; windows that do not match
+the pattern are skipped, so the record list is non-contiguous. On the single
+sample **2,617 records** were observed spanning `0x40`..`0x2D440`, with
+`name_offset` values in `185404..265667` — inside the file's NUL-separated name
+table region (~0x2C000..EOF). `name_offset` correlates with the name strings:
+observed to point exactly at a name start for 198/2,617 records and within a
+few bytes of one for 2,337/2,617 (e.g. record at `0x1C7E0` has `name_offset
+== 241454`, which is exactly the string `"Stub_1472"` at file `0x3AF2E`).
+The exact relation is [UNKNOWN].
+
+`field_b` (up to ~10^8), `field_d` (0 in 2,472/2,617 records), `field_c`
+(0..65,535) and `pad_byte` are all [UNKNOWN]. **No name → WAD binding is
+decoded**: `field_b` is not a small WAD index, and no WAD name table or index
+is present in the file. Engine ground truth or a second WadGraph sample is
+needed; issue G10 stays open.
+
+`tools/gow3/wadgraph.py` exposes `WadGraphHeader`, `WadGraphRecord`,
+`parse()`, `parse_records()` and a best-effort, explicitly heuristic
+`record_name()`, decoding exactly the observed layout from real bytes and
+claiming no semantics (unit-tested on synthetic fixtures, no game data
+committed).

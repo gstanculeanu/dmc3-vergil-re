@@ -40,6 +40,18 @@ from .wad import (
     resources,
     scan_records,
 )
+from .wadgraph import (
+    WadGraph,
+    WadGraphError,
+    WadGraphHeader,
+    WadGraphRecord,
+    RECORD_SENTINEL,
+    TRAILER_CONSTANT,
+    parse,
+    parse_header,
+    parse_records,
+    record_name,
+)
 
 __all__ = [
     "FIELD_OFFSETS",
@@ -74,6 +86,16 @@ __all__ = [
     "resource_histogram",
     "resources",
     "scan_records",
+    "WadGraph",
+    "WadGraphError",
+    "WadGraphHeader",
+    "WadGraphRecord",
+    "RECORD_SENTINEL",
+    "TRAILER_CONSTANT",
+    "parse",
+    "parse_header",
+    "parse_records",
+    "record_name",
 ]
 
 __version__ = "0.1.0"
