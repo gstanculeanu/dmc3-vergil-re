@@ -486,7 +486,7 @@ def real_tm2_dds() -> bytes:
         + struct.pack("<I", 0x4)            # ddspf.dwFlags (fourCC)
         + b"DXT3"                           # ddspf.dwFourCC
         + b"\x00" * 20                      # RGBBitCount + masks
-        + b"\x00" * 16                      # dwCaps..dwReserved2
+        + b"\x00" * 20                      # dwCaps[4] + dwReserved2
     )
 
 

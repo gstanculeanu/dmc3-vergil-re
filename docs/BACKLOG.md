@@ -30,7 +30,7 @@ Labels used: `re`, `tooling`, `format`, `phase-1`, `phase-2`, `phase-3`, `blocke
 | # | Title | Status |
 |---|---|---|
 | T1 | glTF 2.0 exporter (`MOD ` mesh + skeleton + `MOT ` animations) | blocked by F1, F2, F4 |
-| T2 | Texture pipeline `.tm2` → `.dds` → `.png` with alpha handling | ready (partial) — `.tm2` → `.dds` verified (E-005/E-034); `.dds` → PNG implemented for uncompressed BGRA32 with alpha preserved byte-for-byte (tests in tests/test_dds.py, refs #9); DXT1/DXT3/DXT5 (all local textures are DXT3 per E-042) raises a documented `DdsError` awaiting an external DXT decoder |
+| T2 | Texture pipeline `.tm2` → `.dds` → `.png` with alpha handling | **done** — `.tm2` → `.dds` verified (E-005/E-034); `.dds` → PNG implemented for uncompressed BGRA32 and DXT1/DXT3/DXT5 with alpha preserved (E-047: the real `i001_90.tm2` DXT3 payload decodes end-to-end to a valid 256×256 RGBA PNG; exact-pixel tests on synthetic blocks in tests/test_dds.py, refs #9); DX10 extended headers and other fourCCs raise a documented `DdsError` (not present locally). In-game channel semantics [UNKNOWN]. |
 | T3 | PAC writer for import (currently `build_pac` is minimal) | ready — `build_pac` hardened (rejects non-bytes payloads) and byte-exact round-trip test added (refs #11) |
 | T4 | Extract/verify `plwp_vergilsword` once F6 lands | blocked by F6 |
 | T5 | CLI to diff two PAC files slot-by-slot (mod comparison) | done — `tools/pac_diff.py` (issue #10): slot-level diff report (tags, kinds, offsets, spans, payload bytes) with exit codes 0/1/2; 10 unit tests on synthetic fixtures; smoke-tested against real `pl021.pac`/`pl000.pac` |

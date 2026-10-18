@@ -2151,3 +2151,44 @@ from-memory DXT decoder cannot be verified against engine ground truth.
 **Consequence.** `tests/test_dds.py` (8 tests) locks the converter's structural
 behaviour; `docs/FORMATS.md` §4.2 records [PARTIAL] coverage; `docs/BACKLOG.md`
 T2 row updated. Issue #9 stays open until the compressed path is resolved.
+
+**Superseded by E-047:** the compressed DXT path is now implemented and verified
+on synthetic blocks plus the real `i001_90.tm2` payload; this entry's
+"cannot be converted yet" conclusion no longer holds.
+
+## E-047 — Real DXT3 payload decoded from `i001_90.tm2` (T2, bounded slice)
+
+**Observation.** `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\i001_90.tm2`
+(65,776 bytes), read only:
+
+```
+0x70:  44 44 53 20 7C 00 00 00 07 10 08 00 00 01 00 00   "DDS " dwSize=124, dwFlags=0x00081007
+0x80:  00 01 00 00 00 01 00 00 00 00 00 00 01 00 00 00   w=256, h=256, pitch=65536, depth=0, mipmaps=1
+0x90:  47 49 4D 50 2D 44 44 53 5D 09 03 00 00 00 00 00   reserved1 begins "GIMP-DDS" (file re-saved by GIMP)
+...
+0xBC:  20 00 00 00 04 00 00 00 44 58 54 33                ddspf.dwSize=32, dwFlags=0x4 (fourCC), fourCC="DXT3"
+0xC8:  00 00 00 00 ...                                      RGB bit count and masks = 0
+0xDC:  ... 10 00 00 00                                       dwCaps = 0x1000
+```
+
+The DDS payload runs from file offset **0xF0 to EOF**: exactly 65,536 bytes
+= 4,096 DXT3 blocks × 16 bytes = one 256×256 image at one mip level.
+Payload block 0 (file 0xF0–0xFF):
+`00 00 00 00 00 00 00 00 00 00 00 00 AA AA AA AA`
+(alpha bitmap all zero; colour endpoints c0=c1=0x0000; all texel indices 2).
+
+**Inference.** Decoded per the public S3TC rules (4-bit alpha expanded ×17;
+c0=c1 → index 2 selects the endpoint colour, here black), block 0's texels are
+all `(0, 0, 0, 0)`. Running `dds_to_png` end-to-end on the real file yields a
+valid PNG: signature + IHDR (256×256, color type 6 = RGBA) + one IDAT zlib
+stream (18,400 compressed bytes) + IEND, all chunk CRCs valid. Image row 0's
+texels 8–15 carry alpha 17, 17, 51, 51, 68, 85, 85, 119 from blocks 2–3's
+alpha bytes (file 0x110–0x127); blocks 0–1 contribute zero alpha for texels
+0–7. This PNG output is **tool output**, not engine ground truth; the decode
+itself follows the public specification and is locked by synthetic-block tests
+in tests/test_dds.py.
+
+**Unknown.** The in-game semantic of the alpha channel (transparency, gloss,
+…) is not established from bytes alone; neither is whether the GIMP re-save
+altered the payload relative to a retail image. DX10 extended headers and
+other fourCCs are not decoded (documented `DdsError`); none occur locally.

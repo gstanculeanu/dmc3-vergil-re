@@ -322,15 +322,26 @@ Collection build only.
 
 ### 4.2 DDS → PNG (issue T2)
 
-**Status: [PARTIAL]** — `tools/dmc3/dds.py` (`dds_to_png`) converts uncompressed
-BGRA32 DDS payloads to PNG with the alpha channel preserved byte-for-byte
-(BGRA → RGBA), verified by a structural PNG round-trip test
-(tests/test_dds.py). Only the top mip level is decoded. DXT1/DXT3/DXT5
-payloads (the HD Collection's texture format — `i001_90.tm2` is DXT3 per
-E-005/E-034) and DX10 extended headers raise `DdsError` and need an external
-DXT decoder such as texconv; a from-memory DXT decoder is intentionally not
-implemented because it cannot be verified against engine ground truth. See
-docs/EVIDENCE.md E-046.
+**Status: [VERIFIED] uncompressed BGRA32 and DXT1/DXT3/DXT5** — evidence
+E-005, E-034, E-047. `tools/dmc3/dds.py` (`dds_to_png`) decodes the top mip
+level of a legacy DDS blob to a PNG with alpha preserved:
+
+* uncompressed 32 bpp BGRA: BGRA → RGBA reordered byte-for-byte; a structural
+  round-trip test (tests/test_dds.py) checks the PNG structure, per-chunk
+  CRC32, and exact decompressed rows;
+* DXT1 (BC1): 8-byte blocks — two 5:6:5 colour endpoints plus 2-bit texel
+  indices; `c0 > c1` gives two interpolated colours, all alphas 255; `c0 <= c1`
+  makes index 3 transparent black `(0, 0, 0, 0)`;
+* DXT3 (BC2): 16-byte blocks — a 64-bit explicit alpha bitmap (4 bits per
+  texel, low nibble first, expanded ×17) plus a DXT1 colour block;
+* DXT5 (BC3): 16-byte blocks — two alpha endpoints plus 3-bit texel indices
+  (`alpha0 > alpha1` → a 7-step ramp; otherwise a 5-step ramp with 0 and 255)
+  plus a DXT1 colour block.
+
+Per-channel interpolation uses integer (floor) arithmetic; a hardware decoder
+may differ by ±1, which is not claimed. DX10 extended headers and other
+fourCCs raise `DdsError` (none occur in the local install). The in-game
+semantic of the alpha channel (transparency, gloss, …) is [UNKNOWN].
 
 ---
 
