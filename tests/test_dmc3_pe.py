@@ -248,5 +248,79 @@ class TestReferenceContext(unittest.TestCase):
             self.assertEqual(context[0].operand, DATA_RVA)
 
 
+def pool_entry(name: bytes, alignment: int = 8) -> bytes:
+    """One pool entry: the name, a NUL, then padding to ``alignment``."""
+    raw = name + b"\x00"
+    step = (len(raw) + alignment - 1) // alignment * alignment
+    return raw + b"\x00" * (step - len(raw))
+
+
+class TestStringPool(unittest.TestCase):
+    def test_read_cstring_stops_at_nul(self):
+        payload = pool_entry(b"pl021.pac") + pool_entry(b"id516.pac")
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8, payload))
+        self.assertEqual(image.read_cstring(DATA_RVA), b"pl021.pac")
+
+    def test_read_cstring_none_without_nul(self):
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8, b"AAAA"))
+        self.assertIsNone(image.read_cstring(DATA_RVA, limit=4))
+
+    def test_read_cstring_none_for_unmapped_rva(self):
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8))
+        self.assertIsNone(image.read_cstring(0x10))
+
+    def test_walk_returns_names_and_rvas(self):
+        payload = (pool_entry(b"pl021.pac")
+                   + pool_entry(b"id516.pac")
+                   + pool_entry(b"msg_eng.txt"))
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8, payload))
+        entries = image.walk_string_pool(DATA_RVA)
+        self.assertEqual(
+            entries,
+            ((DATA_RVA, "pl021.pac"),
+             (DATA_RVA + 16, "id516.pac"),
+             (DATA_RVA + 32, "msg_eng.txt")),
+        )
+
+    def test_long_name_advances_by_24_not_32(self):
+        # A 16-char name (+NUL = 17 bytes) pads to 24, i.e. the pool aligns to
+        # 8, not 16 -- the rule verified on the real image (E-076).
+        payload = pool_entry(b"aa.pac") + pool_entry(b"m05_b00_msg_eng.txt") \
+            + pool_entry(b"cc.pac")
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8, payload))
+        entries = image.walk_string_pool(DATA_RVA)
+        self.assertEqual([rva for rva, _ in entries],
+                         [DATA_RVA, DATA_RVA + 8, DATA_RVA + 32])
+        self.assertEqual(entries[1][1], "m05_b00_msg_eng.txt")
+
+    def test_walk_stops_at_non_printable_byte(self):
+        payload = pool_entry(b"aa.pac") + b"\x01\x00\x00\x00\x00\x00\x00\x00"
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8, payload))
+        self.assertEqual(image.walk_string_pool(DATA_RVA),
+                         ((DATA_RVA, "aa.pac"),))
+
+    def test_walk_stops_at_zero_run(self):
+        payload = pool_entry(b"aa.pac") + b"\x00" * 8
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8, payload))
+        self.assertEqual(image.walk_string_pool(DATA_RVA),
+                         ((DATA_RVA, "aa.pac"),))
+
+    def test_walk_stops_at_section_end(self):
+        payload = pool_entry(b"aa.pac")
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8, payload))
+        self.assertEqual(image.walk_string_pool(DATA_RVA),
+                         ((DATA_RVA, "aa.pac"),))
+
+    def test_walk_honours_limit(self):
+        payload = pool_entry(b"aa.pac") + pool_entry(b"bb.pac")
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8, payload))
+        self.assertEqual(len(image.walk_string_pool(DATA_RVA, limit=1)), 1)
+
+    def test_walk_rejects_zero_alignment(self):
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8))
+        with self.assertRaises(PeError):
+            image.walk_string_pool(DATA_RVA, alignment=0)
+
+
 if __name__ == "__main__":
     unittest.main()

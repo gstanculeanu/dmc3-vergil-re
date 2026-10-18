@@ -1610,7 +1610,7 @@ moves and health bar and everything."*
   - The animation evaluator (function containing `0x68200`) reads a runtime
     u16 (`[struct+0x60]`), calls these helpers and accumulates into
     `f32 [struct+0x20/0x24/0x28]` -- runtime pose angles are 16-bit in this unit.
-  - **[INFERRED]** E-028's modal MOT channel `�0x3FFF` is `�89.99 deg`, i.e. a
+  - **[INFERRED]** E-028's modal MOT channel `�0x3FFF` is `�89.99 deg`, i.e. a
     bone at 90 deg; the three keyframe channels are *candidates* for this unit.
     **Not proven** -- no MOT byte has been traced into the helpers.
   - **Negative (recorded):** the motion-cluster string table at `0x506808`..
@@ -1633,3 +1633,49 @@ moves and health bar and everything."*
   cluster, or to find the animation *builder* that turns MOT bytes into the
   runtime struct with the 16-bit angles at `+0x60`. F1 and F3 slots 6/7/11/22
   stay available and are not blocked.
+
+---
+
+## 2026-10-18 — F1/F4 bounded slice: the PAC chunk tags are absent from `dmc3.exe` (E-076)
+
+- Did: bounded slice on the F1/F4 engine route. The first move — locate the PAC
+  chunk dispatcher by its tags — **disproved its own premise**, and that negative
+  plus the alternative it exposes is this iteration's result. Read-only from
+  `G:\Games\Devil May Cry HD Collection\dmc3.exe` (6,356,432 B). Added
+  `PeImage.section_of_rva`, `PeImage.read_cstring`,
+  `PeImage.walk_string_pool` and the `STRING_*`/`PRINTABLE_*` constants to
+  `tools/dmc3/pe.py` (no new exported names, so `dmc3/__init__` is unchanged) and
+  `TestStringPool` + a `pool_entry` helper (10 tests) to `tests/test_dmc3_pe.py`.
+  Full suite: **485 tests, all green** (475 baseline + 10). Nothing written to the
+  game; no game data committed.
+- Found (**E-076**):
+  - **The chunk tags are not in the engine.** `MOD `, `SHW `, `PAC\0`, `PNST`,
+    `;RID` occur **0** times in the whole image (all sections, and as `.text`
+    immediates); `MOT\0` occurs once, at `.rdata` `0x5071D9` — the tail of the
+    uppercase `.MOT` extension in the E-069/E-070 table, not a chunk tag. So
+    E-002's tag framing is a *container* fact the engine does not compare against;
+    the remaining candidates are the **PAC slot id** (E-001) or the asset name
+    [INFERRED].
+  - **The engine's asset names are one `.rdata` pool.** `walk_string_pool(0x35D640)`
+    yields **4,056** NUL-terminated printable-ASCII names, each padded to the next
+    **8-byte** boundary (gap histogram `{16: 3409, 24: 642, 8: 4}`, and the names
+    are of mixed length, so this is real padding); **3,397** end `.pac`. It holds
+    `pl021.pac` at `0x363098` and all ten `pl021_00_0..9.pac` at
+    `0x3645F0`..`0x364870`, interleaved with `id4516..id4525.pac`,
+    `id516..id525.pac` and `m05_*_msg_*.txt`.
+  - **No `.pac` pool entry is referenced by a RIP-relative `lea`/`mov`.** Of 19,648
+    sites / 4,482 distinct targets, five land in the pool; only four are entry
+    starts, all memory-card icons (`icon.sys`, `icon00.ico`, `icon01.ico`,
+    `icon02.ico`) — so the pool base is resolved indirectly, as in E-069/E-063.
+  - **Recorded honestly:** the fifth in-pool target (`0x36C355`) lands on padding
+    inside the `st205cfg.pac` record; the pool's record framing beyond string
+    alignment and the second, larger name cluster at `0x4EB36B..0x505031`
+    (3,720 `.pac` occurrences) stay [UNKNOWN].
+- Docs: E-076 in `docs/EVIDENCE.md`; `docs/FORMATS.md` gains §8.3 (the tag
+  negative + the pool, [VERIFIED]/[PARTIAL]/[UNKNOWN] marked); `docs/BACKLOG.md`
+  F1/F4/T10 rows updated. No game data committed.
+- Next: on the engine route, stop looking for tag literals — go after the PAC
+  **slot id** dispatch or the pool's **consumer** (the pool base is an indirect
+  pointer, so the next lead is a `.data` absolute pointer / the code that indexes
+  the pool). F1's remaining MOD body and F4's MOT loader are unchanged; F3 slots
+  6/7/11/22 remain available.

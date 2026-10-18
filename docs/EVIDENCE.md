@@ -3927,7 +3927,7 @@ The two tails are IAT thunks (`ff 25 8a 88 00 00` / `ff 25 7c 88 00 00`) whose
 slots hold RVAs `0x551DDA` / `0x551DE2`; the `IMAGE_IMPORT_BY_NAME` there is
 hint `0x0091` + `"cosf"` and hint `0x0113` + `"sinf"`. Both helpers multiply by
 the **same** `f32` at `.rdata` RVA **`0x508834`** = raw bytes `DA 0F C9 38` =
-`9.587379463482648e-05` — i.e. `float32(2*pi / 0x10000)` (one ULP below the
+`9.587379463482648e-05` ï¿½ i.e. `float32(2*pi / 0x10000)` (one ULP below the
 double round-to-nearest). So **one full turn is `0x10000` units; `0x4000` is a
 quarter turn (90 deg) and `0x8000` a half turn**. The helpers special-case the
 quarter/half turns (`0x4000`/`0xC000` for cosine, `0x8000` for sine) to return
@@ -3937,13 +3937,13 @@ The animation *evaluator* uses the same unit at runtime. In the function
 containing `0x68200` it reads a u16 from a runtime struct
 (`0x68232 movzx eax, word ptr [r9+0x60]`), calls `0x32D9F0`/`0x32D9C0`
 (`0x68277`, `0x6828C`, `0x682C5`, `0x682DA`), multiplies the results by per-axis
-constants and accumulates into `f32 [struct+0x20]`/`+0x24`/`+0x28` — i.e. the
+constants and accumulates into `f32 [struct+0x20]`/`+0x24`/`+0x28` ï¿½ i.e. the
 runtime pose angles are stored as 16-bit values in this unit.
 
 **Negative (recorded, corrects the E-070 route).** The motion-cluster string
 table at `.rdata` `0x506808`..`0x506B80` (`Gravity`, `SpringForce`, `Bone`,
 `Model`, `Motion`, `Clip`, `SetFrame`/`SkipFrame`/`CutFrame`, `LMotorSt`/`Ed`,
-`SMotorSt`/`Ed`, `SpTrackNo`, `SpBoneNo`, `RefMotion`, `CnsTrack`, `CnsBone`, …)
+`SMotorSt`/`Ed`, `SpTrackNo`, `SpBoneNo`, `RefMotion`, `CnsTrack`, `CnsBone`, ï¿½)
 is the **`/demo/%s` text event-script command vocabulary**, not the MOT decoder:
 the parser at `0x2D9F60`/`0x2DA0C0` is a chain of `strcmp` calls
 (`0x346C38` -> IAT slot `0x551E54` = `"strcmp"`) over the demo line buffer. So
@@ -3970,3 +3970,91 @@ every other F1/F4 field meaning.
 `.mot` registry was confirmed not to be the decoder; the ID range E-071..E-074
 was taken concurrently by a parallel GoW3 writer while this slice was in
 progress, so this entry is numbered **E-075** to avoid a collision.
+
+---
+
+## E-076 - DMC3 `dmc3.exe`: the PAC chunk tags are absent from the engine, and its asset names live in an 8-byte-aligned `.rdata` pool (F1/F4 route, bounded slice)
+
+**Observation (read-only from `G:\Games\Devil May Cry HD Collection\dmc3.exe`,
+6,356,432 B).** This slice was originally aimed at locating the PAC chunk
+dispatcher by its tags. The tags are not there, and that negative redirects the
+F1/F2/F4 engine route.
+
+**1. The four-byte chunk tags do not occur in the engine as literals.** Counts
+over the *whole* 6,356,432-byte image (`PeImage.find_all`, all sections) and over
+the executable sections only:
+
+| needle | bytes | whole image | executable |
+|---|---|---|---|
+| `MOD ` | `4D 4F 44 20` | **0** | 0 |
+| `SHW ` | `53 48 57 20` | **0** | 0 |
+| `PAC\0` | `50 41 43 00` | **0** | 0 |
+| `PNST` | `50 4E 53 54` | **0** | 0 |
+| `;RID` | `3B 52 49 44` | **0** | 0 |
+| `MOT\0` | `4D 4F 54 00` | **1** | 0 |
+
+The single `MOT\0` is **not** a chunk tag: its RVA is `0x5071D9`, i.e. the tail of
+the uppercase extension string `.MOT` in the extension table of E-069/E-070.
+The table is 8-byte-padded strings, raw bytes at `.rdata` `0x5071D0`:
+
+```
+0x5071D0  2e 6d 6f 74 00 00 00 00 2e 4d 4f 54 00 00 00 00   .mot....MOT....
+0x5071E0  2e 6d 63 76 00 00 00 00 2e 4d 43 56 00 00 00 00   .mcv....MCV....
+0x5071F0  2e 63 61 6d 00 00 00 00 2e 43 41 4d 00 00 00 00   .cam....CAM....
+```
+
+(`MOT\0` begins at index 9 of the first row = `0x5071D9`.)
+
+**2. The engine's asset names live in one `.rdata` string pool.**
+`PeImage.walk_string_pool(0x35D640)` walks **4,056** NUL-terminated printable-ASCII
+entries; the pool's last entry is `st240_effect.pac` at RVA `0x36E7A0`. Each entry
+is padded so the next begins on an **8-byte** boundary: the observed
+`name+NUL â†’ next` gaps over the 4,055 steps are `{16: 3409, 24: 642, 8: 4}`, all
+multiples of 8 â€” and the entries are *not* all one length class (`pl021.pac` is 9
+bytes, `m05_b00_msg_eng.txt` 19), so the alignment is real padding, not coincidence.
+**3,397** of the entries end `.pac`. Verbatim anchors (RVA â†’ name):
+
+```
+0x363098  pl021.pac
+0x3645F0  pl021_00_0.pac     0x364600  id4516.pac   0x364610  id516.pac
+0x364638  pl021_00_1.pac     0x364648  id4517.pac   0x364658  id517.pac
+0x364870  pl021_00_9.pac     0x364880  id4525.pac   0x364890  id525.pac
+```
+
+The ten `pl021_00_0..9.pac` archives of E-035 are the pool's own names, interleaved
+with `id45NN.pac` / `id5NN.pac` and `m05_b00_msg_eng.txt`, `m05_c00_msg_frn.txt`, â€¦,
+so the engine names Vergil's motion archives exactly as this project does.
+
+**3. No `.pac` pool entry is referenced by a RIP-relative `lea`/`mov`.** The scan
+finds 19,648 such sites targeting 4,482 distinct RVAs. Exactly **five** targets lie
+inside the pool (`0x35D640..0x36E7A0`), and only four are entry starts â€” all
+memory-card icon files, not archives:
+
+```
+0x366FE8  icon.sys     <- 0x3AA5D, 0x32A548
+0x367030  icon00.ico   <- 0x3AA09, 0x32A4F5
+0x367078  icon01.ico   <- 0x3AA25, 0x32A510
+0x3670C0  icon02.ico   <- 0x3AA41, 0x32A52C
+0x36C355  (padding inside the `st205cfg.pac` record at 0x36C348) <- one site
+```
+
+**Inference (marked, unproven).** The engine does not identify a PAC chunk by the
+ASCII tag that this project's tooling reads (E-002): no tag literal exists in the
+image to compare against. The most likely substitute is the **PAC slot id** (E-001
+"a slot is a logical id, not an index") or the asset **name** from the pool above.
+Likewise, because no `.pac` name is loaded by a RIP-relative `lea`/`mov`, the pool's
+base is most likely resolved indirectly (a `.data` absolute pointer or a computed
+base), which is the same shape as E-069's "file names are table data" and GoW3's
+E-063 finding.
+
+**Unknown.** Whether chunk content is typed by slot id, by name, or by a numeric
+field inside the chunk; the pool's start marker (the 32 bytes before `0x35D640`
+are a separate small structure); what the `0x36C355` site does; the second, larger
+name cluster at `.rdata` RVA `0x4EB36B..0x505031` (3,720 `.pac` occurrences, also
+containing `pl021`), which is a *different* table from this pool.
+
+**Consequence.** `tools/dmc3/pe.py` gains `PeImage.section_of_rva`,
+`PeImage.read_cstring` and `PeImage.walk_string_pool` (plus
+`STRING_ALIGNMENT`/`STRING_MAX_LENGTH`/`STRING_POOL_LIMIT`/`PRINTABLE_*`), with 10
+tests in `tests/test_dmc3_pe.py`. No game data committed.
+

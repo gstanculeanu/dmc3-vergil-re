@@ -1104,3 +1104,34 @@ context at `0x2E01D2` (`lea rdx, [rip+0x226FF7]`, target `0x5071D0`); the follow
 numeric constants of the registry are set a few bytes further in, at the handler
 targets above.
 
+### 8.3 The PAC chunk tags are absent from the engine; the asset-name pool (E-076)
+
+**Negative [VERIFIED] (E-076).** The four-byte chunk tags of section 1.1 occur
+**zero** times in the whole 6,356,432-byte image, as data or as `.text`
+immediates: `MOD `, `SHW `, `PAC\0`, `PNST`, `;RID`. `MOT\0` occurs once, at
+`.rdata` `0x5071D9` — the tail of the uppercase extension `.MOT` in the
+E-069/E-070 table, not a chunk tag. **Consequence:** the engine cannot be locating
+chunks by comparing these ASCII tags; the strongest remaining candidates are the
+**PAC slot id** (section 1, "a slot is a logical id") and the asset **name**.
+
+**The asset-name pool [PARTIAL] (E-076).** `.rdata` RVA `0x35D640` begins a pool of
+NUL-terminated printable-ASCII names, each padded to the next **8-byte** boundary.
+A full walk yields 4,056 entries (last `st240_effect.pac` at `0x36E7A0`), 3,397 of
+them `.pac`; the `name+NUL → next` gaps are `{16: 3409, 24: 642, 8: 4}`. It holds
+this project's own names verbatim:
+
+```
+0x363098  pl021.pac
+0x3645F0  pl021_00_0.pac … 0x364870  pl021_00_9.pac
+          (interleaved with id4516..id4525.pac, id516..id525.pac,
+           m05_b00_msg_eng.txt, m05_c00_msg_frn.txt, …)
+```
+
+Exactly five RIP-relative `lea`/`mov` targets land in the pool and four are entry
+starts — `icon.sys`, `icon00.ico`, `icon01.ico`, `icon02.ico` (memory-card icons);
+**no `.pac` pool entry is referenced this way**, so the pool base is resolved
+indirectly. Reader: `PeImage.walk_string_pool(rva, alignment=8)` /
+`read_cstring(rva)` / `section_of_rva(rva)`. The pool's record framing beyond the
+string alignment, and the second name cluster at `0x4EB36B..0x505031`, stay
+[UNKNOWN].
+

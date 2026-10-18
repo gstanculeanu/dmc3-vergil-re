@@ -20,6 +20,9 @@ This module is the DMC3 analogue of :mod:`gow3.eboot`:
   (RIP-relative ``lea``/``mov``, ``mov r32, imm32`` / ``mov r64, imm64`` and
   ``call rel32``) starting at a reference site, so the numeric constants passed
   alongside a string can be read without a general disassembler.
+* :meth:`PeImage.walk_string_pool` walks the image's NUL-terminated,
+  8-byte-aligned name pool (E-076), which is where the engine keeps its asset
+  names (``pl021.pac``, ``pl021_00_0.pac``, …).
 
 Like the ELF scanner this is a **byte-pattern scan, not a disassembler**; a hit is
 meaningful when its target is a known string RVA, which is how the tool is used.
@@ -54,6 +57,15 @@ REX_W = 0x08
 MOV_R32_IMM32_MIN = 0xB8   # B8+r: mov r32, imm32 (B8+rd with REX.W is imm64)
 MOV_R32_IMM32_MAX = 0xBF
 CALL_REL32 = 0xE8
+
+# String-pool walking. The engine's `.rdata` name pool is a sequence of
+# NUL-terminated printable-ASCII strings, each padded so the next one starts on
+# an 8-byte boundary (verified against the real image, E-076).
+STRING_ALIGNMENT = 8
+STRING_MAX_LENGTH = 0x100
+STRING_POOL_LIMIT = 4096
+PRINTABLE_MIN = 0x20
+PRINTABLE_MAX = 0x7E
 
 
 class PeError(ValueError):
@@ -195,6 +207,65 @@ class PeImage:
         if offset is None:
             raise PeError(f"rva 0x{rva:X} is not stored in the image")
         return self.data[offset:offset + size]
+
+    # -- string pools ---------------------------------------------------
+    def section_of_rva(self, rva: int) -> Optional[PeSection]:
+        """The section whose stored bytes contain ``rva``, or ``None``."""
+        for section in self.sections:
+            if section.contains_rva(rva):
+                return section
+        return None
+
+    def read_cstring(self, rva: int,
+                     limit: int = STRING_MAX_LENGTH) -> Optional[bytes]:
+        """A NUL-terminated string at ``rva``, without its NUL.
+
+        Returns ``None`` when ``rva`` is not stored, when no NUL is found within
+        ``limit`` bytes, or when the read would leave the containing section.
+        """
+        section = self.section_of_rva(rva)
+        if section is None or limit <= 0:
+            return None
+        offset = section.raw_offset + (rva - section.virtual_address)
+        available = min(limit, section.raw_offset + section.raw_size - offset)
+        if available <= 0:
+            return None
+        raw = self.data[offset:offset + available]
+        nul = raw.find(b"\x00")
+        if nul < 0:
+            return None
+        return raw[:nul]
+
+    def walk_string_pool(self, rva: int, alignment: int = STRING_ALIGNMENT,
+                         limit: int = STRING_POOL_LIMIT
+                         ) -> Tuple[Tuple[int, str], ...]:
+        """Walk a string pool as ``(rva, name)`` pairs.
+
+        Each entry is a NUL-terminated **printable ASCII** string, padded so the
+        next entry begins on an ``alignment``-byte boundary. The walk stops at
+        the first entry that is empty, holds a byte outside printable ASCII, or
+        starts outside the mapped sections — so it is a *prefix* of the pool, not
+        a guess. This is the shape of the engine's asset-name pool (E-076).
+        """
+        if alignment <= 0:
+            raise PeError("alignment must be positive")
+        entries: List[Tuple[int, str]] = []
+        at = rva
+        while len(entries) < limit:
+            if self.section_of_rva(at) is None:
+                break
+            raw = self.read_cstring(at)
+            if not raw:
+                break
+            if any(byte < PRINTABLE_MIN or byte > PRINTABLE_MAX for byte in raw):
+                break
+            entries.append((at, raw.decode("ascii")))
+            step = len(raw) + 1
+            step = (step + alignment - 1) // alignment * alignment
+            if step <= 0:
+                break
+            at += step
+        return tuple(entries)
 
     # -- string and reference search ------------------------------------
     def find_all(self, needle: bytes) -> List[int]:
