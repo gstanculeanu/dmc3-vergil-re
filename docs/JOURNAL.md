@@ -731,3 +731,26 @@ moves and health bar and everything."*
   F2 row updated. F2 stays open — needs engine ground truth for the binding.
 - Next: another resolved-dependency slice (F3 slot-10 f32 stream / other
   untagged slots, or F8 pending more TM2 samples).
+
+---
+
+## 2026-10-18 — F6 bounded slice: PNST weapon-container header decoded from real bytes
+
+- Did: implemented `tools/dmc3/pnst.py` (`PnstArchive` reader), the synthetic
+  `pnst_archive()` fixture, and 15 unit tests in `tests/test_pnst.py`; exported
+  `PnstArchive`/`PnstChunk`/`PNST_TAG_*` from `dmc3/__init__.py`. Updated
+  `docs/EVIDENCE.md` E-006, `docs/FORMATS.md` §2, `docs/BACKLOG.md` F6 row.
+  Committed as 01b08ec, pushed to origin main; commented issue #6 (left open).
+  Full suite: **184 tests, all green**. Parser exercised read-only against both
+  real weapon archives — all 9/10 slots resolve to real chunk starts.
+- Found (**E-006**): `PNST` = `u32` magic `"PNST"`, `u32 count`, then `u32
+  offset[count]` at `+0x08`; `align_up(0x08 + 4*count, 0x10) == offset[0]`
+  holds on both `plwp_vergilsword.pac` (count=9) and
+  `plwp_newvergilsword.pac` (count=10). Chunk kinds observed: `MOD ` mesh,
+  `SHW ` shader, nested `PAC\0`, nested `PNST` (which itself contains a
+  further `PNST` at `0x17DB0`), `;wp005.clt` cloth-config text, and
+  unidentified raw blocks opening `01 00 00 00 11 00 00 00` at slots 0 and 3
+  in both files.
+- Next: F6 payload semantics remain [UNKNOWN] (raw blocks, nested containers,
+  empty-slot sentinel). F1/F4 remain blocked on engine ground truth and are not
+  re-spun.
