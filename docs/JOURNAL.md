@@ -2419,3 +2419,47 @@ moves and health bar and everything."*
   before it is unexplained; the GoW3R clip leaf keyframe encoding (F9) and
   F3 slots 6/7/11/22 remain available. F4 stays blocked on the engine route and
   is not re-spun.
+
+---
+
+## 2026-10-18 — F1 bounded slice: the first *forward* block-tail entry is the derived `end + 0x50` (E-098)
+
+- Did: picked the critical path **F1** (issue #1) and followed E-097's own stated
+  next step — "what does a `(offset, 0)` entry name?". Read block tails
+  read-only across all `*.pac` files under
+  `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\` (286 `MOD ` chunks,
+  1,556 blocks) and split the entries into backward vs **forward** (target `>=`
+  `block.end`). Added `BODY_BLOCK_TAIL_NEXT_DELTA = 0x50`,
+  `ModBodyBlock.tail_next_target`, `tail_forward_entries()` and `tail_next_ok()`
+  to `tools/dmc3/mod.py`, exported from `dmc3`; added the
+  `mod_two_block_tail_body()` fixture (16-byte-aligned so a block's end is
+  aligned like the install) and `TestModBodyTailNext` (6 tests). Full suite:
+  **644 tests, all green** (638 baseline + 6). Nothing written to the game; no
+  game data committed. Committed as 09a2073, pushed to origin main; commented
+  issue #1 (left open).
+- Found (**E-098**):
+  - **The first forward tail entry is `block.end + 0x50` on 1,210/1,251 blocks**
+    (22 are `+0xA0`, 19 other deltas). `body_blocks()` sets `block.end` to the
+    *next* block's `data_offset`, so `end + 0x50` is that block's
+    `data_offset + 0x2C + 0x24` = its `payload_offset + 0x24`
+    (`0x50 = BODY_BLOCK_PREFIX_SIZE + BODY_BLOCK_OFFSET_SLACK`). The first tail
+    entry is therefore a **structural constant offset into the next block**, not
+    a free cross-reference — this **narrows E-097's "cross-reference table"**
+    reading (only the second entry can be a free reference).
+  - **Forward-entry counts per block: 0/1/2/3 = 305 / 38 / 1,204 / 9.**
+  - Recorded negatives: the first entry is **not** the next block's
+    `offset_a`/`offset_b`/`value_offset`/`tail_offset` (checked on
+    `em013.pac` slot 1, where the entry `0x1100` is `next.payload + 0x24` while
+    `offset_a`/`offset_b` are `0x1700`/`0x17E0`). Validated read-only through the
+    new API: it reproduces 1,556 blocks / 1,251 with a forward entry / 1,210
+    `tail_next_ok`.
+  - **[UNKNOWN]:** what lives at the target; the second entry's meaning; the
+    missing connectivity. E-097's inconclusive winding test is not re-run.
+- Docs: E-098 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §5.1 gains the
+  "E-098 update" subsection (and the §5.1 title gains E-098);
+  `docs/BACKLOG.md` F1 row updated (evidence cell adds E-098, status rewritten).
+- Next: the **second** tail entry is now the only non-derived tail value and the
+  fresh lead for connectivity — is it a free reference into another block (a
+  child/sibling/hierarchy pointer)? Otherwise F3 slots 6/7/11/22 and the GoW3R
+  clip leaf keyframe encoding (F9) remain available; F4 stays blocked on the
+  engine route and is not re-spun.
