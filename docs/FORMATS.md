@@ -1000,3 +1000,44 @@ The helpers are `stride_residue()` / `stride_offset_run()` and the constants
 `ClipSubBlocks.tag10_residue_ok` / `tag16_continuation_ok`. The leaf keyframe
 encoding is still the F9 gap.
 
+---
+
+## 8. DMC3 HD `dmc3.exe` — PE file↔RVA mapping and reference scanning (E-069)
+
+The DMC3 formats were decoded from bytes up to the point where engine ground truth
+is required (E-050/E-051). That ground truth is on disk: `dmc3.exe` (6,356,432 B)
+in the install root is a normal, unpacked x86-64 PE.
+
+```
+MZ;  e_lfanew 0x138;  "PE\0\0";  machine 0x8664;  8 sections
+PE32+ optional magic 0x20B;  image_base 0x140000000
+AddressOfEntryPoint (RVA) 0x34615C
+.text  RVA 0x1000  vsz 0x34DD4E  raw 0x400    rawsz 0x34DE00  ch 0x60000020
+.rdata RVA 0x34F000 vsz 0x203368 raw 0x34E200 rawsz 0x203400 ch 0x40000040
+.data  RVA 0x553000 vsz 0x81F1B8 raw 0x551600 rawsz 0x86000  ch 0xC0000040
+.pdata .gfids .tls .rsrc .reloc follow
+```
+
+Only `.text` is executable. File↔RVA mapping is
+`rva = section.virtual_address + (offset − section.raw_offset)`; the image base
+does not enter it, because a RIP-relative displacement is base-independent.
+
+The reference method is the one E-056 used for `eboot.elf`, applied to PE
+sections: a RIP-relative `lea`/`mov` operand is `[REX 0x40..0x4F]` `8D|8B`, a
+ModRM with `(modrm & 0xC7) == 0x05`, then `disp32`; the target RVA is
+`insn_rva + insn_len + disp32` (`insn_len` 7 with a REX prefix, 6 without). On
+this image the scan finds 19,648 such instructions targeting 4,482 distinct RVAs.
+
+**Verified result (E-069).** A resource-extension table sits at `.rdata` RVA
+`0x5071D0` (`.mot .MOT .mcv .MCV .cam .CAM`), each string referenced once by a
+`lea` from a tight `.text` cluster (`0x2E01D2`, `0x2E01EB`, `0x2E0204`,
+`0x2E0236`). `0x2E01D2` is `48 8D 15 F7 6F 22 00` = `lea rdx, [rip + 0x226FF7]`
+→ `0x5071D0`, immediately followed by a `call`. **Negative:** `.pac`, `.tm2`,
+`pl021.pac`, `GDataX360.afs` and `endof.afs` occur in the image but have **zero**
+RIP-relative references — file names are table data, as with GoW3's `.wad` (E-063).
+
+`[INFERRED]`: the cluster is an extension→handler dispatch and the MOT handler is
+reachable from it. `[UNKNOWN]`: what the code does past the `lea`/`call`, and every
+F1/F4 field it would settle. Reader: `tools/dmc3/pe.py` (`PeImage`, `PeSection`,
+`PeError`, `find_all()`, `rip_relative_references()`, `references_to_string()`).
+

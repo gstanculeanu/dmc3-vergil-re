@@ -1507,4 +1507,46 @@ moves and health bar and everything."*
   directory binding. F1/F4 remain blocked on DMC3-side engine ground truth and are
   not re-spun.
 
+---
+
+## 2026-10-18 — F1/F4 unblocked: the DMC3 engine (`dmc3.exe`) is on disk and is a plain x86-64 PE (E-069)
+
+- Did: noticed during reconnaissance that the DMC3 install root ships **its own
+  executable**, `G:\Games\Devil May Cry HD Collection\dmc3.exe`
+  (6,356,432 bytes) — the DMC3-side engine ground truth that F1/F4/F5 have been
+  "blocked on" for many iterations and that **no prior doc or issue mentions**.
+  Read it read-only and ported the GoW3 `eboot.elf` method (E-056) to PE:
+  new `tools/dmc3/pe.py` (`PeImage`, `PeSection`, `PeError`, section-based
+  `file_offset_to_rva`/`rva_to_file_offset`/`read`, `find_all()`,
+  `rip_relative_references()`, `references_to_string()`), the DMC3 analogue of
+  `tools/gow3/eboot.py`. Exported from `dmc3/__init__.py`; 17 unit tests in
+  `tests/test_dmc3_pe.py` on a synthetic PE (no game data committed). Full suite:
+  **422 tests, all green**.
+- Found (**E-069**, read-only from `dmc3.exe`):
+  - `dmc3.exe` is a normal, unpacked **x86-64 PE32+**: machine `0x8664`, magic
+    `0x20B`, image base `0x140000000`, entry RVA `0x34615C`, 8 sections; only
+    `.text` (`RVA 0x1000`, `vs=0x34DD4E`, `raw=0x400`, `rawsz=0x34DE00`, ch
+    `0x60000020`) is executable and holds ~3.4 MB of code (15.6% zeros).
+  - File↔RVA mapping is `rva = section.va + (offset − section.raw)`; the image
+    base does not enter it (RIP-relative displacement is base-independent).
+  - The scanner finds **19,648** RIP-relative `lea`/`mov` sites (`(modrm & 0xC7)
+    == 0x05`) targeting **4,482** distinct RVAs.
+  - **A `.mot`/`.mcv`/`.cam` extension table** in `.rdata` at RVA `0x5071D0` is
+    referenced **once each** from a tight `.text` cluster. `.mot` @ `0x5071D0` ←
+    instruction `0x2E01D2` = `48 8D 15 F7 6F 22 00` = `lea rdx,[rip+0x226FF7]`
+    (decoded target `0x5071D0`, verified) followed by `mov rcx,r8` and a `call`.
+    This is the located lead into the MOT loader.
+  - **Negative (recorded):** `.pac` (7,118 occurrences), `.tm2`, `pl021.pac`,
+    `GDataX360.afs` and `endof.afs` have **zero** RIP-relative references — file
+    names are table data, exactly as GoW3's `.wad` (E-063).
+- Docs: E-069 in `docs/EVIDENCE.md`; E-050 and E-051 each gain an "Update
+  (E-069)" note (the blocker is now decoding, not evidence acquisition);
+  new `docs/FORMATS.md` §8; `docs/BACKLOG.md` F1/F4 evidence cells add E-069 and
+  a new tooling row **T10**. No game data committed.
+- Next: mirror `gow3.eboot`'s **limited instruction decoder** (`reference_context`
+  / `string_reference_contexts`) onto `PeImage`, then read the code at
+  `0x2E01D2` to find the MOT handler and its numeric constants — that is the
+  route into F4's u16[1..3] semantics and, by extension, F1/F5. F9's leaf
+  keyframe encoding and the G9/G10 directory binding remain open too.
+
 

@@ -82,6 +82,13 @@ from .tm2 import (
 )
 from .dds import DdsError, dds_to_png
 from .entities import DEFAULT_PLAYER_IDS, Entity, KNOWN_PLAYER_IDS, label_for, lookup
+from .pe import (
+    MACHINE_AMD64,
+    PE32_PLUS_MAGIC,
+    PeError,
+    PeImage,
+    PeSection,
+)
 
 __all__ = [
     "ALIGNMENT",
@@ -156,6 +163,11 @@ __all__ = [
     "KNOWN_PLAYER_IDS",
     "label_for",
     "lookup",
+    "MACHINE_AMD64",
+    "PE32_PLUS_MAGIC",
+    "PeError",
+    "PeImage",
+    "PeSection",
 ]
 
 __version__ = "0.1.0"

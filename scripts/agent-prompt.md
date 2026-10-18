@@ -124,3 +124,14 @@ Note: the WAD **record opcodes are numeric**, so `GroupStart`/`PopHeap`/`DC_` do
 **not** appear as strings. Find the loader via the `.wad` / `WAD_` / `DEPENDENCY`
 references, then read the numeric constants.
 
+**DMC3-side ground truth (added 2026-10-18, E-069).** The *DMC3* engine is also on
+disk: `G:\Games\Devil May Cry HD Collection\dmc3.exe` (6,356,432 B) is a normal,
+unpacked **x86-64 PE32+** (image base `0x140000000`, entry RVA `0x34615C`, only
+`.text` executable at RVA `0x1000`). The same RIP-relative method applies, with
+`rva = section.va + (file_offset − section.raw)`; `tools/dmc3/pe.py` maps and scans
+it (`PeImage.find_all` / `rip_relative_references` / `references_to_string`). A
+`.mot`/`.mcv`/`.cam` extension table at `.rdata` RVA `0x5071D0` is referenced from
+`.text` RVA `0x2E01D2` — the located lead into the MOT loader. Unlike GoW3's
+`eboot.elf`, `dmc3.exe` is **directly mappable** (PE section table, no prepared ELF
+needed).
+

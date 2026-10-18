@@ -2628,6 +2628,12 @@ correlated with decoded vertex data) is required. This is a recorded dead
 end, not an abandoned item — it is unblocked the moment engine ground truth
 becomes available.
 
+**Update (E-069).** The DMC3 engine itself is available locally: `dmc3.exe` in
+the install root is a normal, unpacked x86-64 PE. `tools/dmc3/pe.py` maps its
+sections and scans its code for string references, so the ground truth F1 was
+waiting for is now **present on disk** — F1 is blocked on decoding work, not on
+evidence acquisition.
+
 ---
 
 ## E-051 — F4 dead end: MOT keyframe u16[1..3] semantics need engine ground truth
@@ -2663,6 +2669,11 @@ comparing a decoded clip against an in-game capture) is required.
 
 **Status.** F4 is **not retried from bytes alone**. This is a recorded dead
 end; unblocked the moment engine ground truth becomes available.
+
+**Update (E-069).** The DMC3 engine (`dmc3.exe`, install root) is a normal,
+unpacked x86-64 PE and is readable with `tools/dmc3/pe.py`; the extension
+dispatch near `.mot` at `.text` RVA `0x2E01D2` is the lead to the motion loader.
+The ground truth F4 was waiting for is now locally available.
 
 
 ---
@@ -3430,6 +3441,89 @@ encoding, which remains the F9 gap.
 fixtures (no game data committed); the full suite is **405 tests, all green**. The
 read-only validation reproduced **245/245** tag-`0x10` and **245/245** tag-`0x16`
 relations. `docs/FORMATS.md` §7.7 and `docs/BACKLOG.md` F9/G9 are updated.
+
+
+---
+
+## E-069 — DMC3 HD `dmc3.exe`: a 64-bit PE whose `.text` references a resource-extension table (F1/F4/F5 route, bounded slice)
+
+**Observation.** The DMC3 HD install contains its own executable at
+`G:\Games\Devil May Cry HD Collection\dmc3.exe` — **6,356,432 bytes** — read-only,
+outside the repo. It is a normal, unpacked x86-64 PE:
+
+```
+0x00   "MZ";  e_lfanew (0x3C) = 0x138
+0x138  "PE\0\0"; machine 0x8664; 8 sections; PE32+ optional magic 0x20B
+       image_base 0x140000000;  AddressOfEntryPoint (RVA) 0x34615C
+```
+
+The section table, verbatim (name, RVA, virtual size, raw offset, raw size,
+characteristics):
+
+| name | RVA | vsize | raw | rawsz | chars |
+|---|---|---|---|---|---|
+| `.text` | `0x00001000` | `0x0034DD4E` | `0x00000400` | `0x0034DE00` | `0x60000020` |
+| `.rdata` | `0x0034F000` | `0x00203368` | `0x0034E200` | `0x00203400` | `0x40000040` |
+| `.data` | `0x00553000` | `0x0081F1B8` | `0x00551600` | `0x00086000` | `0xC0000040` |
+| `.pdata` | `0x00D73000` | `0x00023D84` | `0x005D7600` | `0x00023E00` | `0x40000040` |
+| `.gfids` | `0x00D97000` | `0x00000050` | `0x005FB400` | `0x00000200` | `0x40000040` |
+| `.tls` | `0x00D98000` | `0x00000009` | `0x005FB600` | `0x00000200` | `0xC0000040` |
+| `.rsrc` | `0x00D99000` | `0x00000F30` | `0x005FB800` | `0x00001000` | `0x40000040` |
+| `.reloc` | `0x00D9A000` | `0x00011DB0` | `0x005FC800` | `0x00011E00` | `0x42000040` |
+
+Only `.text` is executable (`0x60000020` = `CNT_CODE | MEM_EXECUTE`); it holds
+`0x34DD4E` bytes of code (15.6% zero bytes, i.e. not packed). File↔RVA mapping is
+`rva = section.virtual_address + (offset − section.raw_offset)`.
+
+**A. A resource-extension table is referenced by a tight `.text` cluster.** In
+`.rdata` at RVA `0x5071D0` sits a run of NUL-terminated extension strings —
+`.mot\0 .MOT\0 .mcv\0 .MCV\0 .cam\0 .CAM\0` — each referenced **once** by a
+RIP-relative `lea`:
+
+| string | RVA | referencing instruction RVA |
+|---|---|---|
+| `.mot` | `0x5071D0` | `0x2E01D2` |
+| `.MOT` | `0x5071D8` | `0x2E01EB` |
+| `.mcv` | `0x5071E0` | `0x2E0204` |
+| `.cam` | `0x5071F0` | `0x2E0236` |
+
+Worked example, `.mot`: instruction `0x2E01D2` is `48 8D 15 F7 6F 22 00` =
+`lea rdx, [rip + 0x226FF7]`, whose decoded target is `0x2E01D2 + 7 + 0x226FF7 =
+0x5071D0` — the `.mot` string. The instruction is followed by `49 8B C8` (`mov
+rcx, r8`) and `FF 15 EE F1 06 00` (`call qword [rip + 0x6F1EE]`), i.e. a call
+that receives the extension string.
+
+The scanner finds **19,648** RIP-relative `lea`/`mov` instructions in `.text`
+targeting **4,482** distinct RVAs, so the reference route used for GoW3's
+`eboot.elf` (E-056) works identically on this image.
+
+**B. Negative result — file-name strings are not referenced this way.** `.pac`
+occurs 7,118 times (a packed extension table, none referenced), and
+`pl021.pac\0` (2 occurrences), `.tm2\0` (9), `GDataX360.afs` (1) and `endof.afs`
+(1) have **zero** RIP-relative references. This mirrors GoW3's `.wad` /
+`DEPENDENCY` result (E-063): file names are held as table/registry data, not
+loaded with a `lea`.
+
+**Inference (marked).** `dmc3.exe` *is* the engine that consumes the decoded
+`MOD `/`MOT `/`SHW ` bytes, so it is the DMC3-side engine ground truth E-050 and
+E-051 named as missing. The four-instruction cluster around `0x2E01D2` is
+[INFERRED] an extension→handler dispatch; the MOT handler is reachable from it.
+
+**Unknown.** What the code at `0x2E01D2` does beyond the `lea`/`call` (the
+limited instruction decoder of `gow3.eboot` has not been mirrored, and no caller/
+callee constant has been read); whether the MOT vertex-/keyframe-decoding logic
+is reached from this cluster; and every F1/F4 field meaning that only the code can
+settle. The install is Crimson-modded, so `dmc3.exe` may be a patched build —
+recorded, not a blocker (the section map and code density are that of a normal
+PE, and `__new_diff_dmc3.exe.bin` alongside is the patcher's diff).
+
+**Consequence.** New module `tools/dmc3/pe.py`: `PeImage` (PE32+ parsing,
+`image_base`/`entry_rva`, section table), `PeSection`, `PeError`, section-based
+`file_offset_to_rva`/`rva_to_file_offset`/`read`, `find_all()`,
+`rip_relative_references()` and `references_to_string()` — the DMC3 analogue of
+`tools/gow3/eboot.py`. 17 unit tests (`tests/test_dmc3_pe.py`) run on a synthetic
+PE (no game data committed); the full suite is **422 tests, all green**. The
+read-only validation above was produced with this module.
 
 
 
