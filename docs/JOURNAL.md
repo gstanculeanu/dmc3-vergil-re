@@ -965,3 +965,34 @@ moves and health bar and everything."*
 - Docs: `docs/BACKLOG.md` T2 row, `docs/FORMATS.md` §4.2, `docs/EVIDENCE.md`
   E-046.
 - Next: comment on issue #9 (left open — compressed path unresolved).
+
+## 2026-10-18 — T2: DXT1/DXT3/DXT5 decoded in the DDS -> PNG pipeline
+
+- Did: implemented block-level S3TC decoding in `tools/dmc3/dds.py`
+  (DXT1/BC1, DXT3/BC2 explicit alpha bitmap, DXT5/BC3 alpha interpolation,
+  integer floor arithmetic per channel, all documented) and extended
+  `dds_to_png` so compressed payloads decode to RGBA PNG with alpha
+  preserved; DX10 extended headers and other fourCCs keep raising a
+  documented `DdsError`. Replaced the "compressed raises DdsError" tests
+  with 9 new exact-pixel tests on synthetic fixtures (endpoint selection,
+  DXT1 interpolation, c0<=c1 transparent black, 2-bit/3-bit index LSB
+  ordering, DXT3 alpha x17, DXT5 ramps both endpoint orderings) plus a
+  top-mip smoke test on the real-shape fixture; fixed `real_tm2_dds()` to
+  a proper 128-byte header. Full suite: **249 tests, all green**.
+  Committed as 0bc5c6a and pushed to origin main.
+- Found (**E-047**, read-only real bytes from
+  `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\i001_90.tm2`):
+  embedded DDS at file 0x70, fourCC `DXT3`, 256×256, pitch 65,536, payload
+  0xF0..EOF = exactly 65,536 bytes = one 256×256 DXT3 image; payload block 0
+  is `00*12 AA AA AA AA` (all-alpha-zero, endpoints 0x0000, all indices 2).
+  End-to-end decode yields a valid 256×256 RGBA PNG; block 0's texels are all
+  (0,0,0,0) and row-0 texels 8–15 carry alpha 17, 17, 51, 51, 68, 85, 85, 119
+  matching blocks 2–3's alpha bytes (tool output, not engine ground truth).
+  Also observed: reserved1 contains a "GIMP-DDS" marker (the installed file
+  was re-saved by GIMP).
+- Docs: `docs/FORMATS.md` §4.2 marked [VERIFIED] for DXT1/DXT3/DXT5 with the
+  block formats recorded; `docs/EVIDENCE.md` gains E-047 and notes E-046 as
+  superseded; `docs/BACKLOG.md` T2 marked done.
+- Next: comment on and close issue #9 (done); the format critical path
+  (F1/F4) remains blocked on engine ground truth and is deliberately not
+  re-spun.
