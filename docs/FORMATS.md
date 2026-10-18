@@ -887,8 +887,10 @@ chunks; evidence E-036), all little-endian:
 +0x14  u32      varies   (100, 102, 0x000315D8, 103)
 +0x18  u32      0 x4/4
 +0x1C  u32      0 x4/4   ([UNKNOWN] purpose)
-+0x20  u16      varies   (0x000A, 0x0016, 0x0027, 0x0027)
-+0x22  u16      varies   (0x0010, 0x0028, 0x0042, 0x0042)
++0x20  u16      varies   (0x000A, 0x0016, 0x0027, 0x0027) — **record 0's
+                        position count** (E-103)
++0x22  u16      varies   (0x0010, 0x0028, 0x0042, 0x0042) — **record 0's
+                        triangle count** (E-103)
 +0x24  u32      0 x4/4
 +0x28  u32      0 x4/4
 +0x2C  u32      0 x4/4
@@ -903,42 +905,63 @@ chunks; evidence E-036), all little-endian:
                         buffer `[f32 x,y,z,1.0] x count` (structure [PARTIAL];
                         see §5.1.1, evidence E-038)
 +0x44  u32      0 x4/4
-+0x48  u32      varies   (0x680, 0x700, 0x900, 0x900) — offsets a further
-                        sub-table (constant-byte run, then a u32 stream; layout
-                        [UNKNOWN]; see §5.1.1, evidence E-038)
++0x48  u32      varies   (0x680, 0x700, 0x900, 0x900) — **record 0's
+                        per-position byte array** (one `u8` per position,
+                        constant, NUL-padded to 16; E-103; §5.1.1)
 +0x4C  u32      0 x4/4
 +0x50  zero bytes x16
 ```
 
 * Slots 24 and 26 are byte-identical `SHW ` chunks (a duplicated shader pair,
   like the MOD slots 23/25).
-* The four varying fields at +0x30/+0x38/+0x40/+0x48 each point at a sub-table
-  inside the chunk; +0x30 is the triangle table (three u32 vertex indices plus
-  a zero) and +0x38 is the per-triangle adjacency table, both with the same
-  entry count (E-102). The +0x40 position buffer is structurally decoded
-  (§5.1.1, evidence E-038); the +0x48 table's layout and all field meanings are
-  [UNKNOWN]; the texture binding that issue F2 asks for is not yet decoded.
+* The five varying fields at +0x20/+0x22/+0x30/+0x38/+0x40/+0x48 describe
+  **record 0** of a record stream (E-103): +0x30 is the triangle table (three
+  u32 vertex indices plus a zero), +0x38 is the per-triangle adjacency table,
+  both with the same entry count (E-102); +0x40 is the position buffer
+  (evidence E-038); +0x48 is the per-position byte array; and +0x20/+0x22 are
+  record 0's position and triangle counts (E-103). Later records follow the
+  first (see §5.1.1). All field *meanings* beyond the counts remain [UNKNOWN];
+  the texture binding that issue F2 asks for is not yet decoded.
 * `tools/dmc3/shw.py` exposes `ShwHeader`, `ShwTriangleTable`,
-  `ShwAdjacencyTable`, `ShwPositionTable`, `ShwSubTables` and
-  `parse_shw_sub_tables` / `maybe_shw_sub_tables`, decoding exactly the observed
-  sub-table structure from real bytes, exercised by unit tests on synthetic
-  fixtures.
+  `ShwAdjacencyTable`, `ShwPositionTable`, `ShwSubTables`, `ShwRecord` and
+  `parse_shw_sub_tables` / `parse_shw_records` (plus the `maybe_` variants),
+  decoding exactly the observed structure from real bytes, exercised by unit
+  tests on synthetic fixtures.
 
-### 5.1.1 `SHW ` sub-tables — triangles (+0x30), adjacency (+0x38), positions (+0x40)
+### 5.1.1 `SHW ` sub-tables — a stream of records (triangles `+0x30`, adjacency `+0x38`, positions `+0x40`, byte array `+0x48`)
 
 **[PARTIAL structure / [UNKNOWN] semantics]** — evidence E-038, corrected and
-extended by **E-102**. Four chunk-relative offsets name consecutive tables:
+extended by **E-102** and **E-103**. A `SHW ` chunk is a **stream of records**,
+each a closed sub-mesh; record 0's four section offsets are chunk-relative
+header fields:
 
 | Header | Points at | Entry layout | Count |
 |---|---|---|---|
 | `+0x30` (`field_30`) | triangle table | `[u32 i0, u32 i1, u32 i2, u32 0]` | `(field_38 − field_30) / 16` |
 | `+0x38` (`field_38`) | adjacency table | `[u16 n0, u16 n1, u16 n2, u16 0]` | `(field_40 − field_38) / 8` |
 | `+0x40` (`field_40`) | position table | `[f32 x, f32 y, f32 z, f32 1.0]` | `(field_48 − field_40) / 16` |
-| `+0x48` (`field_48`) | next region | — | [UNKNOWN] |
+| `+0x48` (`field_48`) | record 0 byte array | `[u8 value]` repeated, NUL-padded to 16 | `(field_48 − field_40) / 16` |
 
 **The triangle and adjacency counts are always equal** (58/58 `SHW ` chunks
 across the install, E-102). The tables are contiguous in the order above and
 `field_30 < field_38 < field_40 <= field_48` on 58/58.
+
+**The record stream (E-103).** A record is::
+
+    [u32 i0, u32 i1, u32 i2, u32 0] x N   triangles
+    [u16 n0, u16 n1, u16 n2, u16 0] x N   adjacency
+    [f32 x, f32 y, f32 z, f32 1.0]  x P   positions
+    [u8  value]                     x P   per-position bytes, NUL-padded to 16
+
+Record 0's `N`/`P` are the header's `+0x22`/`+0x20` u16 pair; record 0's four
+sections are named by `+0x30`/`+0x38`/`+0x40`/`+0x48`, and each later record
+starts where the previous record's padded byte array ends. On 58/58 chunks the
+chunk span decomposes exactly into whole records (591 records in total, 1..25
+per chunk), every record's byte array is one constant value repeated `P` times,
+and the bytes after the last record are zero padding. `P` ranges 7..74 and `N`
+10..144; `N == 2P − 4` on 579/591 records. The repeated byte takes values
+0..28 and its meaning is **[UNKNOWN]** (a bone/palette/material id is
+[INFERRED] but unproven).
 
 **What the tables contain (E-102, 58/58 unless stated).**
 

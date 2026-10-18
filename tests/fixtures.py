@@ -654,6 +654,95 @@ def shw_chunk_with_tables(
     return bytes(blob)
 
 
+def shw_chunk_with_records(
+    records: Optional[
+        tuple[
+            tuple[
+                int,
+                tuple[tuple[int, int, int], ...],
+                Optional[tuple[tuple[int, int, int], ...]],
+                tuple[tuple[float, float, float, float], ...],
+            ],
+            ...,
+        ]
+    ] = None,
+) -> bytes:
+    """A synthetic ``SHW `` chunk with a multi-record stream (evidence E-103).
+
+    Each record is ``(vertex_byte, triangles, neighbours, positions)`` and is
+    laid out chunk-relative as::
+
+        [u32 i0, u32 i1, u32 i2, u32 0] x N   triangles
+        [u16 n0, u16 n1, u16 n2, u16 0] x N   adjacency
+        [f32 x, f32 y, f32 z, f32 1.0]  x P   positions
+        [u8 vertex_byte]                x P   per-position bytes, NUL-padded
+                                              to a 16-byte boundary
+
+    Record 0's four section offsets are written to header fields
+    ``+0x30``/``+0x38``/``+0x40``/``+0x48``; ``+0x20``/``+0x22`` hold record 0's
+    position and triangle counts.  The default is three closed tetrahedra with
+    distinct byte values (3, 2 and 0x0E).  Trailing NUL padding is appended
+    after the last record.  All values are synthetic; no game bytes are
+    committed.
+    """
+    if records is None:
+        positions = (
+            (1.0, 2.0, 3.0, 1.0),
+            (-4.0, 5.0, -6.0, 1.0),
+            (7.5, -8.5, 9.5, 1.0),
+            (0.5, 0.5, -1.5, 1.0),
+        )
+        triangles = ((0, 1, 2), (0, 3, 1), (0, 2, 3), (1, 3, 2))
+        neighbours = ((1, 2, 3), (0, 2, 3), (0, 1, 3), (0, 1, 2))
+        records = (
+            (0x03, triangles, neighbours, positions),
+            (0x02, triangles, neighbours, positions),
+            (0x0E, triangles, neighbours, positions),
+        )
+
+    header = bytearray(shw_chunk(pad_to=0x50))
+    blob = bytearray(header)
+    first_offsets: Optional[tuple[int, int, int, int]] = None
+    for value, triangles, neighbours, positions in records:
+        if neighbours is None:
+            n = len(triangles)
+            neighbours = tuple(
+                tuple((i + 1 + k) % n for k in range(3)) for i in range(n)
+            )
+        tri_offset = len(blob)
+        blob.extend(b"\x00" * (SHW_TRIANGLE_STRIDE * len(triangles)))
+        adj_offset = len(blob)
+        blob.extend(b"\x00" * (SHW_ADJACENCY_STRIDE * len(neighbours)))
+        pos_offset = len(blob)
+        blob.extend(b"\x00" * (SHW_POSITION_STRIDE * len(positions)))
+        array_offset = len(blob)
+        blob.extend(bytes([value]) * len(positions))
+        blob.extend(b"\x00" * ((-len(blob)) % 16))
+        for i, (i0, i1, i2) in enumerate(triangles):
+            struct.pack_into(
+                "<IIII", blob, tri_offset + SHW_TRIANGLE_STRIDE * i, i0, i1, i2, 0
+            )
+        for i, (n0, n1, n2) in enumerate(neighbours):
+            struct.pack_into(
+                "<HHHH", blob, adj_offset + SHW_ADJACENCY_STRIDE * i, n0, n1, n2, 0
+            )
+        for i, (x, y, z, w) in enumerate(positions):
+            struct.pack_into(
+                "<4f", blob, pos_offset + SHW_POSITION_STRIDE * i, x, y, z, w
+            )
+        if first_offsets is None:
+            first_offsets = (tri_offset, adj_offset, pos_offset, array_offset)
+            struct.pack_into("<H", blob, 0x20, len(positions))
+            struct.pack_into("<H", blob, 0x22, len(triangles))
+    assert first_offsets is not None
+    struct.pack_into("<I", blob, 0x30, first_offsets[0])
+    struct.pack_into("<I", blob, 0x38, first_offsets[1])
+    struct.pack_into("<I", blob, 0x40, first_offsets[2])
+    struct.pack_into("<I", blob, 0x48, first_offsets[3])
+    blob.extend(b"\x00" * 16)
+    return bytes(blob)
+
+
 def pnst_archive() -> bytes:
     """A synthetic ``PNST`` container mirroring plwp_vergilsword.pac (E-006).
 

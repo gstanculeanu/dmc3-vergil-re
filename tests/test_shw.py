@@ -6,8 +6,11 @@ import fixtures
 from dmc3 import Chunk, ShwHeader
 from dmc3.shw import (
     HEADER_SIZE,
+    RECORD_ALIGNMENT,
     maybe_shw_header,
+    maybe_shw_records,
     maybe_shw_sub_tables,
+    parse_shw_records,
     parse_shw_sub_tables,
 )
 
@@ -328,6 +331,132 @@ class TestShwSubTables(unittest.TestCase):
         self.assertEqual(sub.triangle_table.triangles, triangles)
         self.assertEqual(sub.adjacency_table.neighbours, neighbours)
         self.assertEqual(sub.position_table.positions, positions)
+
+
+class TestShwRecords(unittest.TestCase):
+    """Decoded SHW record stream (E-103).  A chunk is a sequence of closed
+    meshes, each ending in a per-position byte array; only the observed
+    structure is asserted and the byte value's meaning stays [UNKNOWN]."""
+
+    def _chunk(self, **kw) -> Chunk:
+        return chunk_of(fixtures.shw_chunk_with_records(**kw))
+
+    def test_parses_every_record_in_order(self):
+        chunk = self._chunk()
+        records = parse_shw_records(chunk.data, ShwHeader.parse(chunk))
+        self.assertEqual([r.index for r in records], [0, 1, 2])
+        self.assertEqual([r.value for r in records], [0x03, 0x02, 0x0E])
+
+    def test_records_tile_without_gaps(self):
+        # E-103: each record starts where the previous record's padded byte
+        # array ends; record 0 starts at the header's +0x30 offset.
+        chunk = self._chunk()
+        header = ShwHeader.parse(chunk)
+        records = parse_shw_records(chunk.data, header)
+        self.assertEqual(records[0].triangle_offset, header.field_30)
+        for previous, current in zip(records, records[1:]):
+            self.assertEqual(current.triangle_offset, previous.end)
+            self.assertEqual(current.triangle_offset % RECORD_ALIGNMENT, 0)
+
+    def test_record_offsets_match_header_pointers(self):
+        # E-103: +0x30/+0x38/+0x40/+0x48 name record 0's four sections.
+        chunk = self._chunk()
+        header = ShwHeader.parse(chunk)
+        first = parse_shw_records(chunk.data, header)[0]
+        self.assertEqual(first.triangle_offset, header.field_30)
+        self.assertEqual(first.position_offset, header.field_40)
+        self.assertEqual(first.array_offset, header.field_48)
+        self.assertEqual(
+            first.position_offset - first.triangle_offset,
+            24 * first.tables.triangle_table.count,
+        )
+
+    def test_header_pair20_is_record0_counts(self):
+        # E-103: +0x20 / +0x22 equal record 0's position / triangle counts on
+        # 58/58 real chunks.
+        chunk = self._chunk()
+        header = ShwHeader.parse(chunk)
+        first = parse_shw_records(chunk.data, header)[0]
+        self.assertEqual(header.pair_20_0, first.tables.position_table.count)
+        self.assertEqual(header.pair_20_1, first.tables.triangle_table.count)
+
+    def test_record0_tables_match_parse_shw_sub_tables(self):
+        chunk = self._chunk()
+        header = ShwHeader.parse(chunk)
+        records = parse_shw_records(chunk.data, header)
+        self.assertEqual(records[0].tables, parse_shw_sub_tables(chunk.data, header))
+
+    def test_vertex_bytes_are_one_constant_per_position(self):
+        # E-103: 591/591 real records carry one constant byte per position and
+        # the array length equals the position count.
+        chunk = self._chunk()
+        records = parse_shw_records(chunk.data, ShwHeader.parse(chunk))
+        for record in records:
+            self.assertEqual(
+                len(record.vertex_bytes), record.tables.position_table.count
+            )
+            self.assertEqual(set(record.vertex_bytes), {record.value})
+
+    def test_records_are_consistent_closed_meshes(self):
+        chunk = self._chunk()
+        records = parse_shw_records(chunk.data, ShwHeader.parse(chunk))
+        for record in records:
+            self.assertTrue(record.consistent, record.index)
+            self.assertTrue(record.tables.shared_edges(), record.index)
+
+    def test_trailing_zero_padding_is_ignored(self):
+        chunk = self._chunk()
+        padded = chunk.data + b"\x00" * 64
+        header = ShwHeader.parse(chunk)
+        self.assertEqual(len(parse_shw_records(padded, header)), 3)
+
+    def test_rejects_nonconstant_vertex_byte_array(self):
+        chunk = self._chunk()
+        header = ShwHeader.parse(chunk)
+        first = parse_shw_records(chunk.data, header)[0]
+        data = bytearray(chunk.data)
+        data[first.array_offset + 1] ^= 0xFF
+        with self.assertRaises(ValueError):
+            parse_shw_records(bytes(data), header)
+
+    def test_rejects_nonzero_array_padding(self):
+        chunk = self._chunk()
+        header = ShwHeader.parse(chunk)
+        first = parse_shw_records(chunk.data, header)[0]
+        data = bytearray(chunk.data)
+        # The 4-position array occupies 4 bytes; +4..+15 must be NUL.
+        data[first.array_offset + 4] = 0xFF
+        with self.assertRaises(ValueError):
+            parse_shw_records(bytes(data), header)
+
+    def test_rejects_truncated_stream(self):
+        chunk = self._chunk()
+        header = ShwHeader.parse(chunk)
+        records = parse_shw_records(chunk.data, header)
+        cut = chunk.data[:records[1].triangle_offset + 24]
+        with self.assertRaises(ValueError):
+            parse_shw_records(cut, header)
+
+    def test_maybe_records_returns_none_on_bad_input(self):
+        chunk = self._chunk()
+        header = ShwHeader.parse(chunk)
+        self.assertEqual(len(maybe_shw_records(chunk.data, header)), 3)
+        self.assertIsNone(maybe_shw_records(b"\x00" * 40, header))
+
+    def test_single_record_chunk_matches_slots_24_26_shape(self):
+        # Slots 24/26 of pl021.pac carry exactly one record: +0x48 points at
+        # its byte array and nothing follows (E-103).  Build that shape.
+        positions = tuple((float(i), 0.0, 0.0, 1.0) for i in range(8))
+        triangles = ((0, 1, 2), (1, 2, 3), (0, 2, 3), (0, 1, 3))
+        neighbours = ((1, 2, 3), (0, 2, 3), (0, 1, 3), (0, 1, 2))
+        chunk = self._chunk(
+            records=((0x01, triangles, neighbours, positions),)
+        )
+        header = ShwHeader.parse(chunk)
+        records = parse_shw_records(chunk.data, header)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].value, 0x01)
+        self.assertEqual(records[0].end, len(chunk.data) - 16)
 
 
 if __name__ == "__main__":

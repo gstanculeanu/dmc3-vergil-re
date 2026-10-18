@@ -5908,4 +5908,94 @@ E-102 invariant tests (21 tests in the class). Validated read-only through the
 shipped API against the real install: **58/58 `consistent`, 58/58
 `shared_edges`**. No game data committed.
 
+---
+
+## E-103 — a `SHW ` chunk is a **stream of records**; `+0x48` is record 0's per-position byte array (F2, bounded slice)
+
+**Observation (read-only).** All **58 `SHW ` chunks** in the 194 `*.pac` files
+under `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\` were read.
+The four `pl021.pac` chunks were read in detail. Each chunk decomposes into
+**591 records** with no gaps and no ambiguity:
+
+| region | entry | count |
+|---|---|---|
+| triangles | `[u32 i0, i1, i2, 0]` (16 B) | `N` |
+| adjacency | `[u16 n0, n1, n2, 0]` (8 B) | `N` |
+| positions | `[f32 x, y, z, 1.0]` (16 B) | `P` |
+| byte array | `u8` repeated, then NUL padding to a 16-byte boundary | `P` |
+
+Record 0's four section offsets are the header fields `+0x30` (triangles),
+`+0x38` (adjacency), `+0x40` (positions) and `+0x48` (the byte array). Each
+later record begins exactly where the previous record's padded byte array ends,
+so `+0x48` is **not** a sub-table — it is the tail of a record that starts at
+`+0x30` (correcting E-038 and E-102, which called it a "further sub-table").
+
+Raw bytes, `pl021.pac` slot 8 (base file `0x75470`, 17 records); record 1:
+
+```
+file 0x75b00 tri[0]  00 00 00 00 01 00 00 00 02 00 00 00 00 00 00 00  -> (0, 1, 2, 0)
+file 0x75c00 adj[0]  08 00 04 00 05 00 00 00                          -> (8, 4, 5, 0)
+file 0x75c80 pos[0]  59 39 1c c1 6f e0 e8 42 8d 0e 17 41 00 00 80 3f  -> (-9.764, 116.438, 9.441, 1.0)
+file 0x75d20 arr     02 02 02 02 02 02 02 02 02 02 00 00 00 00 00 00  -> ten 0x02, then NUL padding
+```
+
+| observation | result |
+|---|---|
+| chunk decomposes into whole records (each record's 4 sections tile exactly) | **58 / 58 chunks** |
+| total records | **591** |
+| each record's byte array is one constant value | **591 / 591** |
+| array length `== P` (record's position count) | **591 / 591** |
+| bytes from `array + P` to the 16-byte boundary are zero | **591 / 591** |
+| record 0's counts equal header `+0x20`/`+0x22` (`P0`, `N0`) | **58 / 58** |
+| bytes after the last record's array (chunk span) are zero | **58 / 58** |
+| every record's triangles index its positions / adjacency names its triangles | **591 / 591** |
+| every record's adjacency symmetric + three-regular, neighbours share an edge | **591 / 591** |
+
+The record counts per chunk are `1`×14, `3`×2, `4`×5, `5`×3, `6`×1, `7`×4,
+`8`×1, `17`×23, `18`×2, `19`×1, `23`×1, `25`×1 (`pl021.pac` slot 8 has 17
+records, slot 14 has 7, slots 24/26 have **1**). Across all records `P` ranges
+**7..74**, `N` ranges **10..144**, and `N == 2P − 4` (the Euler relation for a
+closed triangulated genus-0 surface) holds on **579 / 591** (97.9 %); the
+12 exceptions include the sword shapes E-102 already flagged. Total: 7,730
+positions, 13,000 triangles.
+
+The per-record byte value is a single `u8` repeated `P` times. Its distribution
+over the 591 records is `0`×25, `1`×11, `2`×33, `3`×43, `4`×34, `5`×31, `6`×2,
+`7`×33, `8`×33, `9`×38, `10`×6, `11`×28, `12`×32, `13`×32, `14`×27, `15`×30,
+`16`×30, `17`×26, `18`×6, `19`×28, `20`×27, `21`×28, `22`×1, `23`×1, `27`×3,
+`28`×3 — i.e. **0..28**, with 24/25/26 absent.
+
+**Inference.** The `SHW ` chunk is a **container of small rigid sub-meshes**
+(one record each), not a single mesh plus auxiliary tables; the geometry tables
+E-102 decoded (`+0x30`/`+0x38`/`+0x40`) are simply the **first** record's. The
+constant per-position byte is best read as a **per-record id** (a bone or
+palette/material index are all plausible), because it does not vary inside a
+record; nothing in the bytes names what the id is, so its meaning is
+**[UNKNOWN]**. The 1-record chunks (slots 24/26) and the 17-record majority
+are consistent with a per-bone rigid segmentation of a shadow/silhouette
+proxy mesh — [INFERRED], not established.
+
+**Correction to E-038 / E-102 (recorded).** E-038 and E-102 described the
+`+0x48` region as a further sub-table (E-038 saw `0x01`×40 + NUL on slot 24,
+E-102 called it "[UNKNOWN] layout"). It is the first record's per-position
+byte array, and the chunk continues with more records after it. The
+`(P, N)` census E-102 reported was **record 0 only**; the full-stream census is
+the one above.
+
+**Unknown.** The meaning of the per-position byte; the meaning of `alpha`
+(`+0x04`), `field_10` (`+0x10`) and `field_14` (`+0x14`); whether the records
+are shadow/silhouette casters or something else; and the texture binding issue
+F2 asks for — none of the record sections names a texture.
+
+**Tooling.** `tools/dmc3/shw.py` gains `ShwRecord` (`index`,
+`triangle_offset`, `position_offset`, `array_offset`, `tables`, `vertex_bytes`,
+`value`, `end`, `consistent`), `parse_shw_records` / `maybe_shw_records`, the
+`POSITION_W_BYTES` and `RECORD_ALIGNMENT` constants, and the shared
+`_build_sub_tables` helper (so `parse_shw_sub_tables` and the record parser
+validate identically). `tests/test_shw.py` gains `TestShwRecords`
+(13 tests) over a new synthetic multi-record fixture
+`fixtures.shw_chunk_with_records`. Validated read-only through the shipped API
+against the real install: **58/58 chunks parse, 591 records, 0 rejected**. No
+game data committed.
+
 
