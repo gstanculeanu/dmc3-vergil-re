@@ -868,3 +868,19 @@ moves and health bar and everything."*
   [UNKNOWN] and need engine ground truth; slot 10's f32 stream and untagged
   slots 5/6/7/9/11/22 are still undecoded. F1/F4/F2/F5/F8 remain blocked on
   engine ground truth and are not re-spun.
+
+---
+
+## 2026-10-18 — T6: CI workflow runs the unit tests on push (issue #12)
+
+- Did: added `.github/workflows/test.yml` (Python 3.13, ubuntu-latest) that runs
+  `python -m unittest discover -s tests -t tests` on push and pull_request to
+  `main`; marked BACKLOG.md T6 done. Committed as 18fb0b2 and pushed to origin
+  main; commented and closed issue #12.
+- Found: no code change was needed to make CI pass — the suite was already green
+  (221 tests, stdlib-only, no game data, no engine ground truth). CI now gates
+  every push. Phase 1's format critical path (F1 MOD payload, F4 MOT keyframes)
+  stays blocked on engine ground truth and is deliberately not re-spun.
+- Next: when engine ground truth becomes available, pick F1 or F4; otherwise
+  take another resolved-dependency slice (F2/F3/F6 payloads, F9 move set, G9/G10
+  WAD directory).
