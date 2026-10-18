@@ -56,10 +56,16 @@ from .eboot import DecodedInstruction as EbootDecodedInstruction
 from . import eboot
 from . import lang
 from . import anim
+from . import groups
+from . import meshes
+from . import vocab
 
 __all__ = [
     "eboot",
     "anim",
+    "groups",
+    "meshes",
+    "vocab",
     "EbootDecodedInstruction",
     "FIELD_OFFSETS",
     "FIELD_SIZE",

@@ -3751,3 +3751,89 @@ assert the record shapes, the data offsets, the 0x10 padding, the
 flags-add-a-header rule, and the exact-boundary property.
 
 **Suite:** 459 tests, all green.
+
+---
+
+## E-073 - The boss is 19 `MDL_<hash>` mesh definitions, one per body part, on one ubershader (G9/G10)
+
+**Observation.** The front directory's resources are **16-byte stubs** -- handles,
+not payloads:
+
+```
+0x6B0  MDLX_R_Hades   flags=0x00 size=16   data 0x6F0..0x700
+0x780  PRTX_R_Hades   flags=0x00 size=16
+0x9F0  COLX_R_Hades   flags=0x00 size=16
+```
+
+The payloads live in the body as named records. A mesh is one of them, and it is
+followed by its mesh groups:
+
+```
+0x48F57D8  resource id=1 flags=0x52 size=128  "MDL_4196b97c"
+0x48F58E0  resource                          "MG_4196b97c_0"
+0x48F5920  GroupEnd
+0x48F5960  GroupStart
+0x48F59A0  resource id=1 flags=0x1F size=148  "gochain"
+```
+
+`R_HADES.WAD` carries **19 unique `MDL_` definitions**, every one exactly **128
+bytes** with **flags `0x52`**, each with one `MG_<hash>_0` group:
+
+```
+MDL_4196b97c  @0x48F57E0   MDL_9d29aa5d  @0x4EFEC00   MDL_921b8c0d  @0x50E5DE0
+MDL_c13cd430  @0x48F5F80   MDL_1fcb5836  @0x4FEE050   MDL_175ac067  @0x5132980
+MDL_3c8ec52   @0x4DA8620   MDL_1a3b8d09  @0x4FFE280   MDL_33c43b9c  @0x5157760
+MDL_a865ab18  @0x4DFE970   MDL_8779a9ca  @0x500E530   MDL_c9a3c9b3  @0x517EAA0
+MDL_82ce541b  @0x4E45100   MDL_7a54ff    @0x504B940      (19 total)
+MDL_db637f4f  @0x4E9F6F0   MDL_18c19a85  @0x5080730
+MDL_bc314285  @0x4EB3380   MDL_c21a0097  @0x5091A50
+MDL_b2501477  @0x4ECAB80
+```
+
+**The materials name the anatomy.** `R_HADES.WAD` holds 119 `MAT_*` names and they
+are body parts:
+
+```
+MAT_templatens:chest_m_lightingfeatures1     MAT_templatens:helmet_m_lightingfeatures1
+MAT_templatens:legs_m_lightingfeatures1      MAT_templatens:skirt_m_lightingfeatures1
+MAT_templatens:cloth_m_lightingfeatures1     MAT_templatens:hadesembers
+MAT_templatens:hadesash                      MAT_templatens:fire2
+MAT_ubershader1
+```
+
+So the 19 meshes are the boss's **body parts**, each with an anatomy-named
+material. `MAT_ubershader1` is the fallback/umbrella material for the first
+definition. `R_HERCULES10.WAD` is the same shape with **1** mesh
+(`MDL_de64bce5` @0xE53E60) and 15 materials; `R_SWORD00.WAD` has 1
+(`MDL_c916bacd` @0x12730) and 1.
+
+**Inference.** The boss's geometry is addressable: every mesh definition has a
+name, an offset, a 128-byte record and a known mesh group, and its material is
+identified by an anatomy name. That is the inventory a mesh replacement needs --
+*which* meshes exist and *which part* each one is.
+
+**Unknown (the remaining gap for the model).** Where the **vertex and index
+buffers** are. A 128-byte definition cannot hold geometry, and the 4-byte hash is
+not present as a u32 anywhere in the body (0 hits for each of the first four), so
+the definition-to-geometry link is not a simple in-file pointer by that hash. The
+buffer must be reached through the mesh group or through the runtime, which is the
+next thing to decode. Note this is now a *bounded* question: the mesh side of
+GoW3R is an inventory of 19 named definitions, not an unknown blob in an 85 MB
+file.
+
+**Also observed in the same region** (not yet decoded, recorded for routing): the
+tail contains large families of `tAction*` (2065), `PEM` (1188), `MAT` (1119),
+`PDF` (846), `PTS`/`PTC` (796 each), `MOV` (376), `TweenIn`/`TweenOut` (334 each),
+`tBranch` (274), `OrbShdr` (270), `groupH` (490), `HdRip` (440), `HR` (531),
+`ANM` (404) and `gochain` / `goevtlevelloaded` object records. `MOV` and
+`tAction` are where the move set is expected to live.
+
+**Tooling.** `tools/gow3/meshes.py` (`find_mesh_definitions`, `materials`,
+`MeshDefinition`, `MESH_FLAGS`, `MESH_DEFINITION_SIZE`). A name only counts when a
+valid resource record sits exactly 8 bytes before it, so it enumerates
+*definitions* rather than string occurrences. 11 tests in
+`tests/test_gow3_meshes.py`. One of them caught a real imprecision before commit:
+the mesh-group window initially collected the *next* mesh's groups, so groups are
+now filtered by their own hash.
+
+**Suite:** 470 tests, all green.
