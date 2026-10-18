@@ -1301,5 +1301,37 @@ category 0's index is the PAC/`plNNN` id or a separate asset id; and the
 byte-level MOD/MOT decoders (F1/F4), which this resource-loader route does not
 itself reach.
 
+### 8.6 The dispatcher opens the resolved name; the loader cluster is file I/O (E-082)
+
+**Corrects E-078 (dispatcher return type) and closes the E-078/E-081 load-path
+lead.** `.text` `0x33480` does not return a `char*` name: all four arms
+`jmp 0x333F0`, which **opens** the resolved name and returns a **0x50-byte handle
+struct** (`+0x01` open flag, `+0x08` file size u32, `+0x2C` underlying handle,
+`+0x30` base offset) [VERIFIED]. So `0x33480` reads as
+`open_asset(category, index)`. `dmc3.assets.resolve_name` (the table read) is
+unchanged.
+
+The surrounding primitives are the engine's **file I/O** layer [VERIFIED]:
+
+| RVA | role |
+|---|---|
+| `0x333F0` | `open(name)` -> handle (32-bit size via `0x2F9F0`, handle via `0x2FCA0`) |
+| `0x333C0` | `blocks(handle)` = `ceil([handle+8] / 0x800)` |
+| `0x33500` | async read of `edx*0x800` bytes at `[handle+0x30]+[handle+0xC]`; sets the shared `.data` state word to 2 then 3/4 |
+| `0x335A0` | read callback: `[handle+0xC] += bytes`, sets state 3/4 |
+| `0x33390` | `close(handle)`: `0x2FC80([handle+0x2C])` then free |
+| `0x333E0` | returns the shared state word (2 = in flight, 3 = done, 4 = error) |
+
+`PeImage.call_sites` shows the whole direct-call consumer set is one cluster at
+`.text` `0x2EF620..0x2EF9C7`: `0x2EF620` `file_size(name)` (no direct caller ->
+indirect), `0x2EF750`/`0x2EF790` the multi-state streaming worker of E-078, and
+`0x2EF920` `load_file(name, dst)` (synchronous). `load_file`'s two direct callers
+(`0x1B80AC`, `0x1B871F`) hand the loaded buffer to a content parser at
+`0x1B7C70`/`0x1B7D10` -- the next engine lead.
+
+**Inference (marked).** The `(category,index)` route ends at an open file handle;
+the MOD/MOT byte decoders are downstream of the loaded buffer and are still
+**[UNKNOWN]**.
+
 
 

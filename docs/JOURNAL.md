@@ -1868,3 +1868,41 @@ moves and health bar and everything."*
   via the load path (`0x333F0`/`0x33500`) or `.pdata`, not the two signatures now
   disproved. `F3` slots 6/7/11/22 remain the always-available fallback.
 
+---
+
+## 2026-10-18 — F1/F4 bounded slice: the `(category,index)` dispatcher *opens*; the loader cluster is file I/O (E-082)
+
+- Did: followed E-078/E-081's named next step — the load path `0x333F0`/`0x33500`
+  — read-only through `G:\Games\Devil May Cry HD Collection\dmc3.exe`
+  (6,356,432 B). Disassembled the loader cluster (capstone, a local recon tool,
+  not a repo dependency) and censused its callers. Added
+  `PeImage.call_sites` (direct `call rel32` caller census, the call-side analogue
+  of `rip_relative_references`) to `tools/dmc3/pe.py` and `TestCallSites`
+  (5 tests) to `tests/test_dmc3_pe.py`. Full suite: **531 tests, all green**
+  (526 baseline + 5). Nothing written to the game; no game data committed.
+- Found (**E-082**):
+  - `0x333F0` = `open(name)`: calls `0x2FCA0(name,1)`, `0x2F9F0(handle,&u32)`,
+    allocates **0x50 bytes** and returns a handle struct (`+0x01` open flag,
+    `+0x08` size, `+0x2C` underlying handle, `+0x30` base offset). `0x333C0` =
+    `ceil([handle+8]/0x800)` blocks; `0x33500`/`0x335A0` = async block read with a
+    polled `.data` state word (2/3/4); `0x33390` = close; `0x333E0` = state read.
+  - **Correction of E-078 [VERIFIED]:** all four arms of the `(category,index)`
+    dispatcher `jmp 0x333F0`, so `0x33480` **opens** the resolved name and the
+    stored `[rsi]` is a handle, not a `char*`. `dmc3.assets.resolve_name` (the
+    table read) is unaffected; only the dispatcher's *return type* changes.
+  - The whole direct-call consumer set is one cluster, `.text`
+    `0x2EF620..0x2EF9C7`: `file_size` (`0x2EF620`, no direct caller -> indirect),
+    the E-078 streaming worker, and `load_file` (`0x2EF920`, synchronous).
+    `load_file`'s two callers (`0x1B80AC`, `0x1B871F`) feed the loaded buffer to a
+    content parser at `0x1B7C70`/`0x1B7D10` — the next engine lead.
+  - **Consequence:** the `(category,index)` route reaches *bytes*, not the
+    MOD/MOT decoder; the byte decoders are downstream of the loaded buffer and
+    remain [UNKNOWN]. This closes E-078/E-081's named load-path step rather than
+    re-walking it.
+- Docs: E-082 in `docs/EVIDENCE.md`; `docs/FORMATS.md` gains 8.6; `docs/BACKLOG.md`
+  F1/F4/T10 rows updated.
+- Next: read the content parser `0x1B7C70`/`0x1B7D10` (what its buffer is; caller
+  B writes the bytes `"PAC"` at `0x1B7CCD`) — that is the container-parse step
+  ahead of the MOD/MOT decoders. The GoW3R clip channel array (E-079/E-080) and
+  F3 slots 6/7/11/22 remain available.
+

@@ -406,6 +406,37 @@ class PeImage:
             if target in targets
         )
 
+    def call_sites(self, target_rva: int) -> List[int]:
+        """RVAs of direct ``call rel32`` instructions that target ``target_rva``.
+
+        A direct call stores its callee as a signed displacement relative to the
+        *next* instruction, so the site is recovered by ``site + 5 + rel32 ==
+        target_rva``. This is the **caller-census** primitive — the same role
+        :meth:`rip_relative_references` plays for data references — and it is how
+        the engine's small file-I/O cluster was shown to have a single consumer
+        set (E-082).
+
+        Like every scanner here this is a **byte-pattern scan, not a
+        disassembler**: an ``E8`` byte that is really an operand can produce a
+        false positive, so a hit should be confirmed against a disassembler
+        before it is believed. Indirect calls (``call [mem]`` / ``call r64``)
+        carry no displacement and are invisible to it, so the result is a
+        *prefix* over those, never a guess.
+        """
+        sites: List[int] = []
+        for section in self.executable_sections:
+            code = self.data[section.raw_offset:
+                             section.raw_offset + section.raw_size]
+            limit = len(code) - 5
+            for start in range(0, limit + 1):
+                if code[start] != CALL_REL32:
+                    continue
+                rel = struct.unpack_from("<i", code, start + 1)[0]
+                site = section.virtual_address + start
+                if site + 5 + rel == target_rva:
+                    sites.append(site)
+        return sorted(sites)
+
     # -- limited instruction decoding -----------------------------------
     def _code_window(self, rva: int, size: int):
         """``(section, bytes)`` starting at ``rva``, or ``(None, None)``.

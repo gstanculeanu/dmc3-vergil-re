@@ -4387,3 +4387,115 @@ the registry's lookup consumers locate the MOT record/keyframe decoder. Do not
 re-walk them. The byte-level MOD/MOT decoders (F1/F4) remain **[UNKNOWN]**, and the
 remaining engine route is the load path (`0x333F0`/`0x33500`) or the `.pdata`
 function table, not these two signatures.
+
+
+## E-082 - DMC3 `dmc3.exe`: the asset loader is a file open/read layer, and the `(category,index)` dispatcher *opens* (F1/F4 route, bounded slice)
+
+**Observation (read-only from `G:\Games\Devil May Cry HD Collection\dmc3.exe`,
+6,356,432 B; `.text` RVA `0x1000`, image base `0x140000000`).** This slice followed
+E-078/E-081's stated next step: read the loader cluster at `.text`
+`0x333F0`/`0x33500` and find its consumers. It is the engine's **file I/O** layer,
+and E-078's arm-3 inference ("the resolved colour/asset *name* ... is handed to
+`0x333C0`/`0x33500`") is **corrected**: the dispatcher opens the resolved name and
+returns a handle struct.
+
+**1. `0x333F0` opens a named file and returns a 0x50-byte handle [VERIFIED].**
+Reading the code (`0x333F0 48 83 EC 30` ...):
+
+```
+0x333F0  push rbx; sub rsp,0x30; (stack cookie); mov edx,1
+0x3340A  E8 91 C8 FF FF        call 0x2FCA0          ; open(name, mode=1), rcx=name
+0x3340F  8B D8                 mov  ebx, eax         ; handle
+0x33411  85 C0                 test eax, eax
+0x33413  78 17                 js   0x3342C         ; fail -> return 0
+0x33415  48 8D 54 24 20        lea  rdx, [rsp+0x20]
+0x3341A  8B C8                 mov  ecx, eax
+0x3341C  E8 CF C5 FF FF        call 0x2F9F0          ; size(handle, &u32)
+0x33441  BA 01 00 00 00        mov  edx, 1
+0x33446  8D 4A 4F              lea  ecx, [rdx+0x4f]  ; ecx = 0x50
+0x33449  FF 15 09 C0 31 00     call [rip+0x31C009]   ; alloc 0x50 bytes (IAT)
+0x33457  89 58 2C              mov  [rax+0x2C], ebx   ; underlying handle
+0x3345E  89 41 08              mov  [rcx+8],  eax'    ; file size (u32)
+0x33464  C6 41 01 01           mov  byte [rcx+1], 1   ; "open" flag
+```
+
+So the returned object is a **0x50-byte handle struct**: `+0x01` open flag,
+`+0x08` size (u32), `+0x2C` the underlying file handle, `+0x30` a base offset.
+`0x2FCA0`/`0x2F9F0`/`0x2FC80` are the engine's open/size/close wrappers; the latter
+two are thunks into the CRT region (`jmp 0x48E20`, `jmp 0x48CB0`) [INFERRED file
+I/O].
+
+**2. `0x333C0` is the file size in 0x800-byte blocks [VERIFIED].**
+`8B 41 08` (`mov eax,[rcx+8]`) `05 FF 07 00 00` (`add eax,0x7ff`) `99` (`cdq`)
+`81 E2 FF 07 00 00` (`and edx,0x7ff`) `03 C2` `C1 F8 0B` (`sar eax,0xb`) `C3` -- a
+signed ceiling `ceil([rcx+8] / 0x800)`.
+
+**3. `0x33500` reads blocks and `0x335A0` advances the cursor [VERIFIED].**
+`C1 E2 0B` (`shl edx,0xb`: count -> bytes); the read offset is
+`[rcx+0x30]+[rcx+0xC]`; then `8B 49 2C` (`mov ecx,[rcx+0x2C]`) and `call 0x2EA40`
+with the callback `0x335A0` (`0x3353B 48 8D 05 5E 00 00 00` -> `0x335A0`).
+`0x335A0` is `44 01 4A 0C` (`add [rdx+0xC], r9d`) then sets a shared `.data` state
+word to 3 (`0x3355A9`) / 4 (`0x3355B4`). `0x33500` sets it to 2 before the read
+(`0x335547`) and 3/4 after (`0x335579`); `0x333E0` (`8B 05 6E 9D 52 00`, `C3`)
+reads it back. So this is an **async read** with a polled state (2 = in flight,
+3 = done, 4 = error).
+
+**4. `0x33390` closes [VERIFIED].** `80 79 01 01` (`cmp byte [rcx+1],1`) `75 08`
+`8B 49 2C` `E8 D5 C8 FF FF` (`call 0x2FC80([rcx+0x2C])`) then
+`FF 15 B4 C0 31 00` (free via IAT).
+
+**5. The whole consumer set is one cluster [VERIFIED, byte-pattern + disassembly].**
+`PeImage.call_sites` (new) finds every direct `call rel32` to the five primitives;
+all of them lie inside `.text` `0x2EF620..0x2EF9C7`:
+
+| primitive | direct `call` sites |
+|---|---|
+| `0x333F0` open | `0x2EF69D`, `0x2EF82A`, `0x2EF965` |
+| `0x333C0` blocks | `0x2EF6B5`, `0x2EF8A0`, `0x2EF97D` |
+| `0x33500` read | `0x2EF8AE`, `0x2EF98C` |
+| `0x33390` close | `0x2EF6BF`, `0x2EF8CF`, `0x2EF9BD` |
+| `0x333E0` state | `0x2EF8B9`, `0x2EF999`, `0x2EF9B0` |
+
+Because the scan is a byte pattern, each site was confirmed by disassembly. The
+cluster is three routines:
+
+* `0x2EF620` = `file_size(name)`: strcpy the name, map `/` -> `\`, open,
+  blocks x 0x800, close, return the padded size. It has **no** direct caller, so it
+  is reached indirectly (function pointer / vtable) [UNKNOWN how].
+* `0x2EF750`/`0x2EF790` = a **multi-state streaming worker** (E-078's caller). The
+  request entry `rdx` has `+0x00` active, `+0x01` state (0 -> resolve/open,
+  1 -> read), `+0x04` u32 index into a 0x88-byte record array at `+0x10`; the
+  record's type at `+0x00` selects: `1` -> `open_asset(category,index)`
+  (`call 0x33480`), `2` -> open the inline name at `+0x10`, `3` ->
+  `call [record+8]`. After open it uses `0x333C0`/`0x33500` and polls `0x333E0`.
+* `0x2EF920` = `load_file(name, dst)`: a **synchronous** full read -- strcpy, open,
+  blocks, read into `dst`, spin on `0x333E0` until 3/4 (yielding through
+  `0x31BE0`), close, return blocks x 0x800.
+
+**6. The one synchronous reader hands its buffer to a parser [VERIFIED].**
+`0x2EF920` has exactly two direct callers, `0x1B80AC` and `0x1B871F`, and both
+immediately pass the loaded buffer to `.text` `0x1B7D10` (caller B also calls
+`0x1B7C70`) -- a **file-content parser** at `0x1B7C70`/`0x1B7D10`.
+
+**Correction to E-078 [VERIFIED].** E-078 described the dispatcher's result as a
+`char*` name handed to `0x333C0`/`0x33500`. The bytes show all four arms
+`jmp 0x333F0`, so they resolve the name **and open it**; the object stored at
+`[rsi]` is the 0x50-byte handle, and `0x333C0`'s `[rcx+8]` is the file size.
+`dmc3.assets.resolve_name` (the table read) is unaffected -- only the dispatcher's
+*return type* changes, and the correct reading of `0x33480` is
+`open_asset(category, index)`.
+
+**Inference (marked).** The `(category,index)` route ends at an open file handle:
+it is the engine's **file loader**, not the MOD/MOT decoder. The decoders are
+downstream of the loaded buffer; the one reachable consumer is the
+`0x1B7C70`/`0x1B7D10` parser, which is the next lead.
+
+**Unknown.** The exact meaning of `0x2EA40` and of the file primitives; the
+virtual-only `.data` state word; how `0x2EF620` is reached; what
+`0x1B7C70`/`0x1B7D10` parse (caller B's parser writes the bytes `"PAC"` at
+`0x1B7CCD`); the byte-level MOD/MOT decoders (F1/F4) remain **[UNKNOWN]**.
+
+**Consequence.** `tools/dmc3/pe.py` gains `PeImage.call_sites` (direct `call
+rel32` caller census, the call-side analogue of `rip_relative_references`); 5
+tests (`TestCallSites`) on the synthetic PE. Read-only validation on the real
+image reproduces the census above. No game data committed.

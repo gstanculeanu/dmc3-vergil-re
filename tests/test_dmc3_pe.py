@@ -163,6 +163,41 @@ class TestRipRelativeScan(unittest.TestCase):
         self.assertEqual(image.references_to_string(b"NOPE"), [])
 
 
+class TestCallSites(unittest.TestCase):
+    """E-082: the caller census — direct ``call rel32`` sites to an RVA."""
+
+    @staticmethod
+    def _call(at_rva: int, target: int) -> bytes:
+        rel = target - (at_rva + 5)
+        return b"\xe8" + struct.pack("<i", rel)
+
+    def test_finds_a_direct_call(self):
+        code = b"\x90" * 8 + self._call(TEXT_RVA + 8, 0x2000)
+        image = pe.PeImage.from_bytes(synthetic_pe(code))
+        self.assertEqual(image.call_sites(0x2000), [TEXT_RVA + 8])
+
+    def test_finds_every_call_site_sorted(self):
+        code = (self._call(TEXT_RVA, 0x3000) + b"\x90" * 4
+                + self._call(TEXT_RVA + 9, 0x3000))
+        image = pe.PeImage.from_bytes(synthetic_pe(code))
+        self.assertEqual(image.call_sites(0x3000),
+                         [TEXT_RVA, TEXT_RVA + 9])
+
+    def test_different_target_is_not_reported(self):
+        code = self._call(TEXT_RVA, 0x2000)
+        image = pe.PeImage.from_bytes(synthetic_pe(code))
+        self.assertEqual(image.call_sites(0x2001), [])
+
+    def test_absent_target_returns_empty(self):
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8))
+        self.assertEqual(image.call_sites(0x9999), [])
+
+    def test_non_executable_section_is_not_scanned(self):
+        payload = self._call(DATA_RVA, 0x2000)
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8, payload))
+        self.assertEqual(image.call_sites(0x2000), [])
+
+
 class TestReferenceContext(unittest.TestCase):
     CALL_TARGET = 0x1234
 
