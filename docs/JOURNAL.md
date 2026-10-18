@@ -2607,3 +2607,47 @@ moves and health bar and everything."*
   `+0x48` across the same 58 chunks with the E-102 tables in hand. F1 stays
   parked on its documented correlation dead end; F4 stays on the engine route.
 
+---
+
+## 2026-10-18 — F2 bounded slice: a `SHW ` chunk is a stream of records; `+0x48` is record 0's byte array (E-103)
+
+- Did: took E-102's own stated next step — read the `+0x48` region across the
+  same 58 `SHW ` chunks. Read the install read-only, dumped the region of the
+  four `pl021.pac` chunks, then found the region tiles exactly as records.
+  Added `ShwRecord` (`value`, `end`, `consistent`), `parse_shw_records` /
+  `maybe_shw_records`, `RECORD_ALIGNMENT`/`POSITION_W_BYTES` and the shared
+  `_build_sub_tables` helper to `tools/dmc3/shw.py`; exported them; added the
+  synthetic `fixtures.shw_chunk_with_records` and `TestShwRecords` (13 tests).
+  Full suite: **679 tests, all green** (666 baseline + 13). Nothing written to
+  the game; no game data committed.
+- Found (**E-103**), read-only on the install:
+  - A `SHW ` chunk is a **stream of records**, each: triangles `[u32 i0,i1,i2,0]
+    x N`, adjacency `[u16 n0,n1,n2,0] x N`, positions `[f32 x,y,z,1.0] x P`,
+    then a **per-position byte array** `[u8 value] x P` NUL-padded to 16 bytes.
+    Record 0's four sections are the header's `+0x30`/`+0x38`/`+0x40`/`+0x48`
+    pointers (E-102's tables are record 0); each later record starts where the
+    previous record's padded array ends. So **`+0x48` is not a further
+    sub-table** — correcting E-038/E-102.
+  - **58/58 chunks decompose exactly** into **591 records** (1..25 per chunk;
+    `pl021.pac` slots 8/14/24/26 = 17/7/1/1). Every record's array is constant
+    and exactly `P` bytes (591/591), the padding to 16 is zero (591/591), and
+    the chunk span ends in zero padding (58/58).
+  - **The `+0x20`/`+0x22` u16 pair is record 0's `(P, N)`** on 58/58 — the
+    first meaning recovered for those fields.
+  - Record geometry: `P` 7..74, `N` 10..144, `N == 2P − 4` on **579/591**
+    (97.9 %; the exceptions include the sword shapes E-102 flagged). Every
+    record's triangles index its positions, adjacency names its triangles, and
+    is symmetric + three-regular (591/591). 7,730 positions / 13,000 triangles
+    in total.
+  - The per-record byte takes values 0..28 (24/25/26 absent). [INFERRED]
+    per-record bone/palette/material id; **meaning [UNKNOWN]** — the bytes do
+    not name it.
+- Docs: E-103 in `docs/EVIDENCE.md`; `FORMATS.md` §5 header bullets and §5.1.1
+  rewritten to the record-stream reading (with a worked example for slot 8
+  record 1); `BACKLOG.md` F2 row updated (evidence cell adds E-103).
+- Next: the per-record byte's meaning and the `alpha`/`field_10`/`field_14`
+  header fields remain; correlating the byte with the `MOD ` mesh's own
+  partition (E-091..E-101) could name it — a bounded next slice. The texture
+  binding F2 asks for is still not in this chunk. F1 stays parked on its
+  documented correlation dead end; F4 stays on the engine route.
+
