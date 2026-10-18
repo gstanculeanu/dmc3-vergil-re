@@ -6,10 +6,13 @@ import fixtures
 from dmc3 import PnstArchive, align_up
 from dmc3.pnst import (
     MAGIC,
+    PnstRawBlock,
     TAG_CONTAINER,
     TAG_MODEL,
     TAG_PNST,
     TAG_SHADER,
+    maybe_pnst_raw_block,
+    parse_pnst_raw_block,
 )
 
 
@@ -104,6 +107,36 @@ class TestPnstContainer(unittest.TestCase):
         self.assertEqual(len(archive), 10)
         self.assertEqual(archive.entries[-1], 0x88F20)
         self.assertFalse(archive.empty_slots)
+
+
+class TestPnstRawBlock(unittest.TestCase):
+    def test_header_matches_observed_values(self):
+        # Slots 0 and 3 of both weapon archives share the header u32s (1, 17)
+        # (evidence E-048).
+        block = fixtures.pnst_raw_block()
+        parsed = parse_pnst_raw_block(block)
+        self.assertEqual(PnstRawBlock.HEADER_SIZE, 8)
+        self.assertEqual(len(block), 8)
+        self.assertEqual(parsed.field_a, 1)
+        self.assertEqual(parsed.field_b, 17)
+
+    def test_header_fields_are_read_verbatim(self):
+        block = fixtures.pnst_raw_block(field_a=7, field_b=42, tail=b"\x00" * 8)
+        parsed = parse_pnst_raw_block(block)
+        self.assertEqual(parsed.field_a, 7)
+        self.assertEqual(parsed.field_b, 42)
+
+    def test_parse_rejects_short_data(self):
+        with self.assertRaises(ValueError):
+            parse_pnst_raw_block(b"\x01\x00\x00\x00")  # only 4 bytes
+
+    def test_maybe_returns_none_for_short_data(self):
+        self.assertIsNone(maybe_pnst_raw_block(b"\x01\x00\x00\x00"))
+
+    def test_maybe_parses_header(self):
+        block = fixtures.pnst_raw_block(field_a=1, field_b=17)
+        self.assertIsInstance(maybe_pnst_raw_block(block), PnstRawBlock)
+        self.assertEqual(maybe_pnst_raw_block(block).field_b, 17)
 
 
 class TestPnstChunkTagging(unittest.TestCase):

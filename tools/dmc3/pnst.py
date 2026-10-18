@@ -19,7 +19,7 @@ Layout (all integers little-endian) as observed on both weapon archives
 checked.  Chunks carry their own structure: ``MOD `` mesh headers (E-030),
 ``SHW `` shader headers (E-036/E-038), nested ``PAC\0`` and ``PNST``
 containers, plain-text cloth configs (``;wp005.clt``, like E-004), and raw
-blocks beginning ``01 00 00 00 11 00 00 00`` whose meaning is [UNKNOWN].
+blocks (see :class:`PnstRawBlock`, evidence E-048).
 
 Because the container stores no chunk length, a chunk's span is derived as the
 distance to the next occupied entry — an upper bound, like ``PAC``.
@@ -241,3 +241,55 @@ class PnstArchive:
 
     def __repr__(self) -> str:
         return f"<PnstArchive {self.name!r} entries={self.entry_count}>"
+
+
+@dataclass(frozen=True)
+class PnstRawBlock:
+    """The raw (untagged) blocks found in PNST weapon archives.
+
+    Slots 0 and 3 of both ``plwp_vergilsword.pac`` and
+    ``plwp_newvergilsword.pac`` begin with an identical 8-byte header
+    (evidence E-048), body-relative and little-endian::
+
+        +0x00 u32 field_a   observed 1
+        +0x04 u32 field_b   observed 17 (0x11)
+
+    Everything after the header is [UNKNOWN]: in the observed blocks it opens
+    with a zero-filled run (the first non-zero byte sits at body+2049) and
+    then structured data whose meaning requires engine ground truth.  This
+    reader decodes the header only and makes no claim about the tail.
+
+    Slots carrying other raw payloads (e.g. slot 9 of
+    ``plwp_newvergilsword.pac``) do not match this header and remain wholly
+    [UNKNOWN].
+    """
+
+    HEADER_SIZE = 8
+    """Size of the decoded raw-block header, in bytes."""
+
+    field_a: int
+    field_b: int
+
+
+def parse_pnst_raw_block(data: bytes) -> PnstRawBlock:
+    """Read the 8-byte header of a raw PNST block (``field_a``, ``field_b``).
+
+    Raises ``ValueError`` if ``data`` holds fewer than 8 bytes.  No semantic
+    claim is made about the values or about the bytes that follow the header.
+    """
+    if len(data) < PnstRawBlock.HEADER_SIZE:
+        raise ValueError(
+            f"raw block too small for an {PnstRawBlock.HEADER_SIZE}-byte header"
+        )
+    return PnstRawBlock(field_a=u32(data, 0), field_b=u32(data, 4))
+
+
+def maybe_pnst_raw_block(data: bytes) -> Optional[PnstRawBlock]:
+    """Parse a raw-block header, or ``None`` if there are fewer than 8 bytes.
+
+    Unlike :func:`parse_pnst_raw_block` this never raises; it is handy for
+    classifying raw chunks without over-claiming about their contents.
+    """
+    if len(data) < PnstRawBlock.HEADER_SIZE:
+        return None
+    return parse_pnst_raw_block(data)

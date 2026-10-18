@@ -119,16 +119,34 @@ data  chunks at the recorded offsets
 Unlike `PAC`, no size-prefixed chunk framing has been observed: chunk tags,
 when present, sit at byte 0. Chunk kinds seen in the wild: `MOD ` mesh,
 `SHW ` shader, nested `PAC\0`, nested `PNST`, plain-text cloth config
-(`;wp005.clt`), and raw blocks beginning `01 00 00 00 11 00 00 00` whose
-meaning is [UNKNOWN].
+(`;wp005.clt`), and raw blocks (evidence E-048).
 
-**Unknown.** The raw-block format, per-chunk payload layouts beyond the
-headers already decoded (MOD: E-030/E-031; SHW: E-036/E-038), whether offset
-`0` occurs as an empty slot, and the contents of nested containers. Open issue
-*"Reverse the PNST weapon container"* continues at the payload level.
+**Raw block header — [PARTIAL structure / UNKNOWN semantics]** (E-048).
+Slots 0 and 3 of both weapon archives carry identical 36,864-byte raw blocks
+whose first 8 bytes are little-endian `u32 field_a == 1`, `u32 field_b == 17`
+(`0x11`). The body opens with a zero-filled run (first non-zero byte at
+body+2049 in every observed block) followed by structured data whose layout
+and meaning are not established from bytes alone.
 
-`tools/dmc3/pnst.py` exposes `PnstArchive`, decoding exactly the header and
-offset table above; exercised by unit tests on synthetic fixtures (no game
+```
+raw block (body-relative, little-endian):
++0x00  u32 field_a   observed 1 (all four blocks)
++0x04  u32 field_b   observed 17 / 0x11 (all four blocks)
++0x08  ...           zero run, then structured data; [UNKNOWN layout]
+```
+
+**Unknown.** Semantics of `field_a`/`field_b`; whether the body+2049 zero-run
+length is significant; the raw-block tail structure; a second, different raw
+block appears at slot 9 of `plwp_newvergilsword.pac` (400 bytes, a u16 stream
+with `0xFFFF` separators and a `0x7FFF`-patterned tail). Per-chunk payload
+layouts beyond the headers already decoded (MOD: E-030/E-031; SHW: E-036/E-038),
+whether offset `0` occurs as an empty slot, and the contents of nested
+containers. Open issue *"Reverse the PNST weapon container"* continues at the
+payload level.
+
+`tools/dmc3/pnst.py` exposes `PnstArchive` (header + offset table) and
+`PnstRawBlock` / `parse_pnst_raw_block` / `maybe_pnst_raw_block` (the 8-byte
+raw-block header only), exercised by unit tests on synthetic fixtures (no game
 data committed).
 
 ---

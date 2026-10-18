@@ -328,6 +328,25 @@ def pnst_archive() -> bytes:
     return bytes(header) + bytes(body)
 
 
+def pnst_raw_block(field_a: int = 1, field_b: int = 17, tail: bytes = b"") -> bytes:
+    """A synthetic PNST raw mystery block mirroring plwp_*.pac slots 0/3 (E-048).
+
+    Observed header, body-relative and little-endian::
+
+        +0x00 u32 field_a   (observed 1)
+        +0x04 u32 field_b   (observed 17, 0x11)
+
+    Identical in slots 0 and 3 of both weapon archives. Everything after the
+    header is [UNKNOWN]; the fixture appends an optional synthetic tail. No
+    game bytes are committed; the fixture locks the observed header so a parser
+    can't silently drift from the real artifact.
+    """
+    blob = bytearray(8)
+    struct.pack_into("<II", blob, 0, field_a, field_b)
+    blob += tail
+    return bytes(blob)
+
+
 def raw_chunk_slot0() -> bytes:
     """A synthetic raw chunk mirroring pl021.pac slot 0's header (E-033).
 

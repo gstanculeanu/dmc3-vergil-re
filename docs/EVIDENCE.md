@@ -2192,3 +2192,79 @@ in tests/test_dds.py.
 …) is not established from bytes alone; neither is whether the GIMP re-save
 altered the payload relative to a retail image. DX10 extended headers and
 other fourCCs are not decoded (documented `DdsError`); none occur locally.
+
+
+## E-048 — PNST raw-block header decoded (F6, bounded slice)
+
+**Observation.** Read-only from both weapon archives
+(`plwp_vergilsword.pac`, `plwp_newvergilsword.pac`). Slots 0 and 3 of each
+file are raw blocks (no ASCII tag) of identical size 36,864 bytes
+(0x30..0x9030 and 0xB3A0..0x143A0). Every one of the four blocks begins with
+the same 8-byte little-endian header:
+
+```
+plwp_vergilsword.pac slot 0 (file 0x30): 01 00 00 00 11 00 00 00
+                                         u32 field_a = 1
+                                         u32 field_b = 17 (0x11)
+plwp_vergilsword.pac slot 3 (file 0xB3A0): 01 00 00 00 11 00 00 00  (identical)
+plwp_newvergilsword.pac slot 0 (file 0x30): 01 00 00 00 11 00 00 00  (identical)
+plwp_newvergilsword.pac slot 3 (file 0xB3A0): 01 00 00 00 11 00 00 00  (identical)
+```
+
+After the header the body opens with a zero-filled run: in every block the
+first non-zero byte is at **body+2049** (`01 02 00 e4 aa 00 00 00 01 80 00 01
+00 00 00 00 …`), and 32,233 of the 36,856 body bytes are non-zero, so the
+tail is structured data, not padding. The header's field meanings and the tail
+layout are not established from bytes alone.
+
+A second raw block appears only in `plwp_newvergilsword.pac` (slot 9,
+0x88F20..0x890B0, 400 bytes): a u16 stream beginning `06 00 da 00 ff ff 04 00
+ff ff`, heavy on `0x0052` ('R') values, with `0xFFFF` separators at u16
+indices 2, 4, 45, 110, 151 and a `0x7FFF`/`-1`-patterned tail — superficially
+reminiscent of pl021.pac slot 21's segments (E-043) but not the same layout.
+
+**Inference.** `u32 1, u32 17` is a shared raw-block header across the four
+slots in both archives; `field_b == 17` (0x11) is constant, not per-slot. The
+tail's meaning (and whether field_b is a type, version, count, or size)
+requires engine ground truth. No raw block's payload is decoded.
+
+**Unknown.** Semantics of `field_a`/`field_b`; the tail structure; whether the
+body+2049 zero-run length is significant; slot 9's u16 stream; whether any raw
+block corresponds to a known weapon sub-structure.
+
+**Consequence.** `tools/dmc3/pnst.py` gains `PnstRawBlock` (field_a, field_b),
+`parse_pnst_raw_block()` and `maybe_pnst_raw_block()`, decoding exactly the
+8-byte header from real bytes; `tests/test_pnst.py` gains `TestPnstRawBlock`
+(5 tests) on synthetic fixtures (no game data committed). `docs/FORMATS.md`
+§2 records the header as [PARTIAL]; `docs/BACKLOG.md` F6 row updated. F6
+remains open: payload semantics need engine ground truth.
+
+
+## E-049 — SHW `+0x48` region is not a uniform table; slots 24/26 are not byte-identical (F2 correction)
+
+**Observation.** Re-reading the four real `SHW ` chunks of `pl021.pac`
+(slots 8/14/24/26) shows the **headers are byte-identical** (every field at
++0x00..+0x50 matches between slots 24 and 26), but the **payloads diverge at
+body+0x11**: slot 24 continues `02 00 00 d8 15 03 ...` while slot 26 continues
+`01 00 00 67 00 00 00 ...`, and their tails differ (slot 24 ends
+`0x01`×40+`0x00`×8 immediately before the next chunk; slot 26 ends in zeros).
+So slots 24/26 share a header but are **not** byte-identical chunks.
+
+The `+0x48` region likewise has no uniform structure across the four chunks:
+slot 8 holds a 16-byte preamble (`0x03`×10 + zeros) followed by
+`[u32,u32,u32,u32=0]` triple entries with indices 0–9; slot 14 holds a
+32-byte zero preamble followed by a mixed u32 stream (values 0–11); slot 24
+holds `0x01`×40+`0x00`×8 (48 bytes, then the chunk ends); slot 26 is all
+zeros across its `+0x48` region. All four regions were read to each chunk's
+exact span (derived from the PAC offset table).
+
+**Correction.** E-036's claim that "slots 24 and 26 are byte-identical `SHW `
+chunks" and E-038's table row "identical to slot 24 (byte-identical chunks)"
+hold for the header only and are falsified for the payload.
+
+**Inference.** None beyond structure: the `+0x48` sub-table (the texture-binding
+lead that issue F2 asks about) is not a spec-able uniform table from these
+bytes.
+
+**Unknown.** What the `+0x48` region encodes; why slots 24/26 differ; the
+texture binding. Not retried from bytes alone — engine ground truth needed.
