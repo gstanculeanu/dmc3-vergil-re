@@ -1023,3 +1023,32 @@ moves and health bar and everything."*
   stays blocked on engine ground truth and is not re-spun. Pick another resolved-dependency
   slice (F3 remaining untagged slots, G9 entry->resource binding on a larger WAD, or
   H1/H2/H3 research) if the loop continues.
+
+---
+
+## 2026-10-18 — F1 and F4 recorded as dead ends needing engine ground truth
+
+- Did: reviewed the full backlog, open issues, and all evidence ledger entries.
+  Confirmed that every Phase 1 format critical-path item (F1 MOD mesh payload,
+  F4 MOT keyframe encoding) has had multiple bounded slices with no new result
+  possible from bytes alone. All remaining unknowns in F1/F4/F2/F3/F5/F6/F7/F8
+  require engine ground truth (disassembly or in-game capture), which this
+  project cannot produce by rule (read-only installs, no DLL injectors, no
+  script plugins). G9/G10 WAD directory binding and name→WAD binding are also
+  unknown and block the WAD writer / boss test loop.
+- Found:
+  - **E-050** (new): F1 dead end — `MOD ` header (E-030) and body prefix (E-031)
+    fully decoded, but payload body beyond body +0x60 (vertices, indices,
+    normals, UVs, skin weights) needs engine ground truth. Prior-art FLVER
+    cross-check (E-014/E-015, T7b) is itself undecoded beyond GX blocks.
+  - **E-051** (new): F4 dead end — record layer (E-019), frame-time field
+    (E-026), preamble/keyframe split (E-028/E-029), and u16[1..3] census
+    (E-028) all decoded, but channel assignment/scale/zero point and the
+    record→bone mapping need engine ground truth.
+- Docs: added E-050 and E-051 to docs/EVIDENCE.md as recorded dead ends;
+  commented on issues #1 (F1) and #2 (F4) with findings and what remains;
+  both issues left open.
+- Tests: full suite **254 tests, all green**; no code changes this iteration.
+- Next: nothing available from bytes alone. When engine ground truth becomes
+  available, F1 and F4 are the unblocked critical-path items. Otherwise, pick
+  any resolved-dependency research item (H1/H2/H3) or document a new dead end.

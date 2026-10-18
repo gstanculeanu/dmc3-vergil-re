@@ -2268,3 +2268,74 @@ bytes.
 
 **Unknown.** What the `+0x48` region encodes; why slots 24/26 differ; the
 texture binding. Not retried from bytes alone — engine ground truth needed.
+
+---
+
+## E-050 — F1 dead end: `MOD ` payload body beyond +0x5C needs engine ground truth
+
+**Observation.** Scanned all 286 `MOD ` chunks across the install (E-030)
+and decoded the body prefix for all four `pl021.pac` `MOD ` chunks (E-031):
+
+| Offset | Field | Observation |
+|---|---|---|
+| body +0x00..+0x1B | zero bytes | 28 bytes, all chunks |
+| body +0x1C | u16 marker | `0x8001`, constant across all chunks |
+| body +0x1E | u16 count | varies per mesh: 474/300/182/182 |
+| body +0x24 | u32 | varies per mesh: 768/192/128/128 |
+| body +0x4C..+0x5B | four f32s | vector-like magnitudes (tens to ~113) |
+| body +0x5C | u32 repeat | equals count only for byte-identical slots 23/25 |
+
+**Inference.** The `MOD ` header is a fixed 0x24-byte block and the body
+prefix is a fixed 0x60-byte block, both fully decoded. The payload body
+layout **beyond** body +0x60 (vertices, indices, normals, UVs, skin weights)
+remains entirely undecoded.
+
+**Dead end.** Cross-referencing against the prior-art FLVER body
+(E-014/E-015, T7b) was considered: the FLVER header, section table, and GX
+blocks are decoded (E-039/E-040/E-041), but the FLVER vertex/index buffer
+layout beyond the GX groups is itself undecoded and needs a FromSoftware
+FLVER spec or engine ground truth. The MOD `count` field's referent
+(vertices? primitives? bones?) and the vertex declaration cannot be
+established from DMC3 bytes alone.
+
+**Status.** F1 is **not retried from bytes alone**. Engine ground truth
+(disassembly of the mesh vertex loader, or an in-game frame capture
+correlated with decoded vertex data) is required. This is a recorded dead
+end, not an abandoned item — it is unblocked the moment engine ground truth
+becomes available.
+
+---
+
+## E-051 — F4 dead end: MOT keyframe u16[1..3] semantics need engine ground truth
+
+**Observation.** Walked every MOT chunk in all ten `pl021_*.pac` files
+(7,659 records, ~87,700 keyframe groups, 0 walk failures):
+
+* Record layer fully decoded (E-019): `u32 record_count` followed by
+  self-describing records `(u16 size, u16 groups, u16 field_a, u16 field_b,
+  data)`.
+* Keyframe group first u16 decoded (E-026): `frame = u16[0] − 0x8000`,
+  monotonic and bounded by header duration, verified on all 840 install
+  chunks (623,060 keyframes, 0 violations on Vergil chunks).
+* Preamble/keyframe split bounded (E-028/E-029): each record = `field_a`
+  preamble groups (3 f32 pairs each, |v| typically ≤ 10) followed by
+  `groups` keyframe groups. `field_a == 3` in 7,656/7,659 records. Preamble
+  is **not** a stored base pose (0/7,659 matches).
+* u16[1..3] census (E-028): per-keyframe signed u16 values spanning
+  [−32768, 32767], modal values ±0x3FFF (~±0.5 Q15, ~5,500 hits/channel of
+  87,662), varying per keyframe within a record (not constant).
+
+**Inference.** Each keyframe group = offset-binary frame time + three
+quantized 16-bit channels, consistent with per-bone position or rotation
+components in Q15 fixed point — but **channel assignment, scale, and zero
+point are not established from bytes alone**. No record→bone mapping exists
+in the bytes (no field matches a bone index 0–23, no field varies as a bone
+selector). field_b is always 0 observed.
+
+**Dead end.** The u16[1..3] channel semantics, scale, zero point, preamble
+group semantics, and record→bone mapping cannot be established from DMC3
+bytes alone. Engine ground truth (disassembly of the animation player, or
+comparing a decoded clip against an in-game capture) is required.
+
+**Status.** F4 is **not retried from bytes alone**. This is a recorded dead
+end; unblocked the moment engine ground truth becomes available.
