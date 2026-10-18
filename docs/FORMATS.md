@@ -81,8 +81,9 @@ its layout is undecoded.
 The other eight untagged slots (5, 6, 7, 9, 10, 11, 21, 22) have different
 leading bytes (E-008) — so no single header shape is shared across them.
 Slot 0's header (E-033), slot 5's segment stream (E-052), slot 6's record table
-(E-086), slot 10's pair table (E-037) and slot 21's segment table (E-043) are
-decoded structurally; every field meaning remains [UNKNOWN]:
+(E-086), slot 7's vector-record table (E-089), slot 10's pair table (E-037) and
+slot 21's segment table (E-043) are decoded structurally; every field meaning
+remains [UNKNOWN]:
 
 * **slot 5** [PARTIAL structure / [UNKNOWN] semantics] — at file offset
   `0x06B6E0`, span `0x4B30` (9,624 u16s): a little-endian u16 stream split
@@ -123,10 +124,23 @@ decoded structurally; every field meaning remains [UNKNOWN]:
   exceptions are the all-zero records plus indices `2, 3, 4, 5, 47` and the
   six-record run `93–98` (which all carry `field_c == 81`). Every field
   meaning is [UNKNOWN]; the parser reads exactly the observed layout.
-* **slots 7, 11** — leading bytes differ per slot and neither shares slot 6's
-  record shape (slot 7 opens `02 00 00 00`, slot 11 opens the f32 `10.0`;
-  `field_c == index` holds for 1/5,020 and 0/168 records respectively).
-  Layouts [UNKNOWN].
+* **slot 7** [PARTIAL structure / [UNKNOWN] semantics] — at file offset
+  `0x070600`, span `0x4E70` (20,080 bytes = **251 fixed `0x50`-byte records**),
+  no separate header or count field (evidence E-089). Each record is
+  `u32 field_00`, three zero u32s, then four `f32[4]` vector slots at
+  `+0x10`/`+0x20`/`+0x30`/`+0x40`. `field_00` is `2` ×246, `3` ×4
+  (indices `142, 151, 163, 164`) and `4` ×1 (index `143`); the three reserved
+  u32s are zero in all 251 records. Vector slot 3 is all-zero in every record.
+  The fourth component of vector slot 0 is exactly `1.0` in 247/251 records
+  (exceptions are the four `field_00 == 3` records: 0.0, 61.0, 341.0, 0.0).
+  Slots at or beyond `field_00` are all-zero in 237/251 records; the 14
+  exceptions (all `field_00 == 2`) are indices `10, 78, 79, 114` and
+  `152–161`, each with a non-zero first component in vector slot 2.
+  `field_00` behaving as a slot count and the slots as `(x, y, z, w)` are
+  [INFERRED], not proven; every component meaning is [UNKNOWN].
+* **slot 11** — opens with the f32 `10.0` (`00 00 20 41`) and spans 672 bytes
+  = 168 f32s; it does not share slot 6's or slot 7's record framing. Layout
+  [UNKNOWN].
 * **slot 22** [PARTIAL] — a **texture slot**: the shared descriptor of §1.4 at
   body+0x808 followed by an embedded `DXT1` DDS at body+0x870 (32×32, 1 mip,
   512-byte payload); the descriptor's relations to the DDS header are

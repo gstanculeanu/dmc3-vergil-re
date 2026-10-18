@@ -407,6 +407,180 @@ def maybe_slot6_table(data: bytes) -> Optional[Slot6Table]:
         return None
 
 
+SLOT7_RECORD_SIZE = 0x50
+"""Size in bytes of one ``pl021.pac`` slot-7 record (evidence E-089).
+
+Layout observed on all 251 records::
+
+    +0x00  u32            field_00 (observed 2, 3 or 4)
+    +0x04  u32            reserved (0 on all 251 records)
+    +0x08  u32            reserved (0 on all 251 records)
+    +0x0C  u32            reserved (0 on all 251 records)
+    +0x10  f32[4]         vector slot 0
+    +0x20  f32[4]         vector slot 1
+    +0x30  f32[4]         vector slot 2
+    +0x40  f32[4]         vector slot 3
+"""
+
+SLOT7_RECORD_COUNT = 251
+"""Number of records observed in ``pl021.pac`` slot 7 (evidence E-089).
+
+The count is a property of the single observed chunk (20,080 bytes / 0x50) and
+is not known to be stored in the payload; it locks the observed layout, not a
+rule.
+"""
+
+SLOT7_CHUNK_SPAN = SLOT7_RECORD_SIZE * SLOT7_RECORD_COUNT
+"""Observed size of the slot-7 payload (20,080 bytes = 0x4E70)."""
+
+SLOT7_HEADER_SIZE = 0x10
+"""Bytes before the first vector slot (``field_00`` + three zero u32s)."""
+
+SLOT7_RESERVED_SIZE = 0x0C
+"""Bytes between ``field_00`` and the first vector slot (three zero u32s)."""
+
+SLOT7_VECTOR_SLOT_COUNT = 4
+"""Number of 16-byte f32[4] slots in every observed record."""
+
+SLOT7_VECTOR_COMPONENTS = 4
+"""Number of f32 components in each vector slot."""
+
+
+@dataclass(frozen=True)
+class Slot7Record:
+    """One 0x50-byte record of ``pl021.pac`` slot 7 (evidence E-089).
+
+    Observed at file offset 0x070600 of ``pl021.pac``. ``field_00`` is 2 on
+    246 records, 3 on four (indices 142, 151, 163, 164) and 4 on one (index
+    143). The three ``reserved`` u32s are zero on every record.
+
+    The four ``vectors`` are read verbatim as little-endian f32[4]. The fourth
+    component of vector slot 0 is exactly ``1.0`` on 247/251 records; the four
+    exceptions are the ``field_00 == 3`` records above (values 0.0, 61.0, 341.0
+    and 0.0). Slots at or beyond ``field_00`` are all zero on 237/251 records;
+    the 14 exceptions are listed in :attr:`trailing_slots_zero`'s docstring.
+
+    Every field meaning is [UNKNOWN]. ``field_00`` behaves like a slot count in
+    the zero-tail relation, but that is an [INFERRED] reading, not a proven
+    semantic; the parser interprets nothing.
+    """
+
+    field_00: int
+    """u32 at ``+0x00``; observed 2 (246x), 3 (4x), 4 (1x)."""
+
+    reserved: tuple[int, int, int]
+    """u32s at ``+0x04``/``+0x08``/``+0x0C``; zero on all 251 records."""
+
+    vectors: tuple[
+        tuple[float, float, float, float],
+        tuple[float, float, float, float],
+        tuple[float, float, float, float],
+        tuple[float, float, float, float],
+    ]
+    """Four f32[4] slots at ``+0x10``/``+0x20``/``+0x30``/``+0x40``."""
+
+    @property
+    def nonzero_vector_slots(self) -> tuple[int, ...]:
+        """Indices of the vector slots that hold at least one non-zero f32."""
+        return tuple(
+            index for index, vector in enumerate(self.vectors)
+            if any(component != 0.0 for component in vector)
+        )
+
+    @property
+    def trailing_slots_zero(self) -> bool:
+        """Whether every vector slot at or beyond ``field_00`` is all-zero.
+
+        Observed on 237/251 records: all four ``field_00 == 3`` records, the
+        single ``field_00 == 4`` record, and 232/246 ``field_00 == 2`` records.
+        The 14 exceptions (all ``field_00 == 2``) are indices 10, 78, 79, 114
+        and 152-161; each carries a non-zero first component in vector slot 2.
+        """
+        if self.field_00 > len(self.vectors):
+            return False
+        return not any(
+            component != 0.0
+            for vector in self.vectors[self.field_00:]
+            for component in vector
+        )
+
+
+@dataclass(frozen=True)
+class Slot7Table:
+    """``pl021.pac`` slot 7 as 251 fixed 0x50-byte records (evidence E-089).
+
+    Observed at file offset 0x070600 of ``pl021.pac`` (span 0x4E70, 20,080
+    bytes): the whole span is 251 records (:class:`Slot7Record`) with no
+    separate header or count field. 246 records carry ``field_00 == 2``, four
+    carry 3 and one carries 4. The three u32s after ``field_00`` are zero on
+    every record, as are vector slots 3 of every record and all words past
+    ``+0x4F`` (the record is exactly 0x50 bytes).
+
+    All field meanings are [UNKNOWN]; the parser reads exactly the observed
+    layout and interprets nothing.
+    """
+
+    records: tuple[Slot7Record, ...]
+    """``SLOT7_RECORD_COUNT`` records in file order."""
+
+    @classmethod
+    def parse(cls, data: bytes) -> "Slot7Table":
+        """Parse the slot-7 record table from ``data`` (chunk-relative bytes).
+
+        Requires at least :data:`SLOT7_CHUNK_SPAN` bytes; trailing bytes beyond
+        the observed span are ignored (a PAC span can include padding).
+        """
+        if len(data) < SLOT7_CHUNK_SPAN:
+            raise ValueError(
+                f"slot-7 table only {len(data)} bytes, need {SLOT7_CHUNK_SPAN} "
+                f"for {SLOT7_RECORD_COUNT} records"
+            )
+        records = []
+        for index in range(SLOT7_RECORD_COUNT):
+            base = index * SLOT7_RECORD_SIZE
+            vectors = tuple(
+                tuple(
+                    f32(data, base + SLOT7_HEADER_SIZE + 16 * slot + 4 * component)
+                    for component in range(SLOT7_VECTOR_COMPONENTS)
+                )
+                for slot in range(SLOT7_VECTOR_SLOT_COUNT)
+            )
+            records.append(
+                Slot7Record(
+                    field_00=u32(data, base),
+                    reserved=(
+                        u32(data, base + 4),
+                        u32(data, base + 8),
+                        u32(data, base + 0x0C),
+                    ),
+                    vectors=vectors,
+                )
+            )
+        return cls(records=tuple(records))
+
+    def field_00_counts(self) -> tuple[tuple[int, int], ...]:
+        """Observed ``(field_00, count)`` pairs, sorted by value."""
+        counts: dict[int, int] = {}
+        for record in self.records:
+            counts[record.field_00] = counts.get(record.field_00, 0) + 1
+        return tuple(sorted(counts.items()))
+
+    def indices_with_field_00(self, value: int) -> tuple[int, ...]:
+        """Indices of the records whose ``field_00`` equals ``value``."""
+        return tuple(
+            index for index, record in enumerate(self.records)
+            if record.field_00 == value
+        )
+
+
+def maybe_slot7_table(data: bytes) -> Optional[Slot7Table]:
+    """Like :meth:`Slot7Table.parse` but returns ``None`` on short input."""
+    try:
+        return Slot7Table.parse(data)
+    except ValueError:
+        return None
+
+
 DDS_MAGIC = b"DDS "
 """Magic of the embedded DDS blobs carried by the texture containers."""
 

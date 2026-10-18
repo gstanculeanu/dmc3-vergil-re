@@ -4944,3 +4944,79 @@ fixture assumption: a mesh group's payload starts at ``descriptor + 0x28``, not
 after a full 0x40 second header, so the earlier synthetic layout was wrong.
 
 **Suite:** 572 tests, all green.
+
+---
+
+## E-089 — `pl021.pac` slot 7 is a table of 251 fixed `0x50`-byte records with four `f32[4]` slots (F3, bounded slice)
+
+**Observation (read-only from
+`G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\pl021.pac`, 548,768 B).**
+The PAC entry table places slot 7 at file offset `0x070600` with span `0x4E70`
+(20,080 bytes). The whole span parses cleanly as **251 fixed `0x50`-byte
+records**, with no separate header or count field. Each record (little-endian)::
+
+    +0x00  u32      field_00        observed 2, 3 or 4
+    +0x04  u32      reserved        0 in all 251 records
+    +0x08  u32      reserved        0 in all 251 records
+    +0x0C  u32      reserved        0 in all 251 records
+    +0x10  f32[4]   vector slot 0
+    +0x20  f32[4]   vector slot 1
+    +0x30  f32[4]   vector slot 2
+    +0x40  f32[4]   vector slot 3
+
+* `field_00` distribution: **2** x246, **3** x4 (record indices `142, 151, 163,
+  164`), **4** x1 (index `143`). Every record starts with a small non-zero
+  integer; no `field_00 == 0` record occurs.
+* **No non-zero byte occurs after `+0x4F`** in any record (the table ends exactly
+  at `0x070600 + 251 * 0x50 = 0x075470`).
+* Vector slot 3 is all-zero in **all 251** records. Slots at or beyond
+  `field_00` are all-zero in **237/251** records: all four `field_00 == 3`
+  records, the single `field_00 == 4` record, and **232/246** `field_00 == 2`
+  records. The 14 exceptions are all `field_00 == 2` with indices `10, 78, 79,
+  114` and `152..161`, and each carries a non-zero first component in vector
+  slot 2 (bit-verified: 14 words, all at `+0x30`).
+* The fourth component of vector slot 0 is exactly `1.0f` in **247/251**
+  records. The four exceptions are the `field_00 == 3` records: indices `142`
+  (0.0), `151` (61.0), `163` (341.0), `164` (0.0).
+
+Raw record 0 verbatim (`0x070600`, 80 bytes):
+
+```
+02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 20 42 00 00 00 00 00 00 80 3f
+00 00 20 42 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+```
+
+so record 0 reads `field_00 = 2`, slot 0 `(0.0, 40.0, 0.0, 1.0)`, slot 1
+`(40.0, 0.0, 0.0, 0.0)`, slots 2/3 zero. Raw record 142 (`field_00 = 3`) opens
+`03 00 00 00` + three zero u32 + slots `(0.0, -1.0, 500.0, 0.0)`,
+`(0.0, 0.0, 50.0, 5.0)`, `(500.0, 0.0, 0.0, 0.0)`, zero; record 143
+(`field_00 = 4`) opens `04 00 00 00` + three zero u32 + slots
+`(0.0, 500.0, 0.0, 1.0)`, `(0.0, 0.0, 0.0, 1.0)`, `(120.0, 0.0, 0.0, 0.0)`.
+
+**Inference (marked, not proven).** The framing strongly resembles a
+`u32 count` followed by up to four 16-byte `(x, y, z, w)` vectors: `field_00`
+behaves as a **slot count** (the zero-tail relation holds exactly for counts 3
+and 4), the fourth component is `1.0` on every normal record, and the first three
+components are small signed values. Under that reading the 251 entries are
+homogeneous 4-component primitives. No component is assigned a meaning: whether
+the triple is a position, a direction, a plane or something else is **[UNKNOWN]**.
+
+**Unknown.** What each of the four components encodes; what the 14
+`field_00 == 2` records with a non-zero vector slot 2 mean; what `field_00` counts
+(the slot-count reading is [INFERRED]); why the last vector slot is never used;
+and what the table as a whole describes (the F3 hypothesis is bone transforms,
+UV tables or primitive groups). Engine ground truth (`dmc3.exe`) or a decoded
+peer artifact is needed for the semantics.
+
+**Tooling.** `Slot7Record` / `Slot7Table` / `maybe_slot7_table` in
+`tools/dmc3/raw.py` (plus `SLOT7_RECORD_SIZE`, `SLOT7_RECORD_COUNT`,
+`SLOT7_CHUNK_SPAN`, `SLOT7_HEADER_SIZE`, `SLOT7_RESERVED_SIZE`,
+`SLOT7_VECTOR_SLOT_COUNT`, `SLOT7_VECTOR_COMPONENTS`), exported from `dmc3`.
+The parser reads exactly the observed layout and interprets nothing;
+`field_00_counts()`, `indices_with_field_00()`, `nonzero_vector_slots` and
+`trailing_slots_zero` expose the observed relations. Validated read-only against
+the real `pl021.pac` (all counts reproduced), locked by the synthetic
+`raw_chunk_slot7` fixture and `TestSlot7Table` (9 tests). No game data committed.

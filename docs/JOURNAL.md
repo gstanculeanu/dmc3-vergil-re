@@ -2035,3 +2035,40 @@ moves and health bar and everything."*
   engine lead remains the `.pdata`/call-graph route. F9's clip leaf keyframe
   encoding (GoW3R) is also open and decodable from the file.
 
+
+---
+
+## 2026-10-18 — F3 bounded slice: `pl021.pac` slot 7 is 251 fixed `0x50`-byte records (E-089)
+
+- Did: picked F3 (issue #4) from the always-available list; the Phase-1 format
+  critical path (F1/F4) stays blocked and is not re-spun. Read real bytes
+  (read-only) from `pl021.pac` slot 7
+  (`G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\pl021.pac`, file
+  offset `0x070600`, span `0x4E70` = 20,080 bytes). Added `Slot7Record` /
+  `Slot7Table` / `maybe_slot7_table` and the `SLOT7_*` constants to
+  `tools/dmc3/raw.py`, exported them from `dmc3`, added the synthetic
+  `raw_chunk_slot7()` fixture and `TestSlot7Table` (9 tests). Full suite:
+  **581 tests, all green** (572 baseline + 9). Nothing written to the game; no
+  game data committed.
+- Found (**E-089**): slot 7 is **251 fixed `0x50`-byte records** with no header
+  or count field. Each record = `u32 field_00` (2 x246, 3 x4 at indices
+  142/151/163/164, 4 x1 at index 143), three zero u32s, then four `f32[4]`
+  slots at `+0x10/+0x20/+0x30/+0x40`. Verified: the three reserved u32s are
+  zero on all 251; vector slot 3 is all-zero on all 251; slot0[3] == `1.0f` on
+  247/251 (exceptions are the four `field_00 == 3` records); slots at or beyond
+  `field_00` are all-zero on 237/251, with 14 `field_00 == 2` exceptions
+  (indices 10, 78, 79, 114, 152-161) each carrying a non-zero first component
+  in vector slot 2. Read-only validation reproduced every count; a bitwise
+  check confirmed the 14 trailing exceptions are exactly 14 words at `+0x30`.
+  `field_00` as a slot count and the slots as `(x, y, z, w)` are [INFERRED];
+  every component meaning remains [UNKNOWN].
+- Note: `tools/gow3/meshes.py` and `tests/test_gow3_meshes.py` were already
+  modified in the working tree by another writer (E-087 follow-up). They were
+  left untouched and not staged; only this slice's paths were committed.
+- Docs: E-089 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §1.3 gains the slot-7
+  layout and narrows the undecoded slots to **slot 11**; `docs/BACKLOG.md` F3
+  row updated (evidence cell adds E-089).
+- Next: **slot 11** is the last untagged `pl021.pac` slot with no decoded
+  framing (672 bytes = 168 f32s, opening `10.0`); a bounded slice should test
+  whether it is 42 x `f32[4]`, 24 x 7, or a headerless list. F1/F4 remain
+  blocked on the engine route and are not re-spun.

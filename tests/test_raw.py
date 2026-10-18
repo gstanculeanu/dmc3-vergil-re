@@ -12,6 +12,11 @@ from dmc3.raw import (
     SLOT5_SEGMENT_COUNT,
     SLOT6_RECORD_COUNT,
     SLOT6_RECORD_SIZE,
+    SLOT7_CHUNK_SPAN,
+    SLOT7_HEADER_SIZE,
+    SLOT7_RECORD_COUNT,
+    SLOT7_RECORD_SIZE,
+    SLOT7_VECTOR_SLOT_COUNT,
     SLOT9_FLOAT_COUNT,
     TEXTURE_DESCRIPTOR_SIZE,
     TEXTURE_DDS_OFFSET,
@@ -21,6 +26,7 @@ from dmc3.raw import (
     maybe_slot21_table,
     maybe_slot5_table,
     maybe_slot6_table,
+    maybe_slot7_table,
     maybe_slot9_table,
     maybe_texture_chunk,
     RawHeader,
@@ -29,6 +35,7 @@ from dmc3.raw import (
     Slot5Table,
     Slot6Record,
     Slot6Table,
+    Slot7Table,
     Slot9Table,
     TextureChunk,
 )
@@ -56,6 +63,10 @@ def slot9_data() -> bytes:
 
 def slot6_data() -> bytes:
     return fixtures.raw_chunk_slot6()
+
+
+def slot7_data() -> bytes:
+    return fixtures.raw_chunk_slot7()
 
 
 class TestRawHeader(unittest.TestCase):
@@ -323,6 +334,91 @@ class TestSlot6Table(unittest.TestCase):
     def test_record_is_zero_flag(self):
         self.assertTrue(Slot6Record(0, 0, 0).is_zero)
         self.assertFalse(Slot6Record(1, 0, 0).is_zero)
+
+
+class TestSlot7Table(unittest.TestCase):
+    """Decoded slot-7 0x50-byte record table (E-089). All values are verbatim
+    observations from pl021.pac slot 7; every field meaning is [UNKNOWN] and is
+    only asserted, never interpreted."""
+
+    REAL_FIELD_00_EXCEPTIONS = {142, 151, 163, 164, 143}
+    """Records whose ``field_00`` is not 2 (E-089)."""
+
+    REAL_SLOT2_NONZERO = (10, 78, 79, 114, *range(152, 162))
+    """The 14 ``field_00 == 2`` records with a non-zero vector slot 2."""
+
+    def test_parses_slot_7_records(self):
+        table = Slot7Table.parse(slot7_data())
+        self.assertEqual(len(table.records), SLOT7_RECORD_COUNT)
+        self.assertEqual(SLOT7_RECORD_COUNT, 251)
+        self.assertEqual(SLOT7_RECORD_SIZE, 0x50)
+        self.assertEqual(SLOT7_CHUNK_SPAN, 20080)
+        self.assertEqual(SLOT7_HEADER_SIZE, 0x10)
+        self.assertEqual(SLOT7_VECTOR_SLOT_COUNT, 4)
+
+    def test_head_matches_real_bytes(self):
+        # Verbatim records 0..2 from pl021.pac slot 7, file offset 0x070600
+        # (E-089).
+        table = Slot7Table.parse(slot7_data())
+        self.assertEqual(
+            [r.vectors[0] for r in table.records[:3]],
+            [(0.0, 40.0, 0.0, 1.0),
+             (0.0, 0.0, 0.0, 1.0),
+             (0.0, -40.0, 0.0, 1.0)],
+        )
+        self.assertEqual(table.records[0].vectors[1], (40.0, 0.0, 0.0, 0.0))
+        self.assertEqual(table.records[0].vectors[2], (0.0, 0.0, 0.0, 0.0))
+        self.assertEqual(table.records[0].vectors[3], (0.0, 0.0, 0.0, 0.0))
+
+    def test_field_00_census(self):
+        table = Slot7Table.parse(slot7_data())
+        self.assertEqual(table.field_00_counts(), ((2, 246), (3, 4), (4, 1)))
+        self.assertEqual(table.indices_with_field_00(3), (142, 151, 163, 164))
+        self.assertEqual(table.indices_with_field_00(4), (143,))
+
+    def test_reserved_words_are_zero(self):
+        table = Slot7Table.parse(slot7_data())
+        self.assertTrue(all(r.reserved == (0, 0, 0) for r in table.records))
+
+    def test_vector_slot_0_fourth_component(self):
+        # Exactly 1.0 on 247/251 records; the four exceptions are the
+        # field_00 == 3 records (E-089).
+        table = Slot7Table.parse(slot7_data())
+        ones = [i for i, r in enumerate(table.records) if r.vectors[0][3] == 1.0]
+        self.assertEqual(len(ones), 247)
+        exceptions = {
+            i: r.vectors[0][3] for i, r in enumerate(table.records)
+            if r.vectors[0][3] != 1.0
+        }
+        self.assertEqual(exceptions, {142: 0.0, 151: 61.0, 163: 341.0, 164: 0.0})
+
+    def test_trailing_slots_zero_relation(self):
+        table = Slot7Table.parse(slot7_data())
+        true_count = sum(r.trailing_slots_zero for r in table.records)
+        self.assertEqual(true_count, 237)
+        exceptions = tuple(
+            i for i, r in enumerate(table.records) if not r.trailing_slots_zero
+        )
+        self.assertEqual(exceptions, self.REAL_SLOT2_NONZERO)
+        self.assertTrue(all(table.records[i].field_00 == 2 for i in exceptions))
+
+    def test_nonzero_vector_slots(self):
+        table = Slot7Table.parse(slot7_data())
+        self.assertEqual(table.records[0].nonzero_vector_slots, (0, 1))
+        self.assertEqual(table.records[142].nonzero_vector_slots, (0, 1, 2))
+        self.assertEqual(table.records[143].nonzero_vector_slots, (0, 1, 2))
+        self.assertEqual(table.records[3].nonzero_vector_slots, (0,))
+
+    def test_rejects_short_input(self):
+        with self.assertRaises(ValueError):
+            Slot7Table.parse(slot7_data()[: SLOT7_CHUNK_SPAN - 1])
+        self.assertIsNone(maybe_slot7_table(b"\x00" * 16))
+
+    def test_trailing_bytes_are_ignored(self):
+        # A PAC span can carry padding; the parser reads exactly the observed
+        # 251 records.
+        table = Slot7Table.parse(slot7_data() + b"\xAA" * 8)
+        self.assertEqual(len(table.records), SLOT7_RECORD_COUNT)
 
 
 class TestTextureChunk(unittest.TestCase):

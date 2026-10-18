@@ -521,6 +521,62 @@ def raw_chunk_slot6() -> bytes:
     return bytes(blob)
 
 
+def raw_chunk_slot7() -> bytes:
+    """A synthetic ``pl021.pac`` slot-7 chunk mirroring the observed record
+    table (evidence E-089).
+
+    Layout (body-relative, little-endian): 251 fixed 0x50-byte records, each
+    ``u32 field_00`` / three zero u32s / four f32[4] vector slots, with no
+    header or count field. ``field_00`` is 2 on 246 records, 3 on indices
+    ``142, 151, 163, 164`` and 4 on index ``143``. Records ``0, 1, 2, 10, 142,
+    143, 151, 152, 163, 164`` carry the verbatim real vector values; every
+    other record gets the observed default ``((0,0,0,1), (0,0,0,0), ...)``.
+    The 14 records whose vector slot 2 is non-zero (all ``field_00 == 2``) are
+    ``10, 78, 79, 114`` and ``152..161``. No game bytes are committed; the
+    fixture locks the observed layout so a parser can't silently drift from the
+    real artifact.
+    """
+    FIELD_3 = (142, 151, 163, 164)
+    FIELD_4 = (143,)
+    SLOT2_NONZERO = (10, 78, 79, 114, *range(152, 162))
+    ZERO_SLOTS = ((0.0, 0.0, 0.0, 0.0),) * 3
+    verbatim = {
+        0: (2, ((0.0, 40.0, 0.0, 1.0), (40.0, 0.0, 0.0, 0.0)) + ZERO_SLOTS[:2]),
+        1: (2, ((0.0, 0.0, 0.0, 1.0), (40.0, 0.0, 0.0, 0.0)) + ZERO_SLOTS[:2]),
+        2: (2, ((0.0, -40.0, 0.0, 1.0), (40.0, 0.0, 0.0, 0.0)) + ZERO_SLOTS[:2]),
+        10: (2, ((-10.0, 0.0, 10.0, 1.0), (20.0, 0.0, 120.0, 1.0),
+                 (15.0, 0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0))),
+        142: (3, ((0.0, -1.0, 500.0, 0.0), (0.0, 0.0, 50.0, 5.0),
+                  (500.0, 0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0))),
+        143: (4, ((0.0, 500.0, 0.0, 1.0), (0.0, 0.0, 0.0, 1.0),
+                  (120.0, 0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0))),
+        151: (3, ((-15.0, -15.0, 8.0, 61.0), (4.0, 0.0, 38.0, 5.0),
+                  (40.0, 0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0))),
+        152: (2, ((11.0, 0.0, 106.0, 1.0), (40.0, 324.0, 40.0, 1.0),
+                  (40.0, 0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0))),
+        163: (3, ((0.0, 7.0, -4.0, 341.0), (13.0, 61.0, 20.0, 20.0),
+                  (5.0, 0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0))),
+        164: (3, ((0.0, 148.0, 35.0, 0.0), (0.0, 20.0, 118.0, 55.0),
+                  (0.0, 0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0))),
+    }
+    blob = bytearray()
+    for index in range(251):
+        if index in verbatim:
+            field_00, slots = verbatim[index]
+        else:
+            field_00 = 3 if index in FIELD_3 else 4 if index in FIELD_4 else 2
+            if index in SLOT2_NONZERO:
+                slots = ((0.0, 0.0, 0.0, 1.0), (0.0, 0.0, 0.0, 0.0),
+                         (25.0, 0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 0.0))
+            else:
+                slots = ((0.0, 0.0, 0.0, 1.0),) + ZERO_SLOTS
+        blob += struct.pack("<IIII", field_00, 0, 0, 0)
+        for slot in slots:
+            blob += struct.pack("<4f", *slot)
+    assert len(blob) == 0x50 * 251, "slot-7 table must be 251 records"
+    return bytes(blob)
+
+
 PAC_TEXTURE_DESCRIPTOR = 0x808
 
 
