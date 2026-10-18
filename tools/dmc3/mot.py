@@ -42,7 +42,6 @@ Unknown (open issues):
 from __future__ import annotations
 
 import math
-import struct
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -356,8 +355,10 @@ def keyframe_time(group: bytes) -> int:
 ANGLE_UNITS_PER_TURN = 0x10000
 """Engine angle unit: one full turn is ``0x10000`` (evidence E-071)."""
 
-RADIANS_PER_ANGLE_UNIT = 2.0 * math.pi / ANGLE_UNITS_PER_TURN
-"""``2*pi / 0x10000`` — the engine's own constant at RVA ``0x508834`` (E-071)."""
+RADIANS_PER_ANGLE_UNIT = 9.587379463482648e-05
+"""The engine's radian-per-unit constant, read verbatim from ``dmc3.exe``
+``.rdata`` RVA ``0x508834`` (``f32`` bits ``38 C9 0F DA``).  It is
+``float32(2*pi / 0x10000)`` to within one ULP (E-071)."""
 
 ANGLE_UNIT_COS_ZERO = (0x4000, 0xC000)
 """Angles the engine's cosine helper returns as exactly zero (E-071)."""

@@ -233,11 +233,11 @@ class TestMotKeyframeAngleUnit(unittest.TestCase):
 
     def test_full_turn_is_2pi(self):
         self.assertEqual(ANGLE_UNITS_PER_TURN, 0x10000)
-        self.assertAlmostEqual(angle_units_to_radians(0x10000), 2.0 * math.pi)
+        self.assertAlmostEqual(angle_units_to_radians(0x10000), 2.0 * math.pi, places=5)
 
     def test_quarter_turn_is_90_degrees(self):
         self.assertAlmostEqual(angle_units_to_degrees(0x4000), 90.0)
-        self.assertAlmostEqual(angle_units_to_radians(0x4000), math.pi / 2)
+        self.assertAlmostEqual(angle_units_to_radians(0x4000), math.pi / 2, places=5)
 
     def test_half_turn_is_180_degrees(self):
         self.assertAlmostEqual(angle_units_to_degrees(0x8000), 180.0)
@@ -247,8 +247,8 @@ class TestMotKeyframeAngleUnit(unittest.TestCase):
         self.assertAlmostEqual(RADIANS_PER_ANGLE_UNIT, 9.587379463482648e-05, places=18)
 
     def test_modal_channel_value_is_about_90_degrees(self):
-        # E-028's most common channel value 0x3FFF (~5,500 hits) is 89.996 degrees.
-        self.assertAlmostEqual(angle_units_to_degrees(0x3FFF), 89.9956, places=3)
+        # E-028's most common channel value 0x3FFF (~5,500 hits) is 89.995 degrees.
+        self.assertAlmostEqual(angle_units_to_degrees(0x3FFF), 89.9945, places=3)
         self.assertEqual(ANGLE_UNIT_COS_ZERO, (0x4000, 0xC000))
         self.assertEqual(ANGLE_UNIT_SIN_ZERO, (0x8000,))
 
