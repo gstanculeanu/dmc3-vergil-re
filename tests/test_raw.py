@@ -9,14 +9,17 @@ from dmc3.raw import (
     SLOT10_PAIR_COUNT,
     SLOT21_SEPARATOR,
     SLOT5_SEGMENT_COUNT,
+    SLOT9_FLOAT_COUNT,
     maybe_raw_header,
     maybe_slot10_table,
     maybe_slot21_table,
     maybe_slot5_table,
+    maybe_slot9_table,
     RawHeader,
     Slot10Table,
     Slot21Table,
     Slot5Table,
+    Slot9Table,
 )
 
 
@@ -34,6 +37,10 @@ def slot21_data() -> bytes:
 
 def slot5_data() -> bytes:
     return fixtures.raw_chunk_slot5()
+
+
+def slot9_data() -> bytes:
+    return fixtures.raw_chunk_slot9()
 
 
 class TestRawHeader(unittest.TestCase):
