@@ -828,3 +828,21 @@ moves and health bar and everything."*
 - Next: pick another resolved-dependency slice (F2 sub-tables / F3 slot-10 f32
   stream / F8 pending more TM2 samples) or record F1/F4 as dead ends needing
   engine ground truth.
+
+## 2026-10-18 — T5 PAC-diff CLI implemented (issue #10)
+
+- Did: implemented `tools/pac_diff.py` (read-only CLI comparing two `.pac`
+  archives by logical slot index; reports tag/kind/offset/span/payload per
+  slot; exit codes 0 identical / 1 differ / 2 error), added
+  `tests/test_pac_diff.py` (10 synthetic-case tests), marked BACKLOG.md T5
+  done, recorded the F8 TM2 sample-exhaustion dead end as E-042.
+  Smoke-verified on real artifacts (read-only): `pl021.pac` vs itself →
+  slot-identical (exit 0); `pl021.pac` vs `pl000.pac` → 18 differing slots
+  (exit 1). Closed issue #10 with a summary comment.
+- Found: full suite **217 tests, all green**. The format critical path
+  (F1/F4/F2/F3/F5/F8) remains blocked on engine ground truth; F8's "needs
+  more TM2 samples" blocker is answered negatively — all three local TM2s
+  (`i001_90.tm2` root/Xbox/PlaystationButtons) share one byte-identical
+  pre-header, so no field can be cross-decoded from local bytes.
+- Next: T6 (CI workflow, issue #12) is the next available tooling item; the
+  format critical path stays idle until engine ground truth is available.

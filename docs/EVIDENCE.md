@@ -1905,3 +1905,34 @@ raw structure from one file, not a format spec.
 exercised by unit tests on synthetic fixtures (no game data committed). The
 body mesh layout beyond the GX groups remains [UNKNOWN]; T7b is advanced but
 not complete.
+
+---
+
+## E-042 — TM2 sample census exhausted: all local TM2s share one pre-header (F8 dead end)
+
+**Observation.** Scanned `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\`
+for `*.tm2`. Three files exist:
+
+| File | Size | MD5 |
+|---|---|---|
+| `i001_90.tm2` | 65,776 | 98F463AD02152AC4F96EBB51E4D9CC58 |
+| `XboxButtons\i001_90.tm2` | 65,776 | 98F463AD02152AC4F96EBB51E4D9CC58 |
+| `PlaystationButtons\i001_90.tm2` | 65,776 | 133F9CA28FE1AF8DEEBDB2783E08C84F |
+
+The root and Xbox copies are byte-identical. The PlayStation copy differs only
+in MD5 but its **28-u32 pre-header is byte-identical** to the other two (all
+fields from E-034 match: `0x00020100` at +0x08, `0x0000AAE4` at +0x0C,
+`0x01000100` at +0x10, `1` at +0x14, `64` at +0x20, `0x00010000` at +0x38,
+`0x00800080` at +0x44, `0x3C000000` at +0x48/+0x4C, `0x00010080` at +0x64,
+`8` at +0x68). All three embed a `DDS ` blob at file 0x70 (`dwSize=124`,
+256×256, fourCC `DXT3`).
+
+**Inference.** There is effectively **one TM2 sample** available locally, so
+cross-referencing pre-header fields against varying dimensions/formats is not
+possible. The E-034 observation "+0x38 == 65,536 equals the DDS pitch" holds
+for all three files but is not a rule — all three are 256×256 DXT3.
+
+**Dead end.** F8's remaining pre-header field semantics cannot be established
+from local bytes: more TM2 samples do not exist in this install, and engine
+ground truth (or a genuinely different-dimension/format TM2 sample) is
+required. F8 stays [UNKNOWN] and is not retried from bytes alone.
