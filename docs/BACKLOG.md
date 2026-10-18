@@ -33,7 +33,7 @@ Labels used: `re`, `tooling`, `format`, `phase-1`, `phase-2`, `phase-3`, `blocke
 | T2 | Texture pipeline `.tm2` → `.dds` → `.png` with alpha handling | ready |
 | T3 | PAC writer for import (currently `build_pac` is minimal) | ready — `build_pac` hardened (rejects non-bytes payloads) and byte-exact round-trip test added (refs #11) |
 | T4 | Extract/verify `plwp_vergilsword` once F6 lands | blocked by F6 |
-| T5 | CLI to diff two PAC files slot-by-slot (mod comparison) | ready |
+| T5 | CLI to diff two PAC files slot-by-slot (mod comparison) | done — `tools/pac_diff.py` (issue #10): slot-level diff report (tags, kinds, offsets, spans, payload bytes) with exit codes 0/1/2; 10 unit tests on synthetic fixtures; smoke-tested against real `pl021.pac`/`pl000.pac` |
 | T6 | CI running the unit tests on push | ready |
 | T7 | Prior-art mesh → OBJ/glTF conversion | **done for the weapon** (E-015); **body FLVER header, section table and GX block structure decoded** (E-039: header, magic `FLVER\0` [VERIFIED]; E-040: six 32-byte section entries at 0x80; E-041: GX groups — GX00/GX04/GX20/GX22/GX24/GX26/GX30 + sentinel, 240 bytes each, all six byte-identical); body mesh layout beyond the GX groups still open; every field meaning [UNKNOWN] |
 
