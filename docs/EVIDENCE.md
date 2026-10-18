@@ -3617,3 +3617,137 @@ untouched.
 
 
 
+
+---
+
+## E-071 - The engine's own vocabulary in `eboot.bin`: the vertex attributes by name (G9/G10)
+
+**Observation.** `CUSA01715\eboot.bin` (4,581,119 bytes) carries the engine's
+class, object-type, script-command and shader-semantic tables as **plain string
+runs**, 179,961 of them. The ones that name the pieces of the formats we are
+trying to write:
+
+**Vertex attributes** (the mesh-side names, 29 of them after filtering):
+
+```
+PS3_Pos   PS3_Normal   PS3_DisplacementNormal   PS3_Tangent   PS3_BiTangent
+PS3_Diffuse   PS3_Specular   PS3_F32Diffuse   PS3_F32Specular
+PS3_SkinWeights0  PS3_SkinWeights1  PS3_SkinIndices0  PS3_SkinIndices1
+PS3_SkinningFlipFactor   PS3_PrevFramePosition   PS3_VertexLightPos
+PS3_F32VertexAlpha   PS3_F32VertexAO   PS3_NMblendData
+Generic_UV0  Generic_UV1  Generic_UV2  Generic_UV3  Generic_UV4  Generic_UV5
+```
+
+Next to them sits the **mesh kind run** `Skinned` and `1UNUSED_MESH_TYPE`, and
+the mesh pipeline functions `MeshProc::RenderMeshes`, `FinalizePrims`,
+`MeshBounds`, `Cull`. `pDmaData != nullptr` confirms DMA-style vertex buffers.
+The full `PS3_*` run is 286 entries and is mostly **shader uniforms** — the 29
+above are the ones that describe a *vertex*.
+
+**Script / object commands** — 151 `SCR_*` names, and several are exactly what a
+boss needs:
+
+```
+SCR_SetPhase        SCR_PlayReplace     SCR_MaterialAnim   SCR_VisJoint
+SCR_ShaderSwap      SCR_SwitchNavBanks  SCR_ForceCameraTarget
+SCR_MotionBlurMultiplier   SCR_FadeAlpha   SCR_FrozenPose
+SCR_IgnoreHitResponse      SCR_AttachToHero   SCR_Spawn  SCR_ActivateSoul
+```
+
+`SCR_SetPhase` is a **phase** command (`Hades` is a multi-phase fight), and
+`SCR_PlayReplace` is an animation-replacement command.
+
+**Behaviours and the move system.** `hfsmArrowEmitter`, `hfsmBalanceGeom`,
+`hfsmBreakable`, `hfsmEnemy1`, `hfsmHeroBreak`, `hfsmIO_Misc`, `hfsmReactive`,
+`hfsmSavePoint`; `ms::tMove`, `ms::tSys`, `ms::tCollisionInfo`,
+`ms::tSynchPartner`; `fxBoneData`; a small type table `float bool byte color3
+color4 matrix44`; and the format string **`ANM_%s`**, which is how the animation
+blob in E-058 got the name `ANM_hero_Hades`.
+
+**Inference.** The mesh is a skinned, DMA-fed vertex buffer described by named
+attribute streams (`Pos`, `Normal`, `Tangent/BiTangent`, `UV0..UV5`,
+`SkinWeights0/1` with matching `SkinIndices0/1`). Those names are the field list a
+`MDLX` reader or writer has to satisfy, so this is the cheapest possible ground
+truth for the format: the engine names its own pieces. Nothing here is a layout
+claim — the names are observed, the binary encoding is still [UNKNOWN].
+
+**Tooling.** `tools/gow3/vocab.py` (`read_strings`, `read_vocabulary`,
+`vertex_attributes`, `Vocabulary`, the `VERTEX_SEMANTICS` / `MESH_TYPES`
+constants); 12 tests in `tests/test_gow3_vocab.py` over synthetic string blobs.
+
+---
+
+## E-072 - The container is a stream of groups with inline resource data; verified by an exact boundary (G9)
+
+**Observation.** `R_*.WAD` is **not** a header plus a directory plus one bulk
+region. From 0x50 it is a stream of 0x40-byte records in which `GroupStart` /
+`GroupEnd` bracket groups of resources, and **each resource's data sits inline,
+immediately after its descriptor**:
+
+```
+0x50  GroupStart
+0x90  resource "WAD_R_Hades"    size 24
+0xF0  GroupStart
+0x130 resource "TXRX_R_Hades"   size 16
+0x180 GroupEnd
+0x1C0 GroupStart
+0x200 resource "WPTX_R_Hades"   size 16
+0x250 GroupEnd
+```
+
+Record shape, little endian: `u16 id; u16 flags; u32 size; char name[]`, where
+id `1` = sized resource, `2`/`3` = GroupStart/GroupEnd, `0x12` = root,
+`0x15` = PopHeap, `7` = unsized resource (name at +0x04 instead of +0x08). A
+sized resource's data begins 0x40 bytes after the record, **plus another 0x40 when
+`flags != 0`**, and is `size` bytes padded up to 0x10.
+
+**Verified by an exact boundary, not by trusting the rule.** In `R_HADES.WAD`:
+
+```
+0xDC0  resource "ANM_hero_Hades"  id=1 flags=0x34 size=2,106,384
+0xE40  its data begins                (0xDC0 + 0x40 + 0x40)
+0x203250  the next record -- and it is exactly "GroupEnd"
+```
+
+`0xE40 + 2,106,384 = 0x203250`. The length lands byte-exactly on the next record,
+which is what establishes the binding the writer was missing. The same rule then
+walks the ANM section onward and lands on valid records every time:
+
+```
+0x203250  GroupEnd
+0x203290  GroupStart
+0x2032D0  resource "ANM_camera_Hades"  flags=0x34 size=127,416  -> data 0x203350
+0x222510  GroupEnd
+0x222550  resource "SBP_HADES"         flags=0x00 size=3,428,663 -> data 0x222590
+0x5676D0  the next resource begins here -- "TX129D488F.28AD5052.dds"
+```
+
+**`ANM_camera_Hades`** (127,416 B) is a second animation blob, the cutscene
+camera. **`SBP_HADES`** is *not* geometry: its first 0x20000 bytes carry
+`SND_HDS_CHAINSNAP`, `SND_HDS_BEAM_LP`, `SND_HDS_BODYSLAM`,
+`HADES_WHOOSHLOW_F_A`, `Chd_HAD_GROUND_HIT_SINGLE`, `FOLEY_MOVE_MED`, `Flesh_Rip`
+- it is a **sound bank**, 3.4 MB of it. That corrects an earlier assumption that a
+large non-texture blob between the animations and the textures would be the mesh.
+
+**Inference.** The container's structural side is now resolvable for sized
+resources: name, class, size and byte range are all recoverable, and the ranges
+are contiguous and non-overlapping. This removes the "how does the directory bind
+to the bulk" blocker for the resources that have a size, and the walk was
+verified by a boundary rather than by self-consistency.
+
+**Unknown.** The richer record shapes past the standard 16-group directory: the
+walk stops at `0x1ABCDB0` in `R_HADES.WAD` on a `0xFFFF` record after a texture,
+at `0x1B70` in `R_SWORD00.WAD` on id `8` (`"ubershader.fx"`, seen with a 0x54 size
+and a name at +0x0C), and at `0xD80` in `R_LANG_EN.WAD` on an unnamed unsized
+record. So the material/shader objects use at least one more record shape that is
+not yet modelled.
+
+**Tooling.** `tools/gow3/groups.py` (`read_record`, `walk`, `inventory`,
+`resources`, `Record`, `LayoutError`). The walker is deliberately **partial and
+self-reporting**: it stops at the first shape it does not model and says where and
+why, instead of resynchronising — which is how `ANM_camera_Hades` and `SBP_HADES`
+were found. 17 tests in `tests/test_gow3_groups.py` build synthetic streams and
+assert the record shapes, the data offsets, the 0x10 padding, the
+flags-add-a-header rule, and the exact-boundary property.
+
+**Suite:** 459 tests, all green.
