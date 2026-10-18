@@ -423,6 +423,43 @@ def raw_chunk_slot21() -> bytes:
     return bytes(blob)
 
 
+def raw_chunk_slot5() -> bytes:
+    """A synthetic ``pl021.pac`` slot-5 chunk mirroring the observed u16
+    segment layout (evidence E-052).
+
+    Layout (body-relative, little-endian)::
+        u16 stream split into segments by the ``0xFFFF`` separator; the last
+        segment is not followed by a separator.
+
+    The head mirrors the real chunk at file offset 0x06B6E0 verbatim:
+        segment 0: (6, 0x37D0)
+        segment 1: (4,)
+        segment 2 opens: (70, 0x7AC, 0xD4E, 0xEBE, 0x15E2, 0x1D54, 0x2636,
+                          0x26A4, 0x2DC0, 0x335A, 0xEBE x 9)
+    and is padded to the real chunk's observed segment-2 size of 34 u16s.
+    Remaining segments hold synthetic distinct values, including one that
+    carries 0x7FFF as data (never a delimiter). No game bytes are committed;
+    the fixture locks the observed head and separator discipline so a parser
+    can't silently drift from the real artifact.
+    """
+    SEP = 0xFFFF
+    seg0 = (6, 0x37D0)
+    seg1 = (4,)
+    seg2 = (
+        70, 0x7AC, 0xD4E, 0xEBE, 0x15E2, 0x1D54, 0x2636,
+        0x26A4, 0x2DC0, 0x335A,
+    ) + (0xEBE,) * 9
+    seg2 += tuple(0x2000 + i for i in range(34 - len(seg2)))
+    segments = [seg0, seg1, seg2, (0x1234, 0x5678, 0x9ABC), (7, 8, 9, 10, 11),
+                (0x7FFF, 0xABCD)]
+    blob = bytearray()
+    for index, segment in enumerate(segments):
+        if index:
+            blob += struct.pack("<H", SEP)
+        blob += struct.pack("<%dH" % len(segment), *segment)
+    return bytes(blob)
+
+
 def cloth_text() -> bytes:
     return b";pl021_02.clt\r\n\r\nClothNum\t1\r\n\r\nClothNo     0\r\nClothId     0\r\n"
 

@@ -2339,3 +2339,51 @@ comparing a decoded clip against an in-game capture) is required.
 
 **Status.** F4 is **not retried from bytes alone**. This is a recorded dead
 end; unblocked the moment engine ground truth becomes available.
+
+
+---
+## E-052 — `pl021.pac` slot 5: `0xFFFF`-delimited u16 segment stream (F3, bounded slice)
+
+**Observation.** `pl021.pac` slot 5 at **file offset 0x06B6E0**, span **0x4B30**
+(19,248 bytes = 9,624 u16s; the next occupied slot is 6 at 0x070210). The
+payload carries no ASCII tag, so `pac.py` classifies it as "raw" (E-002). Read
+as a little-endian u16 stream:
+
+```
+file +0x06B6E0: 06 00 d0 37 ff ff 04 00 ff ff 46 00 ac 07 4e 0d be 0e
+                 u16=6        u16=0x37D0   sep       u16=4   sep
+                 u16=70       u16=0x07AC   u16=0x0D4E u16=0x0EBE ...
+file +0x06B6F0: e2 15 54 1d 36 26 a4 26 c0 2d 5a 33 be 0e be 0e
+                 u16=0x15E2   u16=0x1D54   u16=0x2636 u16=0x26A4
+                 u16=0x2DC0   u16=0x335A   u16=0x0EBE   u16=0x0EBE ...
+```
+
+It splits into **215 segments** delimited by **214** `0xFFFF` separators.
+Segment sizes (u16s) open `2, 1, 34, 60, 5, 13, 13, 13, 13, 15, …`; the tail
+holds much larger segments (the largest observed is 378 u16s). Non-zero bytes
+number 8,952 / 19,248 and run from offset 0x0000 to 0x4B2B — essentially the
+whole span. `0x7FFF` (308 occurrences) appears **inside** segments and is
+**not** a delimiter — exactly as in slot 21 (E-043). Most common u16 values:
+0 (3,062), 1 (568), 3 (524), 32767 (308), 2 (267), 4 (235). Segment 0 is
+verbatim `(6, 0x37D0)` — like slot 21's segment 0 `(6, 408)`, both open with
+`6`, but slot 5's segmentation (215 segments) differs from slot 21's (14),
+so they are decoded separately.
+
+**Inference.** Slot 5 shares slot 21's segment-stream structure: a
+`0xFFFF`-delimited u16 table in which small opening segments look like
+headers/indexes and larger tail segments look like data blocks. That is a
+structural observation only; what the segments index, what `(6, 0x37D0)` at
+segment 0 means, and what `0x7FFF` means inside segments are [UNKNOWN].
+
+**Unknown.** Segment semantics; whether the segment count (215) is stored
+anywhere in the chunk; the large tail segments; how slot 5 relates to slot 21
+beyond sharing the delimiter. Not decodable from bytes alone; engine ground
+truth needed.
+
+**Consequence.** `tools/dmc3/raw.py` gains a shared `_split_u16_segments`
+helper plus `Slot5Table` / `maybe_slot5_table` (slot 21's `Slot21Table` now
+delegates to the same helper with unchanged behavior), decoding exactly the
+observed segmentation from real bytes and exercised by unit tests on
+synthetic fixtures (no game data committed). `docs/FORMATS.md` §1.3 and
+`docs/BACKLOG.md` F3 are updated below. F3 remains open: slots 6, 7, 9, 11,
+22 and all field meanings are still [UNKNOWN].

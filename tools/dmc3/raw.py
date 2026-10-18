@@ -125,6 +125,29 @@ inside segments and is *not* a delimiter. Every field meaning is [UNKNOWN].
 """
 
 
+def _split_u16_segments(data: bytes) -> tuple[tuple[int, ...], ...]:
+    """Split a little-endian u16 stream on every ``0xFFFF`` separator.
+
+    Shared by the slot-5 and slot-21 segment tables of ``pl021.pac`` (evidence
+    E-043 and E-052). ``0xFFFF`` separators are not included in any segment;
+    ``0x7FFF`` is data, never a delimiter. Raises :exc:`ValueError` if
+    ``data`` has an odd length (incomplete trailing u16).
+    """
+    if len(data) % 2 != 0:
+        raise ValueError(
+            f"data is {len(data)} bytes, need an even number of bytes for u16s"
+        )
+    count = len(data) // 2
+    values = [u16(data, 2 * index) for index in range(count)]
+    segments: list[list[int]] = [[]]
+    for value in values:
+        if value == SLOT21_SEPARATOR:
+            segments.append([])
+        else:
+            segments[-1].append(value)
+    return tuple(tuple(seg) for seg in segments)
+
+
 @dataclass(frozen=True)
 class Slot21Table:
     """``pl021.pac`` slot 21 as ``0xFFFF``-delimited u16 segments (E-043).
@@ -147,27 +170,61 @@ class Slot21Table:
         """Parse the slot-21 segmentation from ``data`` (chunk-relative bytes).
 
         Interprets ``data`` as a little-endian u16 stream and splits it on
-        every ``0xFFFF`` separator. Raises :exc:`ValueError` if ``data`` has
-        an odd length (incomplete trailing u16).
+        every ``0xFFFF`` separator. Delegates to :func:`_split_u16_segments`,
+        so behavior is unchanged from the slot-21-specific implementation.
         """
-        if len(data) % 2 != 0:
-            raise ValueError(
-                f"slot-21 data is {len(data)} bytes, need an even number of bytes for u16s"
-            )
-        count = len(data) // 2
-        values = [u16(data, 2 * index) for index in range(count)]
-        segments: list[list[int]] = [[]]
-        for value in values:
-            if value == SLOT21_SEPARATOR:
-                segments.append([])
-            else:
-                segments[-1].append(value)
-        return cls(segments=tuple(tuple(seg) for seg in segments))
+        return cls(segments=_split_u16_segments(data))
 
 
 def maybe_slot21_table(data: bytes) -> Optional[Slot21Table]:
     """Like :meth:`Slot21Table.parse` but returns ``None`` on bad input."""
     try:
         return Slot21Table.parse(data)
+    except ValueError:
+        return None
+
+
+SLOT5_SEGMENT_COUNT = 215
+"""Number of segments observed in ``pl021.pac`` slot 5 (evidence E-052).
+
+The count comes from the single observed chunk and is not known to be stored
+anywhere in the payload; it locks the observed layout, not a rule.
+"""
+
+
+@dataclass(frozen=True)
+class Slot5Table:
+    """``pl021.pac`` slot 5 as ``0xFFFF``-delimited u16 segments (E-052).
+
+    Observed at file offset 0x06B6E0 of ``pl021.pac`` (span 0x4B30,
+    9,624 u16s): the payload splits into **215 segments** (214 ``0xFFFF``
+    separators). Segment 0 is verbatim ``(6, 0x37D0)``; segment sizes open
+    2, 1, 34, 60, 5, 13, 13, 13, 13, 15, … and the tail holds much larger
+    segments (up to 378 u16s). Non-zero bytes run from offset 0x0000 to
+    0x4B2B, essentially the whole span. ``0x7FFF`` occurs inside segments and
+    is *not* a delimiter — exactly as in slot 21 (E-043).
+
+    Slot 5 shares slot 21's segment-stream structure but its segmentation
+    differs (215 segments vs 14), so the two are decoded separately. All
+    segment-internal semantics are [UNKNOWN]; the parser reads exactly the
+    observed segmentation and interprets nothing.
+    """
+
+    segments: tuple[tuple[int, ...], ...]
+    """Tuple of u16 segments; the ``0xFFFF`` separators are not included."""
+
+    @classmethod
+    def parse(cls, data: bytes) -> "Slot5Table":
+        """Parse the slot-5 segmentation from ``data`` (chunk-relative bytes).
+
+        Delegates to :func:`_split_u16_segments`.
+        """
+        return cls(segments=_split_u16_segments(data))
+
+
+def maybe_slot5_table(data: bytes) -> Optional[Slot5Table]:
+    """Like :meth:`Slot5Table.parse` but returns ``None`` on bad input."""
+    try:
+        return Slot5Table.parse(data)
     except ValueError:
         return None

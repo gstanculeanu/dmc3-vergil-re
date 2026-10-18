@@ -76,8 +76,19 @@ whose presence inside the raw slot is unexplained. The remaining ~235 KB of
 the slot's span is non-zero and structured; its layout is undecoded.
 
 The other eight untagged slots (5, 6, 7, 9, 10, 11, 21, 22) have different
-leading bytes (E-008) — so no single header shape is shared across them:
+leading bytes (E-008) — so no single header shape is shared across them.
+Slot 0's header (E-033), slot 5's segment stream (E-052), slot 10's pair
+table (E-037) and slot 21's segment table (E-043) are decoded structurally;
+every field meaning remains [UNKNOWN]:
 
+* **slot 5** [PARTIAL structure / [UNKNOWN] semantics] — at file offset
+  `0x06B6E0`, span `0x4B30` (9,624 u16s): a little-endian u16 stream split
+  into **215 segments** by **214** `0xFFFF` separators. Segment 0 is verbatim
+  `(6, 0x37D0)`; segment sizes open `2, 1, 34, 60, 5, 13, …` and the tail
+  holds segments up to 378 u16s. `0x7FFF` occurs inside segments as data,
+  not as a delimiter — the same segment-stream structure as slot 21 (E-043)
+  but with different segmentation (evidence E-052). What the segments index
+  and what `0x7FFF` means inside them are [UNKNOWN].
 * **slot 10** [PARTIAL structure / [UNKNOWN] semantics] — at file offset
   `0x077ED0`, span `0x1E0` (480 bytes). Body-relative: 23 little-endian u16
   pairs at stride 4 (`+0x00..+0x5B`), then a little-endian f32 stream
@@ -95,7 +106,7 @@ leading bytes (E-008) — so no single header shape is shared across them:
   sub-record `32767, 0, 32767, 1, 1, 0, VALUE` with `VALUE` stepping by 256.
   `0x7FFF` occurs inside segments and is not a delimiter. Segment-internal
   layout and all field meanings [UNKNOWN] (evidence E-043).
-* **slots 5, 6, 7, 9, 11, 22** — leading bytes differ per slot; slots 9/11 are
+* **slots 6, 7, 9, 11, 22** — leading bytes differ per slot; slots 9/11 are
   f32 arrays. Layouts [UNKNOWN].
 
 Every field meaning in this section is [UNKNOWN].

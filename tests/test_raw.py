@@ -8,12 +8,15 @@ from dmc3.raw import (
     SLOT0_HEADER_SIZE,
     SLOT10_PAIR_COUNT,
     SLOT21_SEPARATOR,
+    SLOT5_SEGMENT_COUNT,
     maybe_raw_header,
     maybe_slot10_table,
     maybe_slot21_table,
+    maybe_slot5_table,
     RawHeader,
     Slot10Table,
     Slot21Table,
+    Slot5Table,
 )
 
 
@@ -27,6 +30,10 @@ def slot10_data() -> bytes:
 
 def slot21_data() -> bytes:
     return fixtures.raw_chunk_slot21()
+
+
+def slot5_data() -> bytes:
+    return fixtures.raw_chunk_slot5()
 
 
 class TestRawHeader(unittest.TestCase):
@@ -137,6 +144,49 @@ class TestSlot21Table(unittest.TestCase):
     def test_empty_input_yields_one_empty_segment(self):
         table = Slot21Table.parse(b"")
         self.assertEqual(table.segments, ((),))
+
+
+class TestSlot5Table(unittest.TestCase):
+    """Decoded slot-5 segment stream (E-052). All values are verbatim
+    observations from pl021.pac slot 5 where noted; every field meaning is
+    [UNKNOWN] and is only asserted, never interpreted."""
+
+    REAL_SEGMENT_0 = (6, 0x37D0)
+    """Verbatim segment 0 from pl021.pac slot 5, file offset 0x06B6E0 (E-052)."""
+
+    REAL_SEGMENT_2_PREFIX = (
+        70, 0x7AC, 0xD4E, 0xEBE, 0x15E2, 0x1D54, 0x2636,
+        0x26A4, 0x2DC0, 0x335A,
+    )
+    """Verbatim opening of segment 2 from pl021.pac slot 5 (E-052)."""
+
+    def test_parses_slot_5_segments(self):
+        table = Slot5Table.parse(slot5_data())
+        self.assertEqual(len(table.segments), 6)
+        self.assertEqual(table.segments[0], self.REAL_SEGMENT_0)
+        self.assertEqual(table.segments[1], (4,))
+        self.assertEqual(table.segments[2][: len(self.REAL_SEGMENT_2_PREFIX)],
+                         self.REAL_SEGMENT_2_PREFIX)
+        self.assertEqual(len(table.segments[2]), 34)
+        # 0x7FFF is data, not a delimiter: it stays inside its segment.
+        self.assertEqual(table.segments[5], (0x7FFF, 0xABCD))
+
+    def test_separators_are_not_segment_data(self):
+        table = Slot5Table.parse(slot5_data())
+        self.assertFalse(
+            any(0xFFFF in segment for segment in table.segments)
+        )
+
+    def test_segment_count_matches_observation(self):
+        # The real chunk was observed to split into 215 segments (E-052); the
+        # constant locks that observation without requiring every chunk to
+        # match it.
+        self.assertEqual(SLOT5_SEGMENT_COUNT, 215)
+
+    def test_rejects_odd_length(self):
+        with self.assertRaises(ValueError):
+            Slot5Table.parse(slot5_data()[:-1])
+        self.assertIsNone(maybe_slot5_table(b"\x00" * 3))
 
 
 if __name__ == "__main__":
