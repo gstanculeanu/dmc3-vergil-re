@@ -3,8 +3,13 @@ import struct
 import unittest
 
 import fixtures
-from dmc3 import Chunk, ModBodyDirectory, ModBodyPrefix, ModHeader
+from dmc3 import Chunk, ModBodyBlock, ModBodyDirectory, ModBodyPrefix, ModHeader
 from dmc3.mod import (
+    BODY_BLOCK_OFFSET_A,
+    BODY_BLOCK_OFFSET_B,
+    BODY_BLOCK_OFFSET_C,
+    BODY_BLOCK_PREFIX_SIZE,
+    BODY_BLOCK_ZERO_OFFSETS,
     BODY_DESCRIPTOR_ARRAY_OFFSET,
     BODY_DESCRIPTOR_AUX_OFFSET,
     BODY_DESCRIPTOR_SIZE,
@@ -249,6 +254,67 @@ class TestModBodyDirectory(unittest.TestCase):
         with self.assertRaises(ValueError):
             ModBodyDirectory.parse(truncated)
         self.assertIsNone(maybe_mod_body_directory(b"\x00" * 4))
+
+
+class TestModBodyBlocks(unittest.TestCase):
+    """E-093: each record descriptor's +0x24 names a consecutive data block that
+    opens with a 0x2C-byte prefix of three offsets. Only observed structure is
+    asserted."""
+
+    def test_layout_constants(self):
+        self.assertEqual(BODY_BLOCK_PREFIX_SIZE, 0x2C)
+        self.assertEqual(BODY_BLOCK_OFFSET_A, 0x04)
+        self.assertEqual(BODY_BLOCK_OFFSET_B, 0x0C)
+        self.assertEqual(BODY_BLOCK_OFFSET_C, 0x1C)
+        self.assertEqual(
+            BODY_BLOCK_ZERO_OFFSETS, (0x00, 0x08, 0x10, 0x14, 0x18, 0x20, 0x24, 0x28)
+        )
+
+    def test_one_block_per_record(self):
+        directory = ModBodyDirectory.parse(fixtures.mod_directory_body(tagged=3))
+        self.assertEqual(len(directory.blocks), 3)
+
+    def test_blocks_are_consecutive_and_run_to_the_body_end(self):
+        body = fixtures.mod_directory_body(tagged=3)
+        directory = ModBodyDirectory.parse(body)
+        blocks = directory.blocks
+        for current, following in zip(blocks, blocks[1:]):
+            self.assertEqual(current.end, following.data_offset)
+        self.assertEqual(blocks[-1].end, len(body))
+        # the first block starts where the descriptor array ends (descriptor 0)
+        self.assertEqual(blocks[0].data_offset, directory.array_size)
+
+    def test_prefix_is_clear_and_offsets_ordered(self):
+        directory = ModBodyDirectory.parse(fixtures.mod_directory_body(tagged=3))
+        for block in directory.blocks:
+            self.assertTrue(block.prefix_clear, block)
+            self.assertTrue(block.ordered, block)
+            self.assertTrue(block.in_block, block)
+
+    def test_regions_are_the_three_payload_spans(self):
+        directory = ModBodyDirectory.parse(fixtures.mod_directory_body(tagged=3))
+        block = directory.blocks[0]
+        self.assertEqual(block.payload_offset, block.data_offset + 0x2C)
+        regions = block.regions
+        self.assertEqual(len(regions), 3)
+        self.assertEqual(regions[0][0], block.payload_offset)
+        self.assertEqual(regions[0][1], block.offset_a)
+        self.assertEqual(regions[1], (block.offset_a, block.offset_b))
+        self.assertEqual(regions[2], (block.offset_b, block.end))
+        # the regions are consecutive and cover the payload
+        self.assertEqual(regions[2][1], block.end)
+
+    def test_block_parse_rejects_short_input(self):
+        with self.assertRaises(ValueError):
+            ModBodyBlock.parse(b"\x00" * 0x10, 0, 0, 0x10)
+
+    def test_body_blocks_skips_a_truncated_prefix(self):
+        # descriptor says data starts at 0x100 but the body ends at 0x110
+        body = fixtures.mod_directory_body(tagged=1)
+        directory = ModBodyDirectory.parse(body)
+        truncated = body[: directory.blocks[0].data_offset + 8]
+        directory = ModBodyDirectory.parse(truncated)
+        self.assertEqual(directory.blocks, ())
 
 
 if __name__ == "__main__":

@@ -2198,3 +2198,45 @@ moves and health bar and everything."*
   descriptor's `+0x24` data offset are the fresh lead into the vertex/index
   layout. F4 stays blocked on the engine route and is not re-spun; the GoW3R
   clip leaf keyframe encoding (F9) remains available.
+
+## 2026-10-18 — F1 bounded slice: `+0x24` names a data block with a fixed 0x2C-byte prefix of three offsets (E-093)
+
+- Did: picked the critical path **F1** (issue #1) and followed E-092's own stated
+  next step — "each descriptor's `+0x24` data offset" — by reading the bytes it
+  points at, read-only, across all 194 `*.pac` files under
+  `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\` (32 `PNST` files
+  skipped; **286** `MOD ` chunks, 1,561 record descriptors). Added
+  `ModBodyBlock`, `body_blocks`, the `blocks` field on `ModBodyDirectory` and the
+  `BODY_BLOCK_*` constants to `tools/dmc3/mod.py`, exported from `dmc3`; added the
+  `mod_block()` fixture and a block-laying `mod_directory_body()`;
+  `TestModBodyBlocks` (7 tests). Full suite: **607 tests, all green** (600
+  baseline + 7). Nothing written to the game; no game data committed.
+- Found (**E-093**), read-only on the install:
+  - A record descriptor's `+0x24` names a **body-relative data block**; the
+    blocks are **consecutive**. Descriptor 0's `+0x24` equals the array-size
+    field on **286/286** chunks (so the first block starts at the array end) and
+    the last block runs to the body end (descriptor offsets strictly increasing
+    on 282/286).
+  - A block opens with a **fixed 0x2C-byte prefix**, all-zero except **three u32s
+    at `+0x04`, `+0x0C`, `+0x1C`**; the payload starts at `+0x2C`. Verified on
+    **1,542/1,556** readable blocks. The 14 non-conforming blocks are all in
+    `em035.pac`/`pl001.pac`/`pl015.pac`/`pl016.pac`, where the prefix bytes read
+    as `f32`/other content — recorded as an anomaly, not explained.
+  - `data_offset < offset_a < offset_b` on **1,544/1,556**; both interior offsets
+    fall inside the block on **1,540/1,556**; all three 16-byte aligned on
+    **1,503/1,556**.
+  - **[INFERRED]** where ordered+in-block hold, the interior offsets split the
+    payload into three consecutive regions; their contents differ (f32, then
+    mostly `0x1F`/`0x801F` words) but **no region is assigned a format**. The
+    third offset `offset_c` leaves the block in 708/1,561 — [UNKNOWN].
+  - This turns E-092's "data layout [UNKNOWN]" into an addressable 3-region
+    block per descriptor; the leaves' contents (positions/normals/UVs/indices/
+    weights) remain the open question.
+- Docs: E-093 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §5.1 gains the "E-093
+  update" subsection and the title gains E-093; `docs/BACKLOG.md` F1 row updated
+  (evidence cell adds E-093). No game data committed.
+- Next: within each block, the three regions are the next lead — test whether the
+  first region is an `f32` position array (stride 12) and whether the second is a
+  `u16` index buffer, using a chunk where `count` is small. F4 stays blocked on
+  the engine route and is not re-spun; F2/F3/F5/F6/F8 and the GoW3R clip leaf
+  encoding (F9) remain available.

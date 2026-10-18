@@ -190,23 +190,53 @@ def mod_directory_body(
 
     Builds ``tagged`` namespace-tagged descriptors followed by one untagged
     footer descriptor (``tagged + 1`` records total), then ``slack`` fill bytes
-    and a small data region.  Descriptor 0's ``+0x24`` (the array-size field)
-    is ``(tagged + 1) * 0x40 + slack``; each tagged descriptor's ``+0x24`` is a
-    strictly increasing, 16-byte-aligned body offset beginning at the array end.
+    and one fixed ``0x80``-byte data block per record (E-093).  Descriptor 0's
+    ``+0x24`` (the array-size field) is ``(tagged + 1) * 0x40 + slack``; each
+    tagged descriptor's ``+0x24`` is a strictly increasing, 16-byte-aligned body
+    offset beginning at the array end.
     """
     count = tagged + 1
     array_size = count * 0x40 + slack
+    block_size = 0x80
     descs = []
     for k in range(tagged):
         descs.append(
             mod_descriptor(
                 tag=tags[k % len(tags)],
                 count=counts[k % len(counts)],
-                data_offset=array_size + 0x10 * k,
+                data_offset=array_size + k * block_size,
             )
         )
     descs.append(mod_descriptor(tag_word=footer_word, data_offset=0, aux=0x00000004))
-    return b"".join(descs) + b"\x00" * slack + b"\x10" * 0x40
+    body = bytearray(b"".join(descs))
+    body += b"\x00" * slack
+    for k in range(tagged):
+        start = array_size + k * block_size
+        body += mod_block(
+            offset_a=start + 0x40,
+            offset_b=start + 0x60,
+            offset_c=start + 0x100,
+            payload_size=block_size - 0x2C,
+        )
+    return bytes(body)
+
+
+def mod_block(
+    offset_a: int = 0,
+    offset_b: int = 0,
+    offset_c: int = 0,
+    payload_size: int = 0x54,
+) -> bytes:
+    """A synthetic ``MOD `` descriptor data block (E-093).
+
+    A ``0x2C``-byte prefix, all-zero except the three u32 offsets, followed by
+    ``payload_size`` bytes of ``0x2C`` fill.
+    """
+    blob = bytearray(0x2C)
+    struct.pack_into("<I", blob, 0x04, offset_a)
+    struct.pack_into("<I", blob, 0x0C, offset_b)
+    struct.pack_into("<I", blob, 0x1C, offset_c)
+    return bytes(blob) + b"\x2c" * payload_size
 
 
 def shw_chunk(

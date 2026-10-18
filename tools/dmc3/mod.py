@@ -274,8 +274,9 @@ class ModBodyDescriptor:
 
     data_offset: int
     """Descriptor +0x24: a body-relative byte offset.  For descriptor 0 this is
-    the array's byte size; for the tagged records it names their data.  Meaning
-    of the referent [UNKNOWN]."""
+    the array's byte size; for the tagged records it is the start of that
+    descriptor's **data block** (E-093).  Meaning of the block's contents
+    [UNKNOWN]."""
 
     aux: int
     """Descriptor +0x2C: u32 (``0x00100001`` in many tagged records).  Meaning
@@ -353,6 +354,9 @@ class ModBodyDirectory:
     descriptors: tuple[ModBodyDescriptor, ...]
     """All ``count`` descriptors, in body order."""
 
+    blocks: tuple["ModBodyBlock", ...] = ()
+    """The data blocks named by :attr:`records` (E-093), in body order."""
+
     @property
     def count(self) -> int:
         """Number of descriptors (``array_size // 0x40``)."""
@@ -398,11 +402,14 @@ class ModBodyDirectory:
                 f"body only {len(body)} bytes, need {count * BODY_DESCRIPTOR_SIZE} "
                 f"for {count} descriptors"
             )
+        descriptors = tuple(
+            ModBodyDescriptor.parse(body, i) for i in range(count)
+        )
+        directory = cls(array_size=array_size, descriptors=descriptors)
         return cls(
             array_size=array_size,
-            descriptors=tuple(
-                ModBodyDescriptor.parse(body, i) for i in range(count)
-            ),
+            descriptors=descriptors,
+            blocks=body_blocks(body, directory),
         )
 
 
@@ -412,3 +419,156 @@ def maybe_mod_body_directory(body: bytes) -> Optional[ModBodyDirectory]:
         return ModBodyDirectory.parse(body)
     except (ValueError, IndexError):
         return None
+
+
+# ---------------------------------------------------------------------------
+# Payload body: the per-descriptor data blocks (E-093)
+# ---------------------------------------------------------------------------
+#
+# E-092 read the descriptor array's ``+0x24`` field as a body-relative byte
+# offset.  Reading the bytes it points at shows that every *record* descriptor
+# names a **data block**, and the blocks of a body are consecutive: they start
+# at the array end and the last one runs to the end of the body.  A block opens
+# with a fixed 0x2C-byte prefix that is all-zero except for three u32 values at
+# +0x04, +0x0C and +0x1C; the payload then begins at +0x2C.  The two interior
+# values (``offset_a``/``offset_b``) are usually 16-byte aligned and fall inside
+# the block, so they split the payload into three consecutive regions.  The third
+# value (``offset_c``) is a body-relative offset that often leaves the block.
+
+BODY_BLOCK_PREFIX_SIZE = 0x2C
+"""Size of the fixed prefix at the start of a ``MOD `` data block (E-093)."""
+
+BODY_BLOCK_OFFSET_A = 0x04
+"""Prefix offset of the first interior u32 (E-093)."""
+
+BODY_BLOCK_OFFSET_B = 0x0C
+"""Prefix offset of the second interior u32 (E-093)."""
+
+BODY_BLOCK_OFFSET_C = 0x1C
+"""Prefix offset of the third u32, a body-relative offset (E-093)."""
+
+BODY_BLOCK_ZERO_OFFSETS = (0x00, 0x08, 0x10, 0x14, 0x18, 0x20, 0x24, 0x28)
+"""Prefix offsets observed zero on 1542/1556 readable install blocks (E-093)."""
+
+
+@dataclass(frozen=True)
+class ModBodyBlock:
+    """One data block named by a record descriptor's ``+0x24`` (E-093).
+
+    Every field is an **observation**: the prefix shape and the relation
+    ``block < offset_a < offset_b <= block_end`` hold on most of the install
+    (1,540/1,556 readable blocks), but no field is assigned a *meaning* and the
+    payload's contents (vertex/index/UV/weight) remain [UNKNOWN].
+    """
+
+    index: int
+    """Zero-based position in the directory's :attr:`ModBodyDirectory.records`."""
+
+    data_offset: int
+    """Body-relative start of the block (the descriptor's ``+0x24``)."""
+
+    span: int
+    """Block length in bytes: the distance to the next block, or to the body
+    end for the last block."""
+
+    offset_a: int
+    """Block +0x04: a body-relative offset, 16-byte aligned, inside the block."""
+
+    offset_b: int
+    """Block +0x0C: a body-relative offset, 16-byte aligned, inside the block."""
+
+    offset_c: int
+    """Block +0x1C: a body-relative offset (16-byte aligned in 1544/1561
+    blocks).  It leaves the block in 708/1561 blocks; meaning [UNKNOWN]."""
+
+    prefix_clear: bool
+    """True when the eight :data:`BODY_BLOCK_ZERO_OFFSETS` prefix words are
+    zero (1542/1556 readable install blocks)."""
+
+    @property
+    def payload_offset(self) -> int:
+        """Body-relative start of the payload (``data_offset`` + 0x2C)."""
+        return self.data_offset + BODY_BLOCK_PREFIX_SIZE
+
+    @property
+    def end(self) -> int:
+        """Body-relative end of the block (exclusive)."""
+        return self.data_offset + self.span
+
+    @property
+    def ordered(self) -> bool:
+        """True when ``data_offset < offset_a < offset_b`` (1546/1561 blocks)."""
+        return self.data_offset < self.offset_a < self.offset_b
+
+    @property
+    def in_block(self) -> bool:
+        """True when both interior offsets are inside the payload."""
+        return (
+            self.payload_offset <= self.offset_a
+            and self.offset_b <= self.end
+        )
+
+    @property
+    def regions(self) -> tuple[tuple[int, int], ...]:
+        """The three consecutive payload spans split by ``offset_a``/``offset_b``.
+
+        Only meaningful when :attr:`ordered` and :attr:`in_block` hold; nothing
+        is asserted about what each region holds.
+        """
+        return (
+            (self.payload_offset, self.offset_a),
+            (self.offset_a, self.offset_b),
+            (self.offset_b, self.end),
+        )
+
+    @classmethod
+    def parse(
+        cls, body: bytes, index: int, data_offset: int, span: int
+    ) -> "ModBodyBlock":
+        """Read the block starting at ``data_offset`` from the body."""
+        if data_offset < 0 or span < 0:
+            raise ValueError("data_offset and span must be non-negative")
+        if data_offset + BODY_BLOCK_PREFIX_SIZE > len(body):
+            raise ValueError(
+                f"body only {len(body)} bytes, need "
+                f"{data_offset + BODY_BLOCK_PREFIX_SIZE} for the block prefix"
+            )
+        return cls(
+            index=index,
+            data_offset=data_offset,
+            span=span,
+            offset_a=u32(body, data_offset + BODY_BLOCK_OFFSET_A),
+            offset_b=u32(body, data_offset + BODY_BLOCK_OFFSET_B),
+            offset_c=u32(body, data_offset + BODY_BLOCK_OFFSET_C),
+            prefix_clear=all(
+                u32(body, data_offset + offset) == 0
+                for offset in BODY_BLOCK_ZERO_OFFSETS
+            ),
+        )
+
+
+def body_blocks(
+    body: bytes, directory: ModBodyDirectory
+) -> tuple[ModBodyBlock, ...]:
+    """The data blocks named by a directory's record descriptors (E-093).
+
+    Each record's ``+0x24`` is a block start; the block runs to the next
+    record's ``+0x24`` and the last runs to the end of the body.  Records with a
+    zero ``+0x24`` are skipped (the array is only followed by data in 279/286
+    chunks, so a zero offset is not expected among the records).
+    """
+    records = directory.records
+    offsets = [r.data_offset for r in records]
+    blocks = []
+    for i, record in enumerate(records):
+        start = record.data_offset
+        if start == 0:
+            continue
+        end = offsets[i + 1] if i + 1 < len(offsets) else len(body)
+        if end < start or start + BODY_BLOCK_PREFIX_SIZE > len(body):
+            # Offsets are not strictly increasing in 4/286 chunks, and a block
+            # prefix can run past a truncated body.  Leave those blocks out
+            # rather than failing the whole directory or inventing a block.
+            continue
+        blocks.append(ModBodyBlock.parse(body, i, start, end - start))
+    return tuple(blocks)

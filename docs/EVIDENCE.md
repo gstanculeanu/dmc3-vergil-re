@@ -5210,3 +5210,91 @@ exported from `dmc3`. `tests/fixtures.py` gains `mod_descriptor()` /
 (9 tests). Validated read-only against all **286** install `MOD ` chunks:
 **286/286** parse, **286/286** `header_ok`. Full suite: **600 tests, all green**.
 No game data committed.
+
+## E-093 — `MOD ` descriptor `+0x24` names a data block with a fixed 0x2C-byte prefix of three offsets (F1, bounded slice)
+
+**Observation (read-only from
+`G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\`, all 194 `*.pac`
+files — 32 `PNST` files skipped — 286 `MOD ` chunks, 1,561 record descriptors).**
+E-092 read each record descriptor's `+0x24` as "a body-relative byte offset ... the
+referent [UNKNOWN]". Reading the bytes it points at shows the referent is a **data
+block**: the blocks of a body are **consecutive** and the first begins exactly at
+the descriptor array's byte size.
+
+* **Descriptor 0's `+0x24` equals the array-size field `body+0x24` on
+  286/286 chunks** (which is `count * 0x40`, plus the `0x10` slack of the seven
+  `id430`/`id470` chunks — E-092). Each block then runs to the next record's
+  `+0x24`, and the last record's block runs to the end of the body (the
+  descriptor offsets are strictly increasing on 282/286 chunks).
+* The block opens with a **fixed 0x2C-byte prefix** that is all-zero except for
+  **three u32s at `+0x04`, `+0x0C` and `+0x1C`**; the payload begins at `+0x2C`.
+
+Raw prefix bytes (body-relative, little-endian) for `pl021.pac`:
+
+```
+slot 23 desc 0, block @0x80:
+  00 00 00 00 d0 14 00 00 00 00 00 00 b0 17 00 00
+  00 00 00 00 00 00 00 00 f0 18 00 00 00 00 00 00
+  00 00 00 00 00 00 00 00 84 92 31 c0 ...
+  -> +0x04 = 0x14D0, +0x0C = 0x17B0, +0x1C = 0x18F0, payload f32 begins +0x2C
+
+slot 1 desc 0, block @0x300:
+  00 00 00 00 40 37 00 00 00 00 00 00 b0 3e 00 00
+  00 00 00 00 00 00 00 00 a0 9b 02 00 00 00 00 00
+  00 00 00 00 00 00 00 00 45 c8 0e c1 ...
+  -> +0x04 = 0x3740, +0x0C = 0x3EB0, +0x1C = 0x29BA0, payload begins +0x2C
+```
+
+**Census of the install (286 `MOD ` chunks, 1,561 record descriptors, 1,556
+readable blocks — 5 blocks are unreadable because their chunk's offsets are not
+strictly increasing):**
+
+| observation | result |
+|---|---|
+| `data_offset` (descriptor 0) == array-size field | **286/286** |
+| descriptor offsets strictly increasing | 282/286 |
+| readable blocks | 1,556/1,561 |
+| prefix clear (`+0x00/08/10/14/18/20/24/28` all zero) | **1,542/1,556** |
+| `data_offset < offset_a < offset_b` | 1,544/1,556 |
+| `payload_offset <= offset_a` and `offset_b <= block_end` | 1,540/1,556 |
+| `offset_a`,`offset_b`,`offset_c` all 16-byte aligned | 1,503/1,556 |
+| non-conforming prefix blocks | 15, all in `em035.pac`/`pl001.pac`/`pl015.pac`/`pl016.pac` |
+
+The 15 non-conforming blocks (14 readable + 1 skipped) are the only place the
+prefix shape fails: at their `data_offset` the bytes at `+0x04/+0x0C/+0x1C` read
+as `f32` or other content, not offsets (e.g. `pl001.pac` slot 1 block `@0x22700`
+opens `bd9e5e78 3f327d1a ...`). Recorded as an anomaly, not explained.
+
+**Inference (marked [INFERRED], not observed).** When `data_offset < offset_a <
+offset_b <= block_end` hold (1,540/1,556 blocks) the two interior offsets split
+the payload into **three consecutive regions** `[+0x2C, offset_a)`,
+`[offset_a, offset_b)`, `[offset_b, block_end)`. The look of each region differs
+(the first of `pl021.pac` slot 23 reads as `f32`, its second/third as mostly
+`0x1F`/`0x801F` words), consistent with the regions being different per-vertex
+attribute arrays, but **no region is assigned a format or meaning here**.
+
+`offset_c` is also a body-relative offset but it is **outside the block in
+708/1,561** of the pre-filter comparison — likely a shared/pool offset rather
+than a fourth region boundary; [UNKNOWN].
+
+**Unknown (recorded, not inferred).** What each of the three regions holds
+(positions / normals / UVs / indices / skin weights), what `offset_c` addresses,
+and what the `MOD ` descriptor `tag` (`0x8001`/`0x8002`/`0x8008`/…) selects are
+all **[UNKNOWN]**. The data block is the structure the mesh leaves are addressed
+by; the leaves' contents are still open.
+
+**Tooling.** `tools/dmc3/mod.py`: `ModBodyBlock`, the free function
+`body_blocks(body, directory)`, `ModBodyDirectory.blocks`, and the constants
+`BODY_BLOCK_PREFIX_SIZE = 0x2C`, `BODY_BLOCK_OFFSET_A = 0x04`,
+`BODY_BLOCK_OFFSET_B = 0x0C`, `BODY_BLOCK_OFFSET_C = 0x1C`,
+`BODY_BLOCK_ZERO_OFFSETS`; all exported from `dmc3`. `ModBodyBlock` exposes
+`payload_offset`, `end`, `ordered`, `in_block` and `regions`. `ModBodyDirectory`
+gains the `blocks` field (computed in `parse`); `body_blocks` is deliberately
+tolerant — it skips a block whose prefix runs past a truncated body or whose
+successor offset is not larger, rather than failing the whole directory (this
+keeps E-092's 286/286 parse). `tests/fixtures.py` gains `mod_block()` and a
+block-laying `mod_directory_body()`; `tests/test_mod.py` gains `TestModBodyBlocks`
+(7 tests). Validated read-only against all **286** install `MOD ` chunks:
+**286/286** parse, 1,556 blocks read. Full suite: **607 tests, all green**.
+No game data committed.
+

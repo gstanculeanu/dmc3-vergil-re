@@ -511,7 +511,7 @@ files**; evidence E-030), all little-endian:
 +0x24  ...     payload body (vertices, indices, normals, UVs, skin weights)  [UNKNOWN layout]
 ```
 
-### 5.1 `MOD ` payload body prefix — first decoded fields [E-031, E-091, E-092]
+### 5.1 `MOD ` payload body prefix — first decoded fields [E-031, E-091, E-092, E-093]
 
 **Status: [PARTIAL]** — evidence E-031 (pl021.pac), E-091 (all 286 install
 `MOD ` chunks). The body begins at `+0x24` (immediately after the header). Its
@@ -573,7 +573,7 @@ descriptor +0x00  u32     0 where observed
 descriptor +0x0C  4x f32  vector-like values                      [meaning UNKNOWN]
 descriptor +0x1C  u32    tagged count (count << 16) | tag, 0x8000 namespace
 descriptor +0x20  u32     0 where observed
-descriptor +0x24  u32     a body-relative byte offset             [referent UNKNOWN]
+descriptor +0x24  u32     a body-relative byte offset -> data block (E-093)
 descriptor +0x28  u32     0 where observed
 descriptor +0x2C  u32     varies (0x00100001 in many records)     [meaning UNKNOWN]
 ```
@@ -604,6 +604,48 @@ descriptor +0x2C  u32     varies (0x00100001 in many records)     [meaning UNKNO
 * `tools/dmc3/mod.py` exposes `ModBodyDescriptor`, `ModBodyDirectory`,
   `descriptor_count`, `maybe_mod_body_directory` and the `BODY_DESCRIPTOR_*`
   constants.
+
+#### E-093 update: each descriptor's `+0x24` names a data block with a fixed 0x2C-byte prefix — structure [VERIFIED]
+
+Reading the bytes descriptor `+0x24` points at (all **286** install `MOD `
+chunks) shows the referent is a **data block**, and the blocks are consecutive:
+
+* Descriptor 0's `+0x24` equals the array-size field on **286/286** chunks, so the
+  first block begins exactly at the array end; each block runs to the next
+  record's `+0x24`, and the last runs to the body end (descriptor offsets are
+  strictly increasing on 282/286 chunks).
+* A block opens with a **fixed 0x2C-byte prefix**, all-zero except **three u32s
+  at `+0x04`, `+0x0C`, `+0x1C`**; the payload begins at `+0x2C`:
+
+```
+block +0x00  u32  0
+block +0x04  u32  offset_a  body-relative, 16-byte aligned
+block +0x08  u32  0
+block +0x0C  u32  offset_b  body-relative, 16-byte aligned
+block +0x10  u32  0
+block +0x14  u32  0
+block +0x18  u32  0
+block +0x1C  u32  offset_c  body-relative (often leaves the block)  [meaning UNKNOWN]
+block +0x20  u32  0
+block +0x24  u32  0
+block +0x28  u32  0
+block +0x2C       payload                                            [layout UNKNOWN]
+```
+
+* Verified on **1,542/1,556** readable blocks (14 non-conforming blocks, all in
+  `em035.pac`/`pl001.pac`/`pl015.pac`/`pl016.pac`, where the prefix bytes read as
+  `f32`/other content). `data_offset < offset_a < offset_b` on 1,544/1,556 and
+  `offset_a`/`offset_b` fall inside the block on 1,540/1,556; all three offsets
+  are 16-byte aligned on 1,503/1,556.
+* **[INFERRED]** where the ordered/in-block relation holds the two interior
+  offsets split the payload into three consecutive regions
+  `[+0x2C, offset_a)`, `[offset_a, offset_b)`, `[offset_b, end)`; their contents
+  look different (f32, then mostly `0x1F`/`0x801F` words) but **no region is
+  assigned a format or meaning**.
+* `offset_c` leaves the block in 708/1,561 — [UNKNOWN].
+* `tools/dmc3/mod.py` exposes `ModBodyBlock`, `body_blocks`, the `blocks` field
+  on `ModBodyDirectory` and the `BODY_BLOCK_*` constants.
+
 
 `SHW ` chunk header (verified bytes across all four `pl021.pac` `SHW `
 chunks; evidence E-036), all little-endian:
