@@ -263,3 +263,86 @@ def object_names(data: bytes) -> List[str]:
         if name not in out:
             out.append(name)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Vertex blocks (E-088)
+# ---------------------------------------------------------------------------
+#
+# A mesh group's payload is **heterogeneous**: it is not one flat vertex stream.
+# Only the sub-blocks the descriptor declares are vertices. In ``MG_3c8ec52_0``
+# the first block is exactly ``first_count`` = 155 records, and record 155 is a
+# separator whose floats are 0x4F000000. Walking ``vertex_bytes / 20`` records
+# blindly instead runs into that separator and, across all 19 groups, produces
+# values as large as 6.7e35 -- which is how the heterogeneity was found.
+#
+# The first block is therefore the only one this module reads: it is delimited by
+# the descriptor itself and verified by the separator landing exactly on it.
+
+#: A record carrying this float is a separator, not a vertex.
+SEPARATOR_BITS = 0x4F000000
+SEPARATOR = struct.unpack("<f", struct.pack("<I", SEPARATOR_BITS))[0]
+
+
+@dataclass(frozen=True)
+class Vertex:
+    """One 20-byte vertex record."""
+
+    skin_index: int
+    skin_weight: int
+    floats: Tuple[float, float, float, float]
+
+    @property
+    def position(self) -> Tuple[float, float, float]:
+        """The first three floats.
+
+        Reading them as the position follows E-071's attribute order
+        (``PS3_Pos`` first); it is [INFERRED], not established.
+        """
+        return self.floats[0], self.floats[1], self.floats[2]
+
+    @property
+    def is_unskinned(self) -> bool:
+        return self.skin_index == SKIN_SENTINEL
+
+    @property
+    def is_separator(self) -> bool:
+        return SEPARATOR in self.floats
+
+
+def read_block(data: bytes, at: int, count: int) -> List[Vertex]:
+    """Read ``count`` 20-byte vertex records starting at ``at``."""
+    out: List[Vertex] = []
+    for k in range(count):
+        off = at + k * VERTEX_STRIDE
+        if off + VERTEX_STRIDE > len(data):
+            raise MeshError(f"vertex block overruns at 0x{off:X}")
+        index, weight = struct.unpack_from("<HH", data, off)
+        f = struct.unpack_from("<4f", data, off + 4)
+        out.append(Vertex(skin_index=index, skin_weight=weight, floats=f))
+    return out
+
+
+def first_block(data: bytes, group: MeshGroup) -> List[Vertex]:
+    """The first vertex sub-block of a mesh group, as the descriptor declares it."""
+    header = group.header(data)
+    return read_block(data, group.descriptor + HEADER_SIZE, header.first_count)
+
+
+def block_is_clean(vertices: List[Vertex]) -> bool:
+    """True when every record looks like a vertex rather than debris."""
+    for v in vertices:
+        if v.is_separator:
+            return False
+        if any(x != x or abs(x) > 1e5 for x in v.floats):
+            return False
+    return True
+
+
+def bounding_box(vertices: List[Vertex]) -> Tuple[Tuple[float, ...], ...]:
+    """``(minima, maxima)`` of the four floats over a vertex list."""
+    if not vertices:
+        raise MeshError("cannot take the bounding box of no vertices")
+    minima = tuple(min(v.floats[i] for v in vertices) for i in range(4))
+    maxima = tuple(max(v.floats[i] for v in vertices) for i in range(4))
+    return minima, maxima

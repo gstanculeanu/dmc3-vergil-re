@@ -4866,3 +4866,81 @@ negative is only worth recording when the scan covers the file contiguously.
 (`record + 0x80`, the payload base, which returned garbage for 16 of 19 groups);
 it is `record + 0x40`. That was caught by running it against all 19 rather than the
 one it was derived from.
+
+---
+
+## E-088 - Mesh-group payloads are heterogeneous: only the declared sub-blocks are vertices (G9/G10)
+
+**Observation.** E-087 established that a mesh group's payload begins with a
+0x28-byte descriptor followed by 20-byte vertex records. It is **not** one flat
+vertex stream, and this entry records the boundary between the parts.
+
+**The first block is exactly the declared count.** Reading
+``first_count + 1`` records from ``descriptor + 0x28`` in ``MG_3c8ec52_0``:
+
+```
+records 0 .. 154   clean vertices          (block_is_clean == True)
+record  155        NOT a vertex            (first_count == 155)
+```
+
+record 155's four float words are ``1.68e-44, 8.41e-45, 2147483648.0, 9.18e-41``
+-- i.e. the u32 ``0x4F000000`` sits in the third slot. So the declared
+``first_count`` marks a real boundary, byte-exactly, and the record after the block
+is a sub-block header rather than a vertex.
+
+**A tempting relation that does NOT hold.** In ``MG_3c8ec52_0``,
+
+```
+descriptor + 0x28 + 155 * 20 = descriptor + 3,140 = offsets[0]
+```
+
+exactly. Checked against all 19 groups, however:
+
+```
+MG_3c8ec52_0   3,140 == 3,140    MATCH
+MG_4196b97c_0     48 !=   60     off by -12
+MG_a865ab18_0    344 !=  340     +4
+MG_db637f4f_0  1,376 != 1,300    +76
+MG_b2501477_0    688 !=  660     +28
+MG_9d29aa5d_0  1,368 != 1,300    +68
+MG_18c19a85_0  1,372 != 1,300    +72
+MG_33c43b9c_0  1,360 != 1,300    +60
+MG_c9a3c9b3_0    692 !=  660     +32
+```
+
+**1 of 19.** So ``offsets[0] == 0x28 + first_count * 20`` is a coincidence of the
+big group, not a law: the four offsets also cover per-group trailer or index bytes
+(0 .. 76 of them). Recorded so the next iteration does not build on it.
+
+**A flat walk produces garbage.** Stepping ``vertex_bytes / 20`` records from the
+descriptor and skipping only records that contain ``0x4F000000``, pooled over all
+19 groups, gives 22,508 records whose extents are:
+
+```
+f0: min -354,656,421,150,720.0     max 20.4980
+f2: min -6.7e35                    max 149.5578
+```
+
+Absurd values of that size can only be non-vertex data being read as floats. The
+payload is therefore **heterogeneous** -- vertex blocks interleaved with other
+data -- and the only reliable vertex region is the sub-block the descriptor
+declares.
+
+**What is solid.** For every one of the 19 groups the declared ``first_count``
+block is clean (no ``0x4F000000`` record, no absurd float, no NaN). The counts are
+1, 1, 155, 15, 15, 63, 3, 31, 63, 31, 31, 31, 63, 63, 1, 1, 63, 63, 31. The big
+group's first block spans, per float, ``6.26 x 5.29 x 6.55 x 7.50`` units -- a
+coherent body part at device scale.
+
+**Unknown.** Which of the four floats is position (E-087 reads the first three,
+following E-071's ``PS3_Pos``-first attribute order -- [INFERRED], not proven);
+what the other three are; what each of the four sub-block offsets points at; where
+the index buffers are. The first block is the foothold, not the whole mesh.
+
+**Tooling.** `tools/gow3/meshes.py` gains `read_block`, `first_block`,
+`block_is_clean`, `bounding_box`, `Vertex`, and the `SEPARATOR` constants; 10
+tests in `tests/test_gow3_meshes.py`. One of those tests also caught a false
+fixture assumption: a mesh group's payload starts at ``descriptor + 0x28``, not
+after a full 0x40 second header, so the earlier synthetic layout was wrong.
+
+**Suite:** 572 tests, all green.

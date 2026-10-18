@@ -101,18 +101,22 @@ GROUP_HEADER = 0x28
 
 def group_record(name, size, flags=0x52, vertex_bytes=187_840, count=155,
                  payload=b""):
-    """A MG_<hash>_0 record: 0x40 record + 0x40 second header holding the
-    descriptor at +0x40, then payload bytes."""
+    """A MG_<hash>_0 record.
+
+    Layout in the real file: 0x40 record, then a 0x28-byte descriptor, then the
+    payload starting at ``descriptor + 0x28``. The record's ``size`` is a little
+    longer than the payload, so 0x18 bytes of padding follow it.
+    """
     rec = bytearray(RECORD_SIZE)
     struct.pack_into("<HHI", rec, 0, groups.ID_RESOURCE, flags, size)
     rec[8:8 + len(name)] = name.encode("latin-1")
 
-    descriptor = bytearray(RECORD_SIZE)
+    descriptor = bytearray(meshes.HEADER_SIZE)
     struct.pack_into("<HHIHHIII", descriptor, 0, 0x0D, 1, vertex_bytes, 4, count,
                      32, 0, 0x10000)
     struct.pack_into("<4I", descriptor, 0x18, 3140, 11664, 12912, 14344)
     body = payload or b"\x00" * max(0, size)
-    return bytes(rec) + bytes(descriptor) + body
+    return bytes(rec) + bytes(descriptor) + body + b"\x00" * 0x18
 
 
 class TestMeshGroups(unittest.TestCase):
@@ -171,6 +175,69 @@ class TestMeshGroups(unittest.TestCase):
         self.assertEqual(meshes.VERTEX_STRIDE, 20)
         self.assertEqual(meshes.SKIN_SENTINEL, 0xFFFF)
         self.assertEqual(meshes.HEADER_SIZE, GROUP_HEADER)
+
+
+class TestVertexBlocks(unittest.TestCase):
+    def setUp(self):
+        self.name = "MG_3c8ec52_0"
+        # 3 vertices, then a separator record
+        payload = b""
+        for k in range(3):
+            payload += struct.pack("<HH4f", 0xFFFF, 0, 1.0 + k, 2.0 + k,
+                                   3.0 + k, 4.0 + k)
+        payload += struct.pack("<HH4f", 0, 0, 0.0, 0.0, 2147483648.0, 0.0)
+        self.data = wad(group_record(self.name, len(payload), vertex_bytes=60,
+                                     count=3, payload=payload))
+
+    def test_read_block_parses_records(self):
+        g = meshes.find_mesh_groups(self.data)[0]
+        verts = meshes.read_block(self.data, g.descriptor + meshes.HEADER_SIZE, 3)
+        self.assertEqual(len(verts), 3)
+        self.assertEqual(verts[0].skin_index, 0xFFFF)
+        self.assertEqual(verts[0].floats, (1.0, 2.0, 3.0, 4.0))
+        self.assertEqual(verts[2].position, (3.0, 4.0, 5.0))
+
+    def test_position_is_the_first_three_floats(self):
+        v = meshes.Vertex(0, 0, (7.0, 8.0, 9.0, 10.0))
+        self.assertEqual(v.position, (7.0, 8.0, 9.0))
+
+    def test_unskinned_sentinel(self):
+        self.assertTrue(meshes.Vertex(0xFFFF, 0, (0,) * 4).is_unskinned)
+        self.assertFalse(meshes.Vertex(0, 0, (0,) * 4).is_unskinned)
+
+    def test_separator_is_recognised(self):
+        self.assertTrue(meshes.Vertex(0, 0, (0.0, 0.0, 2147483648.0, 0.0)).is_separator)
+        self.assertFalse(meshes.Vertex(0, 0, (1.0, 2.0, 3.0, 4.0)).is_separator)
+
+    def test_block_is_clean(self):
+        g = meshes.find_mesh_groups(self.data)[0]
+        verts = meshes.read_block(self.data, g.descriptor + meshes.HEADER_SIZE, 4)
+        self.assertTrue(meshes.block_is_clean(verts[:3]))
+        self.assertFalse(meshes.block_is_clean(verts))
+
+    def test_block_is_clean_rejects_absurd_values(self):
+        self.assertFalse(meshes.block_is_clean(
+            [meshes.Vertex(0, 0, (1e30, 0.0, 0.0, 0.0))]))
+
+    def test_first_block_uses_the_declared_count(self):
+        g = meshes.find_mesh_groups(self.data)[0]
+        self.assertEqual(len(meshes.first_block(self.data, g)), 3)
+
+    def test_bounding_box(self):
+        verts = [meshes.Vertex(0, 0, (0.0, 1.0, 2.0, 3.0)),
+                 meshes.Vertex(0, 0, (4.0, -1.0, 6.0, 7.0))]
+        lo, hi = meshes.bounding_box(verts)
+        self.assertEqual(lo, (0.0, -1.0, 2.0, 3.0))
+        self.assertEqual(hi, (4.0, 1.0, 6.0, 7.0))
+
+    def test_bounding_box_of_nothing_raises(self):
+        with self.assertRaises(meshes.MeshError):
+            meshes.bounding_box([])
+
+    def test_read_block_overrun_raises(self):
+        g = meshes.find_mesh_groups(self.data)[0]
+        with self.assertRaises(meshes.MeshError):
+            meshes.read_block(self.data, g.descriptor + meshes.HEADER_SIZE, 10_000)
 
 
 if __name__ == "__main__":
