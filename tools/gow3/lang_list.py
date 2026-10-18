@@ -1,8 +1,8 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Query the GoW3R localisation table inside ``R_LANG_*.WAD``.
 
 The table is plain ASCII with ``*<id>*`` markers, so it can be listed and
-searched directly. See docs/EVIDENCE.md E-052.
+searched directly. See docs/EVIDENCE.md E-057.
 
 Usage::
 

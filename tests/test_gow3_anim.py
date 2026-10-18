@@ -1,11 +1,11 @@
-import _bootstrap  # noqa: F401
+﻿import _bootstrap  # noqa: F401
 import struct
 import unittest
 
 from gow3 import anim
 from gow3.anim import AnimError
 
-# Real layout of R_HADES.WAD (E-056): the blob's data starts at 0xE40 and the clip
+# Real layout of R_HADES.WAD (E-058): the blob's data starts at 0xE40 and the clip
 # table sits *inside* that region at 0xE78, so base < table.
 BASE, TABLE, HEAD = 0xE40, 0xE78, 0xE00
 LEAD = 0x100

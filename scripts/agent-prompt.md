@@ -22,6 +22,9 @@ Your job is to move the project one small, verifiable step forward, then stop.
    offset and exact bytes, and add or update a ledger entry in `docs/EVIDENCE.md`
    with the ID, the observation, the inference and the unknowns. Never present an
    inference as an observation.
+   **Take the next free evidence ID** — grep the ledger for the highest `## E-0NN`
+   and increment. Never reuse or guess an ID: two writers collided twice on
+   2026-10-18 and entries had to be renumbered.
 4. **Add tests.** Fixtures are synthetic (`tests/fixtures.py`) — never commit game
    data. Run `python -m unittest discover -s tests -t tests`.
 5. **Update the docs** the change affects: `FORMATS.md` for a spec, `BACKLOG.md`

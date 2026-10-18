@@ -1,4 +1,4 @@
-"""Reader for the GoW3R animation clip directory inside ``R_*.WAD`` (E-056).
+﻿"""Reader for the GoW3R animation clip directory inside ``R_*.WAD`` (E-058).
 
 Verified on ``R_HADES.WAD``::
 

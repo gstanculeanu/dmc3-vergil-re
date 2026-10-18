@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Build the Vergil-as-Hades mod: a tinted boss model + the "Vergil" name.
 
 Two same-size, in-place edits, so no container size changes and no WAD writer is
@@ -6,7 +6,7 @@ needed:
 
 * ``R_HADES.WAD``  -- the RGB565 endpoints of every DXT colour block of one large
   texture are flattened to a single colour, making the boss render that colour;
-* ``R_LANG_EN.WAD`` -- entry ``*832*`` "Hades" is renamed (E-052/E-054).
+* ``R_LANG_EN.WAD`` -- entry ``*832*`` "Hades" is renamed (E-057/E-054).
 
 Safety: the game installation and the repository are never written, the source
 files' SHA-256 values are re-checked afterwards, and every changed byte is verified

@@ -7,6 +7,21 @@ separately, any **inference** and remaining **unknown**. Format specs in
 Methodology follows REA: route the target, work evidence-first, keep observation
 and inference apart — <https://github.com/morluto/rea/>
 
+## ID allocation (read this before adding an entry)
+
+**Take the next free ID. Never reuse or guess one.** Two writers added entries
+independently on 2026-10-18 and collided twice (`E-052` and `E-056` each ended up
+with two entries in different sections); both were renumbered, the later one losing:
+
+* the autonomous loop's `E-052` (`pl021.pac` slot 5) and `E-056` (`eboot.elf`
+  reference scanner) came first and kept their numbers;
+* the human-authored localisation table entry became **E-057** and the animation
+  clip directory became **E-058**.
+
+To avoid a repeat: grep the ledger for the highest `## E-0NN` heading and increment
+it. Renumbering a shipped ID is worse than picking a high one.
+
+
 Environment for all entries:
 
 * DMC3 asset root: `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs`
@@ -1009,7 +1024,7 @@ Until that is resolved a **writer** is not possible.
 
 ---
 
-## E-052 — The localisation table is plain ASCII with `*id*` markers (G7)
+## E-057 - The localisation table is plain ASCII with `*id*` markers (G7)
 
 **Observation.** `R_LANG_EN.WAD` (456,432 bytes) carries a **plain-text** table,
 4,132 entries, ids `100..2222`, first marker at `0x11E5`, the last entry ending at
@@ -1117,7 +1132,7 @@ The first (and in this file only parsed) descriptor is::
 So `MSGS_TXT` is the localisation text, **data at 0xDC0**, and the `*832* "Hades"`
 entry at `0xC4B3` lies inside it.
 
-**Correction to E-052.** The marker regex first used demanded 3+ digits, so entry
+**Correction to E-057.** The marker regex first used demanded 3+ digits, so entry
 ids `1`–`99` were skipped and the "first entry" was reported as `*100*` at `0x11E5`.
 In fact the text begins at `0xDC0` with `*1*` (`Spartan (Easy)`). Fixed; a
 regression test now covers 1- and 2-digit ids.
@@ -1200,7 +1215,7 @@ verifies texture hashes.
 
 ---
 
-## E-056 — The animation clip directory: a boss's move set is enumerable
+## E-058 - The animation clip directory: a boss's move set is enumerable
 
 **Observation.** In `R_HADES.WAD` (85,727,632 bytes) the descriptor table's first
 real entry is an animation blob:

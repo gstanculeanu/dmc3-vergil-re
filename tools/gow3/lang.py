@@ -1,6 +1,6 @@
-"""Reader/writer for the GoW3R localisation table (``R_LANG_*.WAD``).
+﻿"""Reader/writer for the GoW3R localisation table (``R_LANG_*.WAD``).
 
-Observed (evidence E-052): the archive carries a plain-text table whose entries
+Observed (evidence E-057): the archive carries a plain-text table whose entries
 are delimited by ``*<digits>*`` markers::
 
     *20001*
