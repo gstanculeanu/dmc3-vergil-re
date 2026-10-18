@@ -3837,3 +3837,60 @@ the mesh-group window initially collected the *next* mesh's groups, so groups ar
 now filtered by their own hash.
 
 **Suite:** 470 tests, all green.
+
+---
+
+## E-074 - The vertex buffers are encoded, not f32 positions with u16 indices: a bounded negative (G9/G10)
+
+**Observation.** With the boss's 19 meshes located (E-073), the next question is
+where their vertex and index buffers are. Two full scans of `R_HADES.WAD`
+(85,727,632 bytes) say they are **not** stored in either of the two obvious forms.
+
+*Float positions.* Scanning every 0x10000 block for a 4096-float sample whose
+values are plausible coordinates (`1e-5 < |x| < 1e4`, no NaN) found only **2
+blocks above 0.85** in the whole file:
+
+```
+0x04CE0000   65,536 bytes  mean 0.918
+0x04D00000   65,536 bytes  mean 0.915
+```
+
+and reading them shows they are **metadata, not vertices**:
+
+```
+04D00040  FF 00 00 00 | 10 00 00 00 | 00 00 00 00 | 53 E1 A3 40
+          = 255       | = 16        | = 0         | = 5.121
+```
+
+Small integers of 255 and 16 and repeated `FF 7F` high bytes mean these are
+counts/offsets/bounds tables, not a coordinate array.
+
+*Index buffers.* Scanning every 0x10000 block for an 8192-u16 sample with a
+plausible index-buffer signature (distinct >= 0.90, 256 <= max <= 40000, no value
+dominating) found **0 of 1308 blocks**. The most-distinct blocks all have
+`max = 65535` with a flat frequency distribution, which is compressed texture
+data. The first, stricter test (`distinct/max >= 0.5`) also found 0 candidates,
+but that test can reject a real index buffer whose sample is shorter than its
+vertex count, so it was re-run with the fairer criteria above before recording
+this as a negative.
+
+**Name correction.** `R_POSHADES00.WAD` does not mean "position". The family is
+`R_POSEIDON00`, `R_POSHORSE00/10/11/20`, `R_POSMAIN00` and the level chapters
+`POS050`..`POS975` (up to 341 MB) -- **POS is Poseidon**, the chapter. So a
+position-buffer hunt by filename is a dead end.
+
+**Inference.** The geometry is stored in an **encoded or quantised** form:
+consistent with the engine's `pDmaData != nullptr` (E-071), i.e. DMA-ready vertex
+buffers rather than linear f32 positions and u16 triangle lists. Content scanning
+for the usual linear layouts is therefore the wrong instrument, and this entry
+exists to stop that scan being repeated.
+
+**Consequence for the route.** Locating the vertex buffer requires the encoding,
+so the productive next step is the **loader side** -- the `MDL_`/`MG_` path in
+`eboot.bin` (the `eboot` reference scanner of E-056/E-063 already exists) --
+rather than more content archaeology. The mesh inventory (E-073) and the container
+layout (E-072) are what that work will need; neither had been available before.
+
+**Tooling.** No new module: both scans were one-off measurements. The negative,
+the samples and the exact thresholds are recorded here so the experiment is
+reproducible.

@@ -1,12 +1,19 @@
 import _bootstrap  # noqa: F401
+import math
 import struct
 import unittest
 
 import fixtures
 from dmc3 import Chunk, MotError, try_walk_records, walk_records
 from dmc3.mot import (
+    ANGLE_UNITS_PER_TURN,
+    ANGLE_UNIT_COS_ZERO,
+    ANGLE_UNIT_SIN_ZERO,
     KEYFRAME_TIME_BASE,
+    RADIANS_PER_ANGLE_UNIT,
     RECORD_HEADER_SIZE,
+    angle_units_to_degrees,
+    angle_units_to_radians,
     keyframe_groups,
     keyframe_time,
 )
@@ -213,6 +220,37 @@ class TestMotKeyframeChannelStructure(unittest.TestCase):
         record = payload.records[0]
         keyframes = keyframe_groups(record)
         self.assertNotEqual(record.group_bytes()[: record.field_a], keyframes[: len(preamble)])
+
+
+class TestMotKeyframeAngleUnit(unittest.TestCase):
+    """The engine's 16-bit angle unit (evidence E-071, read from dmc3.exe).
+
+    Ground truth: ``dmc3.exe`` converts a 16-bit value with the float32 constant
+    ``2*pi / 0x10000`` (RVA ``0x508834``), so a full turn is ``0x10000`` and
+    ``0x4000`` is a quarter turn.  These tests lock that arithmetic; they do NOT
+    claim the MOT channels use the unit — that remains [INFERRED] (F4).
+    """
+
+    def test_full_turn_is_2pi(self):
+        self.assertEqual(ANGLE_UNITS_PER_TURN, 0x10000)
+        self.assertAlmostEqual(angle_units_to_radians(0x10000), 2.0 * math.pi)
+
+    def test_quarter_turn_is_90_degrees(self):
+        self.assertAlmostEqual(angle_units_to_degrees(0x4000), 90.0)
+        self.assertAlmostEqual(angle_units_to_radians(0x4000), math.pi / 2)
+
+    def test_half_turn_is_180_degrees(self):
+        self.assertAlmostEqual(angle_units_to_degrees(0x8000), 180.0)
+
+    def test_engine_constant_matches_the_recorded_float32(self):
+        # dmc3.exe .rdata RVA 0x508834 = f32(2*pi/0x10000), recorded in E-071.
+        self.assertAlmostEqual(RADIANS_PER_ANGLE_UNIT, 9.587379463482648e-05, places=18)
+
+    def test_modal_channel_value_is_about_90_degrees(self):
+        # E-028's most common channel value 0x3FFF (~5,500 hits) is 89.996 degrees.
+        self.assertAlmostEqual(angle_units_to_degrees(0x3FFF), 89.9956, places=3)
+        self.assertEqual(ANGLE_UNIT_COS_ZERO, (0x4000, 0xC000))
+        self.assertEqual(ANGLE_UNIT_SIN_ZERO, (0x8000,))
 
 
 if __name__ == "__main__":

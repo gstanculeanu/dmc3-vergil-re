@@ -34,11 +34,15 @@ Unknown (open issues):
   56, sometimes 0 or 504).
 * how the 8-byte groups inside a record encode keyframes: the first u16 of each
   group is decoded as an offset-binary frame time (see :func:`keyframe_time` and
-  E-026); the remaining three u16s per group are undecoded.
+  E-026); the remaining three u16s per group are undecoded.  The engine's 16-bit
+  angle unit (E-071, :data:`ANGLE_UNITS_PER_TURN`) is a *candidate* for those
+  three u16s but that is not proven.
 """
 
 from __future__ import annotations
 
+import math
+import struct
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -321,6 +325,55 @@ def keyframe_time(group: bytes) -> int:
     [INFERRED] — the remaining three u16s of the group are undecoded.
     """
     return u16(group, 0) - KEYFRAME_TIME_BASE
+
+
+# ---------------------------------------------------------------------------
+# 16-bit angle unit (engine ground truth, evidence E-071)
+# ---------------------------------------------------------------------------
+#
+# Two tiny ``dmc3.exe`` helpers convert a 16-bit value to a trigonometric result
+# and tail-call the CRT's ``cosf``/``sinf`` (IAT name RVAs ``0x551DDA`` /
+# ``0x551DE2``, reached through the thunks at ``0x346C20`` / ``0x346C26``):
+#
+#   0x32D9C0: (u16 - 0x4000) has no bit outside 0x4000/0x8000 set  -> 0.0
+#             else cosf(u16 * float32(2*pi / 0x10000))
+#   0x32D9F0: u16 as signed == -32768 (0x8000)                    -> 0.0
+#             else sinf(u16 * float32(2*pi / 0x10000))
+#
+# The shared constant is the ``f32`` at RVA ``0x508834``
+# (``9.587379463482648e-05 == float32(2*pi / 0x10000)``), so a full turn is
+# ``0x10000`` units, ``0x4000`` a quarter turn and ``0x8000`` a half turn.  The
+# special cases return exactly zero so quarter and half turns do not accumulate
+# floating-point error, which is why those values appear as code constants.
+#
+# [INFERRED] The MOT keyframe group's ``u16[1..3]`` (E-028) are *candidates* for
+# this unit: their modal values are ``+-0x3FFF`` (= +-89.996 degrees) and
+# ``0x0000``, i.e. a bone resting at +-90 degrees.  This is **not proven** — no
+# MOT byte has been traced into these helpers.  The converters below are pure
+# arithmetic on the engine's unit; they do **not** assert that any MOT field
+# uses it.
+
+ANGLE_UNITS_PER_TURN = 0x10000
+"""Engine angle unit: one full turn is ``0x10000`` (evidence E-071)."""
+
+RADIANS_PER_ANGLE_UNIT = 2.0 * math.pi / ANGLE_UNITS_PER_TURN
+"""``2*pi / 0x10000`` — the engine's own constant at RVA ``0x508834`` (E-071)."""
+
+ANGLE_UNIT_COS_ZERO = (0x4000, 0xC000)
+"""Angles the engine's cosine helper returns as exactly zero (E-071)."""
+
+ANGLE_UNIT_SIN_ZERO = (0x8000,)
+"""Angles the engine's sine helper returns as exactly zero (E-071)."""
+
+
+def angle_units_to_radians(units: int) -> float:
+    """Convert a 16-bit engine angle unit to radians (evidence E-071)."""
+    return units * RADIANS_PER_ANGLE_UNIT
+
+
+def angle_units_to_degrees(units: int) -> float:
+    """Convert a 16-bit engine angle unit to degrees (evidence E-071)."""
+    return units * (360.0 / ANGLE_UNITS_PER_TURN)
 
 
 def keyframe_groups(record: MotRecord) -> List[bytes]:
