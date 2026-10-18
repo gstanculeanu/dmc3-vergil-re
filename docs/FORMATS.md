@@ -996,16 +996,26 @@ file 0x75a50 (+0x5E0) pos[0]:  ce c4 8a c1 9d f7 08 43   -> x=-17.3461 y=+136.96
                                a7 36 12 c1 00 00 80 3f   -> z=-9.1383  w=+1.0
 ```
 
-So slot 8 is a 10-vertex, 16-triangle closed mesh; slots 24/26 are a
-39-vertex, 66-triangle mesh, and slot 14 a 22-vertex, 40-triangle mesh.
+So slot 8's **record 0** is a 10-vertex, 16-triangle closed mesh; slots 24/26
+each hold a single 39-vertex, 66-triangle mesh, and slot 14's record 0 is a
+22-vertex, 40-triangle mesh. The rest of slot 8 is records 1..16:
+
+```
+file 0x75470 slot 8, record 1 (E-103)
+file 0x75b00 tri[0]  00 00 00 00 01 00 00 00 02 00 00 00 00 00 00 00  -> (0, 1, 2, 0)
+file 0x75c00 adj[0]  08 00 04 00 05 00 00 00                       -> (8, 4, 5, 0)
+file 0x75c80 pos[0]  59 39 1c c1 6f e0 e8 42 8d 0e 17 41 00 00 80 3f
+file 0x75d20 arr     02 02 02 02 02 02 02 02 02 02 00 00 00 00 00 00  -> ten 0x02, padded
+file 0x75d30 record 2's triangle table starts here
+```
 
 **Interpretation [INFERRED].** A closed triangle mesh plus full edge adjacency
 is the input a shadow-volume pass needs to find silhouette edges, so `SHW ` is
-most likely **shadow geometry** (a closed proxy mesh) rather than a material
-payload. The four ASCII bytes do not spell "shadow" and the texture binding
-issue F2 asks for is **not** present in this structure — it remains [UNKNOWN].
-The `+0x48` region's layout, and the meanings of `alpha`, `field_10`,
-`field_14` and the `+0x20` u16 pair, are also [UNKNOWN].
+most likely **shadow geometry** (a set of closed proxy sub-meshes) rather than
+a material payload. The four ASCII bytes do not spell "shadow" and the texture
+binding issue F2 asks for is **not** present in this structure — it remains
+[UNKNOWN]. The per-record byte value, and the meanings of `alpha`, `field_10`
+and `field_14`, are also [UNKNOWN].
 
 
 > **Correction.** An earlier revision of this section listed the varying values
