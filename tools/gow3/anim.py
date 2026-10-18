@@ -20,8 +20,10 @@ header (E-059: name in a 0x38-byte field, then the size at +0x38; E-060: the siz
 is repeated at three further offsets, the frame rate at three further offsets plus
 its reciprocal, and the clip frame count and loop flag; E-061: the descriptor's
 per-clip tail at +0x124..+0x148, with five 16-byte-aligned fields, and the data
-section beginning at +0x15C). The *internal* clip encoding (bone channels,
-keyframes) is [UNKNOWN] and is not interpreted here.
+section beginning at +0x15C; E-064: the data section opens with a typed record
+preamble whose first record's tag and constant discriminator are E-061's two
+"markers"). The *internal* clip encoding (bone channels, keyframes) is [UNKNOWN]
+and is not interpreted here.
 """
 
 from __future__ import annotations
@@ -77,6 +79,23 @@ CLIP_TAIL_SENTINEL_OFFSETS = (0x14C, 0x150, 0x154, 0x158)
 CLIP_TAIL_SENTINEL = 0xFFFFFFFF
 CLIP_DATA_MARKER = 0x15          # u16 at 0x15C (21) on 123/123 clips
 CLIP_DATA_SECOND_MARKER = 0x0C   # u16 at 0x160 (12) on 123/123 clips
+
+# The data section opens with a typed record preamble (E-064). E-061's two
+# "markers" are simply the first record's tag and its constant discriminator.
+# Every record begins with a u16 tag and carries the constant u16 0x000C in its
+# third slot; the records split into a *lead* group of 8-byte records
+# (tag, arg, 0x000C, value) followed by two zero u16, a u16 ``count``, and a
+# *tail* group of 10-byte records (tag, arg, 0x000C, value, extra) followed by a
+# zero u16. Observed on all 123 clips of R_HADES.WAD and R_HERCULES.WAD: 115
+# clips have four lead records, 8 (all with tag 0x17) have five; the tail carries
+# 4, 5 or 7 records. No field is assigned a meaning here; the tags are treated as
+# opaque ids.
+CLIP_DATA_RECORD_DISCRIMINATOR = 0x000C
+CLIP_DATA_LEAD_WORDS = 4
+CLIP_DATA_TAIL_WORDS = 5
+CLIP_DATA_LEAD_TAGS = (0x15, 0x16, 0x17, 0x18, 0x0B)
+CLIP_DATA_TAIL_TAGS = (0x0B, 0x0F, 0x10, 0x1B, 0x1C, 0x1D, 0x1E)
+CLIP_DATA_PREAMBLE_LIMIT = 0x100  # bytes read at most when parsing the preamble
 
 
 class AnimError(ValueError):
@@ -262,6 +281,133 @@ def maybe_clip_descriptor_tail(data: bytes,
     """Like :func:`parse_clip_descriptor_tail` but forgiving of short input."""
     try:
         return parse_clip_descriptor_tail(data, offset)
+    except (struct.error, ValueError):
+        return None
+
+
+@dataclass(frozen=True)
+class ClipDataRecord:
+    """One tagged record of a clip's data-section preamble (E-064).
+
+    ``tag``, ``arg``, ``value`` (and ``extra`` for tail records) are the observed
+    u16 fields. ``discriminator`` is the u16 that sits in the record's third slot;
+    it is ``CLIP_DATA_RECORD_DISCRIMINATOR`` on every observed record. No field is
+    assigned a meaning.
+    """
+
+    tag: int
+    arg: int
+    value: int
+    discriminator: int
+    extra: Optional[int] = None   # only tail records carry a fifth u16
+
+    @property
+    def discriminator_ok(self) -> bool:
+        """The record's third u16 is the observed constant 0x000C (E-064)."""
+        return self.discriminator == CLIP_DATA_RECORD_DISCRIMINATOR
+
+
+@dataclass(frozen=True)
+class ClipDataPreamble:
+    """The typed record preamble at the start of a clip's data section (E-064).
+
+    ``lead`` holds the 8-byte records before the two-zero terminator, ``count``
+    the u16 that follows it, and ``tail`` the 10-byte records up to the final
+    zero u16. Only observed values are exposed; the meaning of ``count`` and of
+    every tag is [UNKNOWN].
+    """
+
+    offset: int
+    lead: tuple
+    count: int
+    tail: tuple
+
+    @property
+    def lead_tags(self) -> tuple:
+        return tuple(record.tag for record in self.lead)
+
+    @property
+    def tail_tags(self) -> tuple:
+        return tuple(record.tag for record in self.tail)
+
+    @property
+    def discriminated_ok(self) -> bool:
+        """Every record carries ``CLIP_DATA_RECORD_DISCRIMINATOR`` (E-064)."""
+        return all(record.discriminator_ok
+                   for record in self.lead + self.tail)
+
+    @property
+    def tags_known_ok(self) -> bool:
+        """Every tag is one of the observed lead/tail tag ids (E-064)."""
+        return (all(tag in CLIP_DATA_LEAD_TAGS for tag in self.lead_tags)
+                and all(tag in CLIP_DATA_TAIL_TAGS for tag in self.tail_tags))
+
+    def invariants(self) -> dict:
+        """The E-064 relations, each as a name -> bool. Evidence, not a verdict."""
+        return {
+            "discriminated": self.discriminated_ok,
+            "tags_known": self.tags_known_ok,
+        }
+
+
+def parse_clip_data_preamble(data: bytes, offset: int,
+                             limit: int = CLIP_DATA_PREAMBLE_LIMIT
+                             ) -> Optional[ClipDataPreamble]:
+    """Read the data-section preamble at ``offset``, or ``None`` if not one.
+
+    ``offset`` is ``clip.offset + CLIP_TAIL_END``. The parse is strict: a record
+    whose third u16 is not ``CLIP_DATA_RECORD_DISCRIMINATOR``, a missing
+    terminator, or a truncated buffer returns ``None``. Returns observed values
+    only (E-064); ``count`` and the tags have [UNKNOWN] meaning.
+    """
+    end = min(len(data), offset + limit)
+    if offset < 0 or offset + 2 * (CLIP_DATA_LEAD_WORDS + 2) > end:
+        return None
+
+    def word(index: int) -> int:
+        return struct.unpack_from("<H", data, offset + 2 * index)[0]
+
+    lead: List[ClipDataRecord] = []
+    index = 0
+    while True:
+        if offset + 2 * (index + CLIP_DATA_LEAD_WORDS) > end:
+            return None
+        tag, arg, disc, value = (word(index), word(index + 1),
+                                 word(index + 2), word(index + 3))
+        if tag == 0 and arg == 0:
+            break
+        if disc != CLIP_DATA_RECORD_DISCRIMINATOR:
+            return None
+        lead.append(ClipDataRecord(tag=tag, arg=arg, value=value,
+                                   discriminator=disc))
+        index += CLIP_DATA_LEAD_WORDS
+
+    count = word(index + 2)
+    index += 3
+    tail: List[ClipDataRecord] = []
+    while True:
+        if offset + 2 * (index + CLIP_DATA_TAIL_WORDS) > end:
+            return None
+        tag, arg, disc, value, extra = (word(index), word(index + 1),
+                                        word(index + 2), word(index + 3),
+                                        word(index + 4))
+        if tag == 0:
+            break
+        if disc != CLIP_DATA_RECORD_DISCRIMINATOR:
+            return None
+        tail.append(ClipDataRecord(tag=tag, arg=arg, value=value,
+                                   discriminator=disc, extra=extra))
+        index += CLIP_DATA_TAIL_WORDS
+
+    return ClipDataPreamble(offset=offset, lead=tuple(lead), count=count,
+                            tail=tuple(tail))
+
+
+def maybe_clip_data_preamble(data: bytes,
+                             offset: int) -> Optional[ClipDataPreamble]:
+    """Like :func:`parse_clip_data_preamble` but forgiving of short input."""
+    try:
+        return parse_clip_data_preamble(data, offset)
     except (struct.error, ValueError):
         return None
 

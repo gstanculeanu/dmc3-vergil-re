@@ -1299,4 +1299,44 @@ moves and health bar and everything."*
   (E-044). F1/F4 stay blocked on DMC3-side engine ground truth and are not
   re-spun; F3 slots 6/7/11/22 and the clip internal encoding remain open.
 
+## 2026-10-18 — F9/G9 bounded slice: the clip data section's typed record preamble (E-064)
+
+- Did: continued the GoW3R "moves" work that E-061 stopped at `+0x15C`. Read
+  real bytes (read-only) from `R_HADES.WAD` (77 clips) and `R_HERCULES.WAD`
+  (46) under `C:\Users\GigelCastel\Desktop\gow3\CUSA01715\EXEC\WAD\PS4_LE\`;
+  censused the opening records of the per-clip data section on all 123 clips.
+  Added `ClipDataRecord`, `ClipDataPreamble`,
+  `parse_clip_data_preamble()` / `maybe_clip_data_preamble()` and the
+  `CLIP_DATA_*` constants to `tools/gow3/anim.py`; extended the synthetic
+  `anim_wad` fixture to write a realistic preamble and added
+  `TestClipDataPreamble` (9 tests). Full suite: **372 tests, all green**
+  (363 baseline + 9).
+- Found (**E-064**): the data section is a stream of tagged u16 records; every
+  record carries the constant `0x000C` in its third slot. Layout, 123/123:
+  - `lead` records of 4 u16 (`tag, arg, 0x000C, value`) — 4 records normally,
+    5 when a `0x17` record is present (8 clips); tags `0x15,0x16,0x18,0x0B`
+    (or `0x15,0x16,0x17,0x18,0x0B`);
+  - two zero u16, then a u16 `count` (15..272, 81 distinct; not the frame
+    count — `csHadesIntro` is 141 frames but `count` 72);
+  - `tail` records of 5 u16 (`tag, arg, 0x000C, value, extra`) — 4, 5 or 7 of
+    them; tags from `{0x0B,0x0F,0x10,0x1B,0x1C,0x1D,0x1E}`, with `0x0F` and
+    `0x10` once each per clip;
+  - a zero u16 terminator, then `0xCC` fill and further tables.
+  - **E-061 harmonised:** its "`+0x15C` marker pair `0x0015`/`0x000C`" is simply
+    the first record's tag and its discriminator; there are no separate markers.
+  - The `0x0B` lead record's `arg` (`0x8000|n`) is repeated as the first tail
+    record's `arg`; both `0x8000|n` ids may be class/type ids as in the WAD
+    directory, [INFERRED] only.
+- Unknown (recorded, not guessed): `count` semantics; the meaning of every tag,
+  `arg`, `value`, `extra`; and the keyframe data that follows the preamble — the
+  remaining F9 "moves" gap. Engine ground truth (`eboot.bin`/`eboot.elf`) is the
+  route; the parser asserts no field meaning.
+- Docs: E-064 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §7.7 gains the
+  "Data-section record preamble" subsection and the corrected `+0x15C`/`+0x160`
+  annotation; `docs/BACKLOG.md` F9/G9 rows updated. No game data committed.
+- Next: the keyframe/curve encoding after the preamble is the remaining F9 gap
+  (decodable from `eboot.elf`); otherwise F3 slots 6/7/11/22 and the G9/G10
+  directory binding. F1/F4 remain blocked on DMC3-side engine ground truth and
+  are not re-spun.
+
 

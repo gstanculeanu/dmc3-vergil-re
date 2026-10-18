@@ -9,8 +9,30 @@ from gow3.anim import AnimError
 # table sits *inside* that region at 0xE78, so base < table.
 BASE, TABLE, HEAD = 0xE40, 0xE78, 0xE00
 LEAD = 0x100
-CLIP_SIZE = 0x180  # size of each synthetic clip record (>= CLIP_HEADER_MIN)
+CLIP_SIZE = 0x200  # size of each synthetic clip record (>= CLIP_HEADER_MIN)
 FRAMES = 41
+
+
+def clip_data_preamble_bytes(count=41, extra_lead=False) -> bytes:
+    """A data-section preamble shaped like the real bytes (E-064)."""
+    disc = anim.CLIP_DATA_RECORD_DISCRIMINATOR
+    if extra_lead:
+        lead = [(0x15, 0x38, 0x70), (0x16, 0xB8, 0x350), (0x17, 0x18, 0x8F0),
+                (0x18, 0x40, 0xA50), (0x0B, 0x804E, 0xC40)]
+    else:
+        lead = [(0x15, 0x08, 0x60), (0x16, 0x100, 0x90),
+                (0x18, 0x50, 0x870), (0x0B, 0x8039, 0xAF0)]
+    out = bytearray()
+    for tag, arg, value in lead:
+        out += struct.pack("<4H", tag, arg, disc, value)
+    out += struct.pack("<3H", 0, 0, count)
+    tail = [(0x1B, 0x8039, 0xB30, 0x0), (0x1D, 0x31, 0xFB0, 0xC0),
+            (0x1E, 0x01, 0x1140, 0x700), (0x0F, 0x05, 0x1150, 0x0),
+            (0x10, 0x33, 0x1160, 0xC0)]
+    for tag, arg, value, extra in tail:
+        out += struct.pack("<5H", tag, arg, disc, value, extra)
+    out += struct.pack("<H", 0)
+    return bytes(out)
 
 
 def anim_wad(names, lead=LEAD, table=TABLE, base=BASE, head=HEAD) -> bytes:
@@ -49,6 +71,11 @@ def anim_wad(names, lead=LEAD, table=TABLE, base=BASE, head=HEAD) -> bytes:
         struct.pack_into("<H", record, anim.CLIP_TAIL_END, anim.CLIP_DATA_MARKER)
         struct.pack_into("<H", record, anim.CLIP_TAIL_END + 4,
                          anim.CLIP_DATA_SECOND_MARKER)
+        # E-064: the data section's typed record preamble, whose first record's
+        # tag and discriminator are exactly the two markers written above.
+        preamble = clip_data_preamble_bytes()
+        start = anim.CLIP_TAIL_END
+        record[start:start + len(preamble)] = preamble
         payload += record
     blob += b"\x00" * (base - len(blob))
     blob += payload
@@ -300,6 +327,81 @@ class TestClipDescriptorTail(unittest.TestCase):
         self.assertIsNone(anim.parse_clip_descriptor_tail(
             self.data, len(self.data) - 8))
         self.assertIsNone(anim.maybe_clip_descriptor_tail(b"\x00" * 8, 0))
+
+
+class TestClipDataPreamble(unittest.TestCase):
+    """E-064: the typed record preamble at the start of the data section."""
+
+    def setUp(self):
+        self.data = anim_wad(["csHadesIntro", "hadesKnifeBlockEnter"])
+        self.offset = anim.parse_clips(self.data)[0].offset + anim.CLIP_TAIL_END
+        self.preamble = anim.parse_clip_data_preamble(self.data, self.offset)
+
+    def test_the_two_e061_markers_are_the_first_record_fields(self):
+        # E-061's "marker pair" is the first record's tag and discriminator.
+        self.assertEqual(self.preamble.lead[0].tag, anim.CLIP_DATA_MARKER)
+        self.assertEqual(self.preamble.lead[0].discriminator,
+                         anim.CLIP_DATA_SECOND_MARKER)
+        self.assertEqual(anim.CLIP_DATA_RECORD_DISCRIMINATOR, 0x000C)
+
+    def test_reads_four_lead_records_and_the_count(self):
+        self.assertEqual(self.preamble.lead_tags, (0x15, 0x16, 0x18, 0x0B))
+        self.assertEqual(self.preamble.count, FRAMES)
+        self.assertEqual(len(self.preamble.lead), 4)
+
+    def test_reads_five_tail_records_with_an_extra_word(self):
+        self.assertEqual(self.preamble.tail_tags, (0x1B, 0x1D, 0x1E, 0x0F, 0x10))
+        self.assertEqual(len(self.preamble.tail), 5)
+        for record in self.preamble.lead:
+            self.assertIsNone(record.extra)
+        for record in self.preamble.tail:
+            self.assertIsNotNone(record.extra)
+
+    def test_every_record_carries_the_constant_discriminator(self):
+        self.assertTrue(self.preamble.discriminated_ok)
+        self.assertTrue(self.preamble.tags_known_ok)
+        self.assertEqual(self.preamble.invariants(),
+                         {"discriminated": True, "tags_known": True})
+        for record in self.preamble.lead + self.preamble.tail:
+            self.assertEqual(record.discriminator,
+                             anim.CLIP_DATA_RECORD_DISCRIMINATOR)
+
+    def test_lead_may_carry_a_fifth_record(self):
+        data = anim_wad(["csHadesIntroStruggle"])
+        offset = anim.parse_clips(data)[0].offset + anim.CLIP_TAIL_END
+        # patch in the variant shape (a 0x17 record before the 0x0B one)
+        blob = bytearray(data)
+        preamble = clip_data_preamble_bytes(count=117, extra_lead=True)
+        blob[offset:offset + len(preamble)] = preamble
+        parsed = anim.parse_clip_data_preamble(bytes(blob), offset)
+        self.assertEqual(len(parsed.lead), 5)
+        self.assertIn(0x17, parsed.lead_tags)
+        self.assertEqual(parsed.count, 117)
+
+    def test_a_broken_discriminator_returns_none(self):
+        blob = bytearray(self.data)
+        struct.pack_into("<H", blob, self.offset + 4, 0x000D)  # was 0x000C
+        self.assertIsNone(anim.parse_clip_data_preamble(bytes(blob), self.offset))
+
+    def test_a_missing_terminator_returns_none(self):
+        blob = bytearray(self.data)
+        # overwrite the two-zero terminator (word 16, after four 4-word records)
+        term = self.offset + 2 * (anim.CLIP_DATA_LEAD_WORDS * 4)
+        struct.pack_into("<2H", blob, term, 0x1234, 0x5678)
+        self.assertIsNone(anim.parse_clip_data_preamble(bytes(blob), self.offset))
+
+    def test_short_or_absent_input_is_handled(self):
+        self.assertIsNone(anim.parse_clip_data_preamble(b"\x00" * 4, 0))
+        self.assertIsNone(anim.parse_clip_data_preamble(self.data, len(self.data) - 2))
+        self.assertIsNone(anim.maybe_clip_data_preamble(b"\x00" * 4, 0))
+
+    def test_unknown_tag_is_reported_not_raised(self):
+        blob = bytearray(self.data)
+        struct.pack_into("<H", blob, self.offset + 2 * 8, 0x55)  # third lead tag
+        parsed = anim.parse_clip_data_preamble(bytes(blob), self.offset)
+        self.assertIsNotNone(parsed)
+        self.assertFalse(parsed.tags_known_ok)
+        self.assertTrue(parsed.discriminated_ok)
 
 
 if __name__ == "__main__":

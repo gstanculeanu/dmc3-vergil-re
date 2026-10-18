@@ -3041,6 +3041,80 @@ byte, so the result is always a prefix, never a guess. 8 unit tests on a
 synthetic ELF (no game data committed); the module stays stdlib-only.
 
 
+---
+
+## E-064 — GoW3R clip data section: a typed record preamble, and E-061's "markers" explained (G9/F9, bounded slice)
+
+**Observation.** E-061 stopped at the data section's first bytes at `+0x15C`.
+This slice reads the opening records there on **all 123 clips** (77 `R_HADES.WAD`
++ 46 `R_HERCULES.WAD`, read-only from
+`C:\Users\GigelCastel\Desktop\gow3\CUSA01715\EXEC\WAD\PS4_LE\`).
+
+The data section opens with a stream of **tagged u16 records**. Every record
+carries the constant u16 `0x000C` in its **third slot**; the records come in two
+word-lengths and the section is laid out as:
+
+```
+lead records     4 u16 each:  tag, arg, 0x000C, value      (4 or 5 of them)
+terminator       2 u16:       0x0000, 0x0000
+count            u16
+tail records     5 u16 each:  tag, arg, 0x000C, value, extra   (4, 5 or 7)
+terminator       u16:         0x0000
+```
+
+Measured on 123/123 clips:
+
+| quantity | values |
+|---|---|
+| lead record count | 4 (115 clips) or 5 (8 clips) |
+| lead tags (in order) | `0x15, 0x16, 0x18, 0x0B` — or `0x15, 0x16, 0x17, 0x18, 0x0B` for the 5-record variant |
+| tail record count | 5 (98), 7 (14) or 4 (11) |
+| tail tags | drawn from `{0x0B, 0x0F, 0x10, 0x1B, 0x1C, 0x1D, 0x1E}`; `0x0F` and `0x10` occur once each in every clip |
+| `count` | u16, range **15..272**, 81 distinct values; `angryKratosWalk` 41, `csHadesIntro` 72, `csHadesKnifeKill` 188 |
+| discriminator | `0x000C` in the third slot of **every** record, 123/123 |
+
+Worked example, `angryKratosWalk` (`R_HADES.WAD`, data section at `0x5BD0`, raw
+bytes verbatim):
+
+```
+file +0x5BD0: 15 00 08 00 0c 00 60 00 16 00 00 01 0c 00 90 00
+file +0x5BE0: 18 00 50 00 0c 00 70 08 0b 00 39 80 0c 00 f0 0a
+file +0x5BF0: 00 00 00 00 29 00 1b 00 39 80 0c 00 30 0b 00 00
+file +0x5C00: 1d 00 31 00 0c 00 b0 0f c0 00 1e 00 01 00 0c 00
+file +0x5C10: 40 11 00 07 0f 00 05 00 0c 00 50 11 00 00 10 00
+file +0x5C20: 33 00 0c 00 60 11 c0 00 00 00 cc cc ...
+```
+
+which parses as lead `(0x15,0x08,0x60) (0x16,0x100,0x90) (0x18,0x50,0x870)
+(0x0B,0x8039,0xAF0)`, terminator, `count = 0x29 = 41`, then tail
+`(0x1B,0x8039,0xB30,0x0000) (0x1D,0x0031,0xFB0,0x00C0) (0x1E,0x0001,0x1140,0x0700)
+(0x0F,0x0005,0x1150,0x0000) (0x10,0x0033,0x1160,0x00C0)`, terminator. The `0x0B`
+lead record's `arg` (`0x8039`) is repeated as the first tail record's `arg`; both
+belong to the `0x8000 | n` family seen in the WAD directory (`n` = `0x39` = 57).
+After the tail terminator the region is `0xCC` fill, then further u16 tables.
+
+**Inference.** E-061's "two data-section markers" are **not** separate markers:
+`u16 0x0015` at `+0x15C` is the first record's **tag** and `u16 0x000C` at
+`+0x160` is that record's **discriminator**, which the same constant occupies in
+every record. The recurring `0x000C` reads as a per-record type/kind field, and
+the fixed `lead`/`tail` shapes as two groups of typed properties, but that is not
+proven.
+
+**Unknown.** The `count` semantics (not the frame count — `csHadesIntro` is 141
+frames but `count` 72), the meaning of every tag and every `arg`/`value`/`extra`,
+and how the records relate to the keyframe data that follows (`+0x15C`-onward).
+The `0x8000 | n` ids may be class/type ids as in the WAD directory, but that is
+[INFERRED] only. Engine ground truth (`eboot.bin`/`eboot.elf`) is the route.
+
+**Consequence.** `tools/gow3/anim.py` gains `ClipDataRecord`,
+`ClipDataPreamble`, `parse_clip_data_preamble()` / `maybe_clip_data_preamble()`
+and the `CLIP_DATA_*` constants; the reader is strict (a wrong discriminator, a
+missing terminator or a truncated buffer returns `None`) and exposes only observed
+values plus `discriminated_ok` / `tags_known_ok`. All 123 real clips parse; 9 new
+unit tests run on a synthetic clip record (no game data committed).
+`docs/FORMATS.md` §7.7 and `docs/BACKLOG.md` F9/G9 updated.
+
+
 
 
 

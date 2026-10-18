@@ -835,7 +835,8 @@ The descriptor does not stop at `+0x123`. Censusing `+0x120..+0x15B` on the same
 +0x144  u32  per-clip, 16-byte aligned, in-file on 123/123   [INFERRED offset]
 +0x148  u32  per-clip, small, not aligned                     [UNKNOWN]
 +0x14C  u32  0xFFFFFFFF (×4: +0x14C/+0x150/+0x154/+0x158)     [VERIFIED value]
-+0x15C  u16  0x0015 (21) on 123/123; then u16 0x000C at +0x160 [VERIFIED value]
++0x15C  u16  0x0015 (21) on 123/123 — the first data record's tag (E-064)
++0x160  u16  0x000C — that record's discriminator, a per-record constant (E-064)
 ```
 
 So the fixed descriptor ends at `+0x158`; E-060's "from `+0x124` onward the u32s
@@ -854,3 +855,36 @@ fields, the constants and the marker pair remain **[UNKNOWN]**.
 `maybe_clip_descriptor_tail()`, `float32()`, `expected_sample_rate()`, the
 `CLIP_*` / `CLIP_TAIL_*` / `CLIP_DATA_*` constants; `Clip.size` is read from
 `+0x38` (`Clip.end` uses it), the directory span is retained as the upper bound.
+
+#### Data-section record preamble — [PARTIAL] (E-064)
+
+The bytes at `+0x15C` are not a marker pair but the first of a stream of **tagged
+u16 records**. Every record carries the constant `u16 0x000C` in its **third
+slot**; verified on all 123 clips the section is laid out as:
+
+```
+lead records     4 u16: tag, arg, 0x000C, value          x 4 or 5
+terminator       2 u16: 0x0000, 0x0000
+count            u16                                    15..272, 81 values
+tail records     5 u16: tag, arg, 0x000C, value, extra   x 4, 5 or 7
+terminator       u16:   0x0000
+```
+
+| field | observation |
+|---|---|
+| lead tags | `0x15, 0x16, 0x18, 0x0B` (115 clips) or `0x15, 0x16, 0x17, 0x18, 0x0B` (8) |
+| tail tags | from `{0x0B, 0x0F, 0x10, 0x1B, 0x1C, 0x1D, 0x1E}`; `0x0F`/`0x10` once each per clip |
+| discriminator | `0x000C` in the third slot of every record, 123/123 |
+
+`count` is **not** the frame count (`csHadesIntro` is 141 frames, `count` 72).
+Every tag, `arg`, `value`, `extra` and `count` is **[UNKNOWN]**; the `0x8000 | n`
+ids that recur in `lead[0x0B].arg` and `tail[0x1B].arg` are noted only. `[INFERRED]`
+the discriminator is a per-record type/kind field, and the lead/tail shapes are two
+groups of typed properties — unproven. The keyframe data that follows is the
+remaining F9 gap; `eboot.bin`/`eboot.elf` is the route.
+
+The reader is `ClipDataRecord` / `ClipDataPreamble` /
+`parse_clip_data_preamble()` / `maybe_clip_data_preamble()` with
+`discriminated_ok`, `tags_known_ok` and `invariants()`; it is strict (returns
+`None` on a wrong discriminator, a missing terminator or a truncated buffer) and
+asserts no field meaning.
