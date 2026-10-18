@@ -320,6 +320,18 @@ wrapper-is-DDS conclusion stands; only the pre-header census was incomplete.
 **[UNKNOWN]** the PS2/PS3 TIM2 variant — this project targets the HD
 Collection build only.
 
+### 4.2 DDS → PNG (issue T2)
+
+**Status: [PARTIAL]** — `tools/dmc3/dds.py` (`dds_to_png`) converts uncompressed
+BGRA32 DDS payloads to PNG with the alpha channel preserved byte-for-byte
+(BGRA → RGBA), verified by a structural PNG round-trip test
+(tests/test_dds.py). Only the top mip level is decoded. DXT1/DXT3/DXT5
+payloads (the HD Collection's texture format — `i001_90.tm2` is DXT3 per
+E-005/E-034) and DX10 extended headers raise `DdsError` and need an external
+DXT decoder such as texconv; a from-memory DXT decoder is intentionally not
+implemented because it cannot be verified against engine ground truth. See
+docs/EVIDENCE.md E-046.
+
 ---
 
 ## 5. Model / shader payloads — header [VERIFIED], payload [UNKNOWN]

@@ -71,6 +71,7 @@ from .tm2 import (
     load_tm2,
     parse_dds_header,
 )
+from .dds import DdsError, dds_to_png
 from .entities import DEFAULT_PLAYER_IDS, Entity, KNOWN_PLAYER_IDS, label_for, lookup
 
 __all__ = [
@@ -122,6 +123,8 @@ __all__ = [
     "try_walk_records",
     "walk_records",
     "keyframe_groups",
+    "DdsError",
+    "dds_to_png",
     "DdsInfo",
     "Tm2Error",
     "Tm2File",

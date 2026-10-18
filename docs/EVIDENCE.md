@@ -2123,3 +2123,31 @@ is needed. **A registry writer is not possible from these bytes.**
 exactly the observed layout from real bytes, exercised by unit tests on
 synthetic fixtures (no game data committed). Issue G10 stays open: the name→WAD
 binding remains [UNKNOWN].
+
+
+## E-046 — DDS → PNG conversion: uncompressed BGRA32 verified, compressed DXT documented as unsupported (T2)
+
+**Observation.** `tools/dmc3/dds.py` (`dds_to_png`) converts an uncompressed
+BGRA32 DDS payload to PNG:
+- Synthetic uncompressed BGRA32 DDS: output parses as a valid PNG (signature,
+  IHDR = RGBA 8-bit, per-chunk CRC32 valid, IDAT is one zlib stream whose
+  decompressed rows equal the input pixel bytes exactly with filter type 0,
+  IEND terminator). Alpha is preserved byte-for-byte via the BGRA → RGBA
+  reorder. Verified by 8 unit tests in tests/test_dds.py on synthetic data;
+  no game bytes are committed.
+- The real `i001_90.tm2` embedded DDS (E-005/E-034): DXT3, 256×256, compressed
+  → `dds_to_png` raises `DdsError` with a message pointing at an external DXT
+  decoder. All three local TM2s are DXT3 (E-042).
+
+**Inference.** The uncompressed DDS → PNG path is correct on synthetic data.
+Compressed textures cannot be converted by this tool yet.
+
+**Unknown.** Whether any DDS in this install is uncompressed (all three local
+TM2s are DXT3, so the converter currently converts no local texture). A DXT1/
+DXT3/DXT5 decoder or an external tool (texconv) is needed for the compressed
+path; that path is deliberately left undecoded rather than guessed, since a
+from-memory DXT decoder cannot be verified against engine ground truth.
+
+**Consequence.** `tests/test_dds.py` (8 tests) locks the converter's structural
+behaviour; `docs/FORMATS.md` §4.2 records [PARTIAL] coverage; `docs/BACKLOG.md`
+T2 row updated. Issue #9 stays open until the compressed path is resolved.

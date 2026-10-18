@@ -945,3 +945,23 @@ moves and health bar and everything."*
 - Next: when engine ground truth becomes available, pick F1 or F4; otherwise
   take another resolved-dependency slice (F2/F3/F6 payloads, F9 move set, G9/G10
   WAD directory).
+
+---
+
+## 2026-10-18 — T2 bounded slice: DDS → PNG conversion for uncompressed BGRA32 (issue #9)
+
+- Did: implemented `tools/dmc3/dds.py` (`dds_to_png`) converting uncompressed
+  BGRA32 DDS payloads to PNG with alpha preserved byte-for-byte (BGRA → RGBA),
+  exported it from `dmc3/__init__.py`, and added `tests/test_dds.py` (8 tests)
+  that structurally verify PNG output (signature, IHDR RGBA 8-bit, per-chunk
+  CRC32, zlib-decompressed IDAT rows equal input exactly, IEND terminator) plus
+  exact pixel/alpha equality. Compressed DXT1/DXT3/DXT5 raises a documented
+  `DdsError`. Full suite: **240 tests, all green**.
+- Found (E-046): the real `i001_90.tm2` embedded DDS is DXT3 256×256
+  (compressed) → hits the documented unsupported path; all three local TM2s are
+  DXT3 (E-042), so no local texture is converted yet. A DXT decoder or an
+  external tool (texconv) is needed for the compressed path; recorded [UNKNOWN]
+  rather than guessed.
+- Docs: `docs/BACKLOG.md` T2 row, `docs/FORMATS.md` §4.2, `docs/EVIDENCE.md`
+  E-046.
+- Next: comment on issue #9 (left open — compressed path unresolved).
