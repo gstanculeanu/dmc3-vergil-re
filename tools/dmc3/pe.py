@@ -16,6 +16,10 @@ This module is the DMC3 analogue of :mod:`gow3.eboot`:
 * :meth:`PeImage.rip_relative_references` scans the executable sections for
   ``lea``/``mov`` with a RIP-relative memory operand (``(modrm & 0xC7) == 0x05``)
   and returns the instructions that reference a target RVA.
+* :meth:`PeImage.reference_context` decodes a **small, documented set of forms**
+  (RIP-relative ``lea``/``mov``, ``mov r32, imm32`` / ``mov r64, imm64`` and
+  ``call rel32``) starting at a reference site, so the numeric constants passed
+  alongside a string can be read without a general disassembler.
 
 Like the ELF scanner this is a **byte-pattern scan, not a disassembler**; a hit is
 meaningful when its target is a known string RVA, which is how the tool is used.
@@ -46,6 +50,10 @@ RIP_RELATIVE_MASK = 0xC7
 RIP_RELATIVE_RM = 0x05
 REX_PREFIX_MIN = 0x40
 REX_PREFIX_MAX = 0x4F
+REX_W = 0x08
+MOV_R32_IMM32_MIN = 0xB8   # B8+r: mov r32, imm32 (B8+rd with REX.W is imm64)
+MOV_R32_IMM32_MAX = 0xBF
+CALL_REL32 = 0xE8
 
 
 class PeError(ValueError):
@@ -84,6 +92,23 @@ class PeSection:
     def contains_rva(self, rva: int) -> bool:
         """True when an **RVA** is stored in this section's raw bytes."""
         return 0 <= rva - self.virtual_address < self.raw_size
+
+
+@dataclass(frozen=True)
+class DecodedInstruction:
+    """One instruction decoded in the limited set of forms a string reference
+    site uses (see :func:`_decode_instruction`).
+
+    ``operand`` is the instruction's absolute operand: an immediate for
+    ``mov r32, imm32`` / ``mov r64, imm64``, or the resolved target RVA for a
+    RIP-relative ``lea``/``mov`` and for a ``call rel32``. Only the instruction
+    *length* is trusted to keep stepping; no general disassembly is claimed.
+    """
+
+    address: int
+    length: int
+    mnemonic: str
+    operand: int
 
 
 @dataclass(frozen=True)
@@ -232,3 +257,129 @@ class PeImage:
             for instruction, target in self._scan_rip_relative().items()
             if target in targets
         )
+
+    # -- limited instruction decoding -----------------------------------
+    def _code_window(self, rva: int, size: int):
+        """``(section, bytes)`` starting at ``rva``, or ``(None, None)``.
+
+        Only executable sections are returned, and the slice is clamped to the
+        section's stored bytes, so a decode never steps past the image.
+        """
+        section = None
+        for candidate in self.executable_sections:
+            if candidate.contains_rva(rva):
+                section = candidate
+                break
+        if section is None:
+            return None, None
+        start = section.raw_offset + (rva - section.virtual_address)
+        available = section.raw_offset + section.raw_size - start
+        return section, self.data[start:start + max(0, min(size, available))]
+
+    def reference_context(self, instruction: int,
+                          max_instructions: int = 4
+                          ) -> Tuple[DecodedInstruction, ...]:
+        """Decode the instruction at ``instruction`` and the few that follow it.
+
+        Decoding stops at the first byte sequence outside the small, documented
+        set of forms (a RIP-relative ``lea``/``mov``, ``mov r32, imm32`` /
+        ``mov r64, imm64`` and ``call rel32``), so the result is a *prefix*,
+        never a guess. This is how the numeric constants passed alongside a
+        loader string are read without a full disassembler.
+        """
+        _section, code = self._code_window(instruction, max_instructions * 16 + 16)
+        if code is None:
+            return ()
+        decoded: List[DecodedInstruction] = []
+        at = instruction
+        for _ in range(max_instructions):
+            item = _decode_instruction(code, at - instruction, instruction)
+            if item is None:
+                break
+            decoded.append(item)
+            at += item.length
+        return tuple(decoded)
+
+    def string_reference_contexts(
+        self, needle: bytes, max_instructions: int = 4
+    ) -> Tuple[Tuple[DecodedInstruction, ...], ...]:
+        """For every reference to ``needle``, the decoded instruction prefix.
+
+        The first item of each tuple is always the ``lea``/``mov`` that loads
+        the string's address; the later items are the instructions that consume
+        it.
+        """
+        return tuple(
+            self.reference_context(site, max_instructions)
+            for site in self.references_to_string(needle)
+        )
+
+
+def _decode_instruction(code: bytes, index: int, base_rva: int
+                        ) -> Optional[DecodedInstruction]:
+    """Decode one instruction of the limited forms used after a string load.
+
+    Recognises an optional REX prefix followed by:
+
+    * ``8D`` (``lea``) or ``8B`` (``mov``) with a RIP-relative ModRM
+      (``(modrm & 0xC7) == 0x05``); ``operand`` is the resolved target RVA;
+    * ``B8+r`` (``mov r32, imm32``); with ``REX.W`` it is the 10-byte
+      ``mov r64, imm64`` form, and ``operand`` is the full 64-bit immediate;
+    * ``E8`` (``call rel32``); ``operand`` is the resolved call target.
+
+    Any other opcode returns ``None`` so callers stop rather than mis-step. The
+    decoder is intentionally *not* a general x86-64 disassembler.
+    """
+    if index < 0 or index >= len(code):
+        return None
+    start = index
+    cursor = index
+    rex = 0
+    if REX_PREFIX_MIN <= code[cursor] <= REX_PREFIX_MAX:
+        rex = code[cursor]
+        cursor += 1
+    if cursor >= len(code):
+        return None
+    opcode = code[cursor]
+
+    if opcode in (LEA, MOV):
+        if cursor + 6 > len(code):
+            return None
+        modrm = code[cursor + 1]
+        if (modrm & RIP_RELATIVE_MASK) != RIP_RELATIVE_RM:
+            return None
+        disp = struct.unpack_from("<i", code, cursor + 2)[0]
+        length = (cursor - start) + 6
+        address = base_rva + start
+        return DecodedInstruction(
+            address=address, length=length,
+            mnemonic="lea" if opcode == LEA else "mov",
+            operand=address + length + disp,
+        )
+
+    if MOV_R32_IMM32_MIN <= opcode <= MOV_R32_IMM32_MAX:
+        address = base_rva + start
+        if rex & REX_W:
+            if cursor + 9 > len(code):
+                return None
+            imm = struct.unpack_from("<q", code, cursor + 1)[0]
+            length = (cursor - start) + 9
+        else:
+            if cursor + 5 > len(code):
+                return None
+            imm = struct.unpack_from("<I", code, cursor + 1)[0]
+            length = (cursor - start) + 5
+        return DecodedInstruction(address=address, length=length,
+                                  mnemonic="mov", operand=imm)
+
+    if opcode == CALL_REL32:
+        if cursor + 5 > len(code):
+            return None
+        rel = struct.unpack_from("<i", code, cursor + 1)[0]
+        address = base_rva + start
+        length = (cursor - start) + 5
+        return DecodedInstruction(address=address, length=length,
+                                  mnemonic="call",
+                                  operand=address + length + rel)
+
+    return None

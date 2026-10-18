@@ -1002,7 +1002,7 @@ encoding is still the F9 gap.
 
 ---
 
-## 8. DMC3 HD `dmc3.exe` — PE file↔RVA mapping and reference scanning (E-069)
+## 8. DMC3 HD `dmc3.exe` — PE file↔RVA mapping and reference scanning (E-069, E-070)
 
 The DMC3 formats were decoded from bytes up to the point where engine ground truth
 is required (E-050/E-051). That ground truth is on disk: `dmc3.exe` (6,356,432 B)
@@ -1040,4 +1040,59 @@ RIP-relative references — file names are table data, as with GoW3's `.wad` (E-
 reachable from it. `[UNKNOWN]`: what the code does past the `lea`/`call`, and every
 F1/F4 field it would settle. Reader: `tools/dmc3/pe.py` (`PeImage`, `PeSection`,
 `PeError`, `find_all()`, `rip_relative_references()`, `references_to_string()`).
+
+### 8.1 What the extension cluster really is (E-070) — the [INFERRED] dispatch is **corrected**
+
+Reading the code at `0x2E01D2` (read-only) shows the cluster is **not** an
+extension→MOT-handler dispatch. `0x2E01D2` is inside a function at `0x2E01A0`
+that **classifies and registers files by extension**: for each candidate string it
+`strstr`s the extension (the import at IAT `0x34F3D0` resolves to `strstr`), and on
+a hit copies two 32-byte names into a 1024-entry registry and stores a numeric
+**type id**. The extension families and their ids:
+
+| extension (any case) | type id | insert handler RVA |
+|---|---|---|
+| `.mot` / `.MOT` | 0 | `0x2E0598` |
+| `.mcv` / `.MCV` | 1 | `0x2E051B` |
+| `.cam` / `.CAM` | 2 | `0x2E049B` |
+| `.hid` / `.HID` | 3 | `0x2E041B` |
+| `.clt` / `.CLT` | 4 | `0x2E039A` |
+| `.tsc` / `.TSC` | 5 | `0x2E02FA` |
+
+Every extension is tested by `strstr`, so the case variants are redundant
+(`.MOT` matches the `.mot` test). The registry context block is:
+
+```
++0x0000  u32              entry count (cap 0x400 = 1024)
++0x8008  char nameA[1024][0x20]
++0x10008 char nameB[1024][0x20]
++0x18008 u8   flags[1024]
++0x18408 u32  type[1024]          (0..5 per the table above)
+```
+
+`0x2E0150` resets it (`count = 0`, `type[i] = 0xFFFFFFFF`, name/flags zeroed);
+`0x2E0060` looks an entry up by **both** names (`strcmp` on `nameA` and `nameB`,
+returning the index or `-1`); `0x2E0020` is the insert-with-dedup wrapper
+(`lookup`, else `0x2E01A0`); `0x2E0130` returns `&nameA[index]`. Consumers that
+look a name up and then resolve a resource are at `.text` `0x2D6933`, `0x2D77A2`,
+`0x2DA173`, `0x2DA263`, `0x2DA336`.
+
+**Consequence for F4/F1.** This cluster is a *file registry*, not the byte-level
+decoder, exactly as GoW3's `WAD_` references reached name registration rather than
+the record dispatcher (E-063). The MOT decoder itself is still `[UNKNOWN]`; the new
+lead is to follow the **type id** (`0` for `.mot`) from this registry into its
+consumer.
+
+### 8.2 Limited instruction decoding (E-070)
+
+`PeImage.reference_context(rva, max_instructions=4)` decodes the small set of
+forms a string-reference site uses — RIP-relative `lea`/`mov`, `mov r32, imm32` /
+`mov r64, imm64`, `call rel32` — and stops at the first unrecognised byte, so it
+returns a *prefix* rather than a guess. `string_reference_contexts(needle)` applies
+it to every reference of a string. This mirrors `gow3.eboot` (E-063). Worked
+example on the real image: `string_reference_contexts(b".mot\0")` returns one
+context at `0x2E01D2` (`lea rdx, [rip+0x226FF7]`, target `0x5071D0`); the following
+`49 8B C8` (`mov rcx, r8`) is outside the set, so the context is length 1 — the
+numeric constants of the registry are set a few bytes further in, at the handler
+targets above.
 

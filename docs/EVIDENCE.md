@@ -3526,4 +3526,94 @@ PE (no game data committed); the full suite is **422 tests, all green**. The
 read-only validation above was produced with this module.
 
 
+## E-070 — DMC3 `dmc3.exe`: the extension cluster is a file-type registry, not the MOT decoder (F4/F1 route, bounded slice)
+
+**Observation (read-only from `G:\Games\Devil May Cry HD Collection\dmc3.exe`,
+6,356,432 B).** E-069 inferred that the `.mot`/`.mcv`/`.cam` extension table at
+`.rdata` RVA `0x5071D0` is an "extension→handler dispatch" and that the MOT handler
+is reachable from it. Reading the code corrects that.
+
+The string `".mot"` is still at `0x5071D0` and still referenced once, by
+`0x2E01D2` (`48 8D 15 F7 6F 22 00` = `lea rdx,[rip+0x226FF7]`). But that
+instruction is inside a function beginning at `0x2E01A0`, and the sequence is a
+chain of **`strstr` tests**, one per extension. The IAT slot used by the calls
+(`0x34F3D0`, via `FF 15 EE F1 06 00` at `0x2E01DC`) holds RVA `0x551CA8`, whose
+`IMAGE_IMPORT_BY_NAME` is hint `0x0042` + `"strstr"`. So the code tests the input
+string for each extension in turn.
+
+Each test, on a hit, jumps to an insert block that copies two 32-byte names and
+stores a numeric type id. The two names come from the callback's arguments
+(`rdi ← r8`, `rsi ← rdx`). The blocks and their stores to
+`[rbx + rax*4 + 0x18408]`, verbatim:
+
+| extension tested | block entered | type id store |
+|---|---|---|
+| `.mot` (`0x2E01D2`), `.MOT` (`0x2E01EB`) | `0x2E0598` | `0x2E060B` → **0** |
+| `.mcv` (`0x2E0204`), `.MCV` (`0x2E021D`) | `0x2E051B` | `0x2E058B` → **1** |
+| `.cam` (`0x2E0236`), `.CAM` (`0x2E024F`) | `0x2E049B` | `0x2E050B` → **2** |
+| `.hid` (`0x2E0268`), `.HID` (`0x2E0281`) | `0x2E041B` | `0x2E048B` → **3** |
+| `.clt` (`0x2E029A`), `.CLT` (`0x2E02B3`) | `0x2E039A` | `0x2E040B` → **4** |
+| `.tsc` (`0x2E02CC`), `.TSC` (`0x2E02E1`) | `0x2E02FA` | `0x2E0377` → **5** |
+
+Because every test is `strstr`, the uppercase variants are matched by the lowercase
+test; the `.hid`/`.tsc` strings sit at `0x507200`/`0x507210`, and a companion
+family (`.ptx`/`.clt`/`.c1d` at `0x507070`–`0x5070B8`, plus attribute-name strings
+and `"%s/%s"`) shows the table is larger than E-069's six strings.
+
+The function caps the table at `0x400` (`cmp dword ptr [rcx], 0x400`), and the
+surrounding helpers give the whole registry context its layout — all verified by
+reading the code:
+
+```
+0x2E0150  reset: for i in 0..0x3FF: nameA[i][0]=0; flags[i]=0; type[i]=0xFFFFFFFF
+          (lea r8,[rcx+0x8008], lea rdx,[rcx+0x18408], mov byte [rcx+i+0x18008],0)
+0x2E0060  lookup(rcx=ctx, rdx=str1, r8=str2): linear scan i < [ctx]; match when
+          strcmp(nameA[i], str2)==0 && strcmp(nameB[i], str1)==0; return i else -1
+0x2E0020  wrapper: call lookup; if -1 call 0x2E01A0 (insert)
+0x2E0130  nameA_getter(ctx, i) = ctx + 0x8008 + (i << 5); ret
+```
+
+So the context block is:
+
+```
++0x0000  u32              entry count        (cap 1024)
++0x8008  char nameA[1024][0x20]   (32-byte NUL-padded name)
++0x10008 char nameB[1024][0x20]
++0x18008 u8   flags[1024]
++0x18408 u32  type[1024]          0..5 per the table above
+```
+
+Consumers that call the lookup and then resolve something by index are at `.text`
+`0x2D6933`, `0x2D77A2`, `0x2DA173`, `0x2DA263`, `0x2DA336` (each:
+`sprintf` a name, `call 0x2E0060`, `test eax,eax; js <skip>`, `call 0x2DB340`,
+`call 0x2E0130`, store the result into a struct field). Insert-with-dedup callers
+are `0x2D50C4`, `0x2D5414`, `0x2D5854`; the reset is called from `0x23EBB6` and
+`0x2D4D9D`; the registry context is `[r14 + 0xB4B0]` / `[rdi + 0xB4B0]`.
+
+**Inference (marked).** `0x2E01A0` is a **file-type classifier/registrar** keyed by
+a (nameA, nameB) pair with the six extension type ids above; it is not a byte-level
+format decoder. This mirrors GoW3, where the `WAD_` string route reached name
+registration rather than the record dispatcher (E-063). E-069's
+`[INFERRED]` "extension→handler dispatch … the MOT handler is reachable from it" is
+**corrected**: the MOT *decoder* is not reached directly from this cluster.
+
+**Also observed.** Four of the six `.mot`-family instructions reference the
+lowercase string only once each; `0x2E01D2`'s decoded context via the mirrored
+decoder is exactly one instruction (`PeImage.string_reference_contexts(b".mot\0")`
+→ `0x2E01D2 lea operand=0x5071D0`, length 7), because the following `49 8B C8`
+(`mov rcx, r8`) is outside the decoder's documented set.
+
+**Unknown.** Where the per-entry type id is consumed to select a decoder; the
+real MOT byte-level loader; every F1/F4 field meaning. The named
+(language/localisation) table E-057 and the earlier `.pac` negatives (E-069) are
+untouched.
+
+**Consequence.** `tools/dmc3/pe.py` gains the limited instruction decoder
+`DecodedInstruction` / `_decode_instruction` / `PeImage._code_window` /
+`reference_context` / `string_reference_contexts`, mirroring `gow3.eboot` (E-063);
+8 new tests in `tests/test_dmc3_pe.py` (synthetic PE, no game data). Full suite
+**430 tests, all green**.
+
+
+
 

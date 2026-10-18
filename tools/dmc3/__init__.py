@@ -85,6 +85,7 @@ from .entities import DEFAULT_PLAYER_IDS, Entity, KNOWN_PLAYER_IDS, label_for, l
 from .pe import (
     MACHINE_AMD64,
     PE32_PLUS_MAGIC,
+    DecodedInstruction,
     PeError,
     PeImage,
     PeSection,
@@ -165,6 +166,7 @@ __all__ = [
     "lookup",
     "MACHINE_AMD64",
     "PE32_PLUS_MAGIC",
+    "DecodedInstruction",
     "PeError",
     "PeImage",
     "PeSection",

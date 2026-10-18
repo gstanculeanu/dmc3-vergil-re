@@ -1549,4 +1549,41 @@ moves and health bar and everything."*
   route into F4's u16[1..3] semantics and, by extension, F1/F5. F9's leaf
   keyframe encoding and the G9/G10 directory binding remain open too.
 
+---
+
+## 2026-10-18 — F4/F1 bounded slice: the `.mot` extension cluster is a file-type registry, not the MOT decoder (E-070)
+
+- Did: followed E-069's stated route — mirror `gow3.eboot`'s limited instruction
+  decoder onto `PeImage`, then read the code at `.text` RVA `0x2E01D2`. Added
+  `DecodedInstruction`, `_decode_instruction`, `PeImage._code_window`,
+  `reference_context` and `string_reference_contexts` to `tools/dmc3/pe.py`,
+  exported `DecodedInstruction` from `dmc3/__init__`, and added 8 tests to
+  `tests/test_dmc3_pe.py` on the synthetic PE. Full suite: **430 tests, all
+  green**. Read the real `dmc3.exe` read-only (only its bytes; nothing written).
+- Found (**E-070**):
+  - The `.mot` string at `.rdata` `0x5071D0` is referenced once, by `0x2E01D2`,
+    but that is inside a function at `0x2E01A0` that **classifies files by
+    extension**: a chain of `strstr` tests (the IAT slot `0x34F3D0` → RVA
+    `0x551CA8` = `"strstr"`), each copying two 32-byte names and storing a type
+    id. **E-069's `[INFERRED]` "extension→handler dispatch" is corrected.**
+  - Type ids, verified from the store sites: `.mot`=0, `.mcv`=1, `.cam`=2,
+    `.hid`=3, `.clt`=4, `.tsc`=5 (case variants are redundant under `strstr`).
+  - The registry context is now decoded: `+0x0000` count (cap `0x400`),
+    `+0x8008` `nameA[1024][0x20]`, `+0x10008` `nameB[1024][0x20]`, `+0x18008`
+    `flags[1024]`, `+0x18408` `type[1024]`; reset at `0x2E0150`, pair-lookup at
+    `0x2E0060`, insert-wrapper at `0x2E0020`, nameA getter at `0x2E0130`;
+    consumers at `0x2D6933`/`0x2D77A2`/`0x2DA173`/`0x2DA263`/`0x2DA336`.
+  - Worked example with the new decoder: `string_reference_contexts(b".mot\0")`
+    gives one context at `0x2E01D2` (`lea operand=0x5071D0`, length 7); the next
+    instruction `49 8B C8` is outside the documented set, so the prefix stops.
+  - Negative/recorded: the MOT **byte-level decoder** is still `[UNKNOWN]`; this
+    mirrors GoW3, where `WAD_` reached name registration, not the loader (E-063).
+- Docs: E-070 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §8 gains §8.1 (the
+  correction + type-id table + registry layout) and §8.2 (the decoder);
+  `docs/BACKLOG.md` F1/F4/T10 rows updated. No game data committed.
+- Next: follow the registry's **type id 0 (`.mot`)** into its consumer to find the
+  real MOT loader and read its numeric constants — that is the route into F4's
+  u16[1..3] semantics and F1/F5. F9's leaf keyframe encoding and the G9/G10
+  directory binding remain open too.
+
 
