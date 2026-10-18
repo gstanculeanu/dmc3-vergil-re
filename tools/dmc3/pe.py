@@ -23,6 +23,10 @@ This module is the DMC3 analogue of :mod:`gow3.eboot`:
 * :meth:`PeImage.walk_string_pool` walks the image's NUL-terminated,
   8-byte-aligned name pool (E-076), which is where the engine keeps its asset
   names (``pl021.pac``, ``pl021_00_0.pac``, …).
+* :meth:`PeImage.absolute_pointers_to` and :meth:`PeImage.pointer_array` find
+  stored **8-byte absolute pointers** (``image_base + rva``) and walk a
+  contiguous array of them. Such pointers are invisible to the RIP-relative
+  scanner; the engine's asset-name table is one of them (E-077).
 
 Like the ELF scanner this is a **byte-pattern scan, not a disassembler**; a hit is
 meaningful when its target is a known string RVA, which is how the tool is used.
@@ -66,6 +70,11 @@ STRING_MAX_LENGTH = 0x100
 STRING_POOL_LIMIT = 4096
 PRINTABLE_MIN = 0x20
 PRINTABLE_MAX = 0x7E
+
+# Absolute (base-relocated) pointers. A PE64 image stores a global ``&symbol``
+# as an 8-byte little-endian ``image_base + rva``; such a pointer is invisible to
+# the RIP-relative scanner because it carries no displacement (E-077).
+POINTER_SIZE = 8
 
 
 class PeError(ValueError):
@@ -266,6 +275,55 @@ class PeImage:
                 break
             at += step
         return tuple(entries)
+
+    # -- absolute pointer tables ----------------------------------------
+    def absolute_pointers_to(self, target_rva: int) -> List[int]:
+        """RVAs of every stored 8-byte absolute pointer to ``target_rva``.
+
+        A PE64 image writes a global ``&symbol`` as a little-endian absolute
+        virtual address (``image_base + rva``). That form is **invisible to**
+        :meth:`rip_relative_references`, which only sees RIP-relative operands,
+        so a table of ``char*`` into the string pool (E-077) has to be found by
+        scanning stored section bytes for the value.
+        """
+        needle = struct.pack("<Q", self.image_base + target_rva)
+        found: List[int] = []
+        for section in self.sections:
+            chunk = self.data[section.raw_offset:
+                             section.raw_offset + section.raw_size]
+            start = 0
+            while True:
+                at = chunk.find(needle, start)
+                if at < 0:
+                    break
+                found.append(section.virtual_address + at)
+                start = at + 1
+        return sorted(found)
+
+    def pointer_array(self, rva: int, limit: int = STRING_POOL_LIMIT,
+                      stride: int = POINTER_SIZE) -> Tuple[int, ...]:
+        """Walk a contiguous run of 8-byte absolute pointers, return targets.
+
+        Returns the **target RVAs** of the run. The walk stops at the first word
+        that is not an in-image absolute pointer — a zero, an out-of-image
+        value, or an unmapped start — so it is a *prefix*, never a guess. This is
+        the shape of the engine's asset-name table at ``.data`` ``0x553050``
+        (E-077): each entry is a ``char*`` into the E-076 name pool.
+        """
+        if stride <= 0:
+            raise PeError("stride must be positive")
+        targets: List[int] = []
+        at = rva
+        while len(targets) < limit:
+            if self.section_of_rva(at) is None:
+                break
+            value = struct.unpack("<Q", self.read(at, POINTER_SIZE))[0]
+            target = value - self.image_base
+            if self.section_of_rva(target) is None:
+                break
+            targets.append(target)
+            at += stride
+        return tuple(targets)
 
     # -- string and reference search ------------------------------------
     def find_all(self, needle: bytes) -> List[int]:

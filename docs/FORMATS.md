@@ -1135,3 +1135,64 @@ indirectly. Reader: `PeImage.walk_string_pool(rva, alignment=8)` /
 string alignment, and the second name cluster at `0x4EB36B..0x505031`, stay
 [UNKNOWN].
 
+### 8.4 The name pool is consumed by an indexed `.data` pointer table (E-077)
+
+**Negative, correcting E-076's "indirect pool base" framing [VERIFIED] (E-077).**
+There is **no dedicated pool-base global**: exactly one 8-byte absolute pointer to
+the pool base `0x14035D640` exists in the whole image, at `.data` `0x55A570`, and
+it is merely *one element of the table below* — not a `g_pool` variable. So the
+pool is not reached through a stored base pointer.
+
+**The table [VERIFIED] (E-077).** `.data` RVA `0x553050` begins a contiguous run
+of **8-byte absolute pointers** (``image_base + rva``), each to a string in the
+E-076 pool. `PeImage.pointer_array(0x553050)` walks **4,039** entries and stops at
+the first NULL (`.data` `0x55AE88`); a second run of 19 entries continues at
+`0x55AE90`; the block ends at `0x55AF28`, after which non-pointer data (UTF-8
+text) begins. Verbatim head (slot index → name):
+
+```
+0  pl000.pac      1  pl011.pac    2  pl013.pac    3  pl015.pac
+4  pl016.pac      5  pl018.pac    6  pl001.pac    7  pl002.pac
+8  pl021.pac      9  pl023.pac   10  pl026.pac   11  pl005.pac
+```
+
+Of the 4,059 non-null slots, **4,055 are E-076 pool entry starts**; the four
+exceptions are `at.ptx` (`0x3679E4`), `Video/` (`0x3631DC`), a `.data` pointer
+(`0x5D9DC0`) and `0x36C355`. The block is a near-permutation of the pool, ordered
+by some engine id rather than by address.
+
+**The consumer [VERIFIED] (E-077).** The literal `0x553050` occurs **exactly once**
+in the image — as the `disp32` at `.text` `0x334F1`
+(`PeImage.find_all(b"\x50\x30\x55\x00") == [0x334F1]`). The surrounding code is a
+tail-callable accessor:
+
+```
+0x334E1  48 63 CA              movsxd rcx, edx
+0x334E4  48 8D 05 15 CB FC FF  lea    rax, [rip-0x334EB]   ; -> RVA 0 = module base
+0x334EB  33 D2                 xor    edx, edx             ; clear the id for the next call
+0x334ED  48 8B 8C C8 50 30 55 00  mov  rcx, [rax + rcx*8 + 0x553050]
+0x334F5  E9 F6 FE FF FF        jmp    ...
+```
+
+So the engine addresses the pool as
+``[image_base + 0x553050 + 8*index]`` and returns the ``char*`` name for
+``index``. This is why the RIP-relative scanner missed it: the base is an
+**addressing displacement**, not a RIP-relative operand — the same shape as
+E-069/E-076's "file names are table data". Reader:
+`PeImage.absolute_pointers_to(rva)` / `PeImage.pointer_array(rva)`.
+
+**Inference (marked, unproven).** The `.data` block is an **asset-name table
+indexed by an integer id**; `0x334E1` is its resolver `name(id)`. Whether `index`
+is the PAC slot id of section 1, or a separate asset id, is open.
+
+**Correction recorded.** The `.data` globals at `0x553000..0x55304F` are an
+**unrelated** state block (u32 counters/flags: `0x2AC78` reads `[0x553000]`,
+`0x2ACA9` writes `[0x553004]` and `[0x553000]=-1`), **not** the table's base — a
+working hypothesis of this slice that the bytes refute.
+
+**Unknown.** The index semantics and its caller; the meaning of the four non-pool
+targets and of `0x55AF28` (→ `0x1405D9DC0`); whether the block is one array or
+several concatenated (NULL at `0x55AE88`, 19-entry run at `0x55AE90`). The
+byte-level MOD/MOT decoders (F1/F4) are unchanged.
+
+

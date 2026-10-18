@@ -322,5 +322,63 @@ class TestStringPool(unittest.TestCase):
             image.walk_string_pool(DATA_RVA, alignment=0)
 
 
+class TestAbsolutePointers(unittest.TestCase):
+    """E-077: the engine reaches its asset-name table through stored absolute
+    pointers, which the RIP-relative scanner cannot see."""
+
+    @staticmethod
+    def _ptr(target_rva: int) -> bytes:
+        return struct.pack("<Q", IMAGE_BASE + target_rva)
+
+    def test_finds_a_stored_absolute_pointer(self):
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8, self._ptr(DATA_RVA)))
+        self.assertEqual(image.absolute_pointers_to(DATA_RVA), [DATA_RVA])
+
+    def test_reports_every_occurrence(self):
+        payload = self._ptr(DATA_RVA) + b"\x00" * 8 + self._ptr(DATA_RVA)
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8, payload))
+        self.assertEqual(image.absolute_pointers_to(DATA_RVA),
+                         [DATA_RVA, DATA_RVA + 16])
+
+    def test_absent_pointer_returns_empty(self):
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8))
+        self.assertEqual(image.absolute_pointers_to(DATA_RVA), [])
+
+    def test_bare_rva_literal_is_not_an_absolute_pointer(self):
+        # The form the engine uses as an addressing displacement is a 4-byte
+        # RVA, not an 8-byte absolute pointer, and must not be reported as one.
+        payload = struct.pack("<I", DATA_RVA) + b"\x00" * 4
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8, payload))
+        self.assertEqual(image.absolute_pointers_to(DATA_RVA), [])
+
+
+class TestPointerArray(unittest.TestCase):
+    def test_walk_returns_target_rvas_until_non_pointer(self):
+        targets = [DATA_RVA + 0x40, DATA_RVA + 0x48]
+        payload = (b"".join(struct.pack("<Q", IMAGE_BASE + t) for t in targets)
+                   + b"\x00" * 8 + b"\x00" * 0x40)
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8, payload))
+        self.assertEqual(image.pointer_array(DATA_RVA), tuple(targets))
+
+    def test_walk_stops_at_out_of_image_value(self):
+        payload = struct.pack("<Q", IMAGE_BASE + DATA_RVA) + struct.pack("<Q", 0x1234)
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8, payload))
+        self.assertEqual(image.pointer_array(DATA_RVA), (DATA_RVA,))
+
+    def test_walk_honours_limit(self):
+        payload = struct.pack("<Q", IMAGE_BASE + DATA_RVA) * 3
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8, payload))
+        self.assertEqual(len(image.pointer_array(DATA_RVA, limit=2)), 2)
+
+    def test_walk_stops_at_unmapped_start(self):
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8))
+        self.assertEqual(image.pointer_array(0x10), ())
+
+    def test_rejects_non_positive_stride(self):
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8))
+        with self.assertRaises(PeError):
+            image.pointer_array(DATA_RVA, stride=0)
+
+
 if __name__ == "__main__":
     unittest.main()

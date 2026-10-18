@@ -1679,3 +1679,51 @@ moves and health bar and everything."*
   pointer, so the next lead is a `.data` absolute pointer / the code that indexes
   the pool). F1's remaining MOD body and F4's MOT loader are unchanged; F3 slots
   6/7/11/22 remain available.
+
+---
+
+## 2026-10-18 — F1/F4 bounded slice: the asset-name pool has an indexed `.data` consumer (E-077)
+
+- Did: followed E-076's stated next step ("the pool base is an indirect pointer, so
+  the next lead is a `.data` absolute pointer / the code that indexes the pool")
+  read-only through `G:\Games\Devil May Cry HD Collection\dmc3.exe` (6,356,432 B).
+  Added `PeImage.absolute_pointers_to` and `PeImage.pointer_array` (plus
+  `POINTER_SIZE`) to `tools/dmc3/pe.py` and `TestAbsolutePointers` +
+  `TestPointerArray` (9 tests) to `tests/test_dmc3_pe.py`. Full suite: **494 tests,
+  all green** (485 baseline + 9). Nothing written to the game; no game data
+  committed.
+- Found (**E-077**):
+  - **No dedicated pool-base global.** `absolute_pointers_to(0x35D640)` returns
+    exactly one RVA, `.data` `0x55A570` — and that word is a **member of the table
+    below**, not a `g_pool` variable. E-076's "indirect base" framing is refined:
+    the pool is reached by *indexing a table*.
+  - **The table.** `.data` `0x553050` is a contiguous run of 8-byte absolute
+    `char*` pointers into the E-076 pool: `pointer_array(0x553050)` walks **4,039**
+    entries to the first NULL (`.data` `0x55AE88`, file `0x559488`), a second run
+    of 19 resumes at `0x55AE90`, and the block ends at `0x55AF28`. Of the 4,059
+    non-null slots, **4,055 are pool entry starts**; the four exceptions are
+    `at.ptx` (0x3679E4), `Video/` (0x3631DC), a `.data` pointer (0x5D9DC0) and
+    0x36C355. Head: `[0] pl000.pac`, `[1] pl011.pac`, …, `[8] pl021.pac`,
+    `[9] pl023.pac`. The block is a near-permutation of the 4,056-string pool, in
+    an order that is neither pool order nor sorted.
+  - **The single consumer.** The literal `0x553050` occurs **exactly once** in the
+    whole image — as the `disp32` at `.text` `0x334F1` — inside a tail-callable
+    accessor: `0x334E1 48 63 CA` (`movsxd rcx, edx`), `0x334E4 48 8D 05 15 CB FC
+    FF` (`lea rax,[rip-0x334EB]` ? RVA 0 = module base), `0x334EB 33 D2`
+    (`xor edx, edx`), `0x334ED 48 8B 8C C8 50 30 55 00`
+    (`mov rcx,[rax + rcx*8 + 0x553050]`). So the engine resolves a name as
+    `[image_base + 0x553050 + 8*index]` — a **displacement**, which is why the
+    RIP-relative scanner missed it.
+  - **Correction recorded:** the adjacent `.data` globals `0x553000..0x55304F` are
+    an unrelated u32 state block (read at `0x2AC78`/`0x2ACA9`), **not** the table's
+    struct base — a working hypothesis of this slice that the bytes refute.
+- **Inference (marked, unproven):** the block is an **asset-name table indexed by
+  an integer id**; whether that id is the PAC slot id (E-001) or a separate asset
+  id, and who calls `0x334E1`, are [UNKNOWN]. The byte-level MOD/MOT decoders
+  (F1/F4) are unchanged.
+- Docs: E-077 in `docs/EVIDENCE.md`; `docs/FORMATS.md` gains §8.4; `docs/BACKLOG.md`
+  F1/F4/T10 rows updated. Committed and pushed; commented issues #1 and #2.
+- Next: find the caller of the accessor `0x334E1` and what supplies `edx` (the
+  index) — that is the "PAC slot id dispatch" the engine route needs; then follow
+  the indexed asset into its loader. F3 slots 6/7/11/22 and the GoW3R clip
+  keyframe encoding remain available.

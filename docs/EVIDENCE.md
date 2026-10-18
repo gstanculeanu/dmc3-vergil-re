@@ -4058,3 +4058,73 @@ containing `pl021`), which is a *different* table from this pool.
 `STRING_ALIGNMENT`/`STRING_MAX_LENGTH`/`STRING_POOL_LIMIT`/`PRINTABLE_*`), with 10
 tests in `tests/test_dmc3_pe.py`. No game data committed.
 
+
+## E-077 - DMC3 `dmc3.exe`: the asset-name pool is consumed by an indexed `.data` pointer table (F1/F4 route, bounded slice)
+
+**Observation (read-only from `G:\Games\Devil May Cry HD Collection\dmc3.exe`).**
+
+**1. There is no dedicated pool-base global.** `PeImage.absolute_pointers_to(0x35D640)`
+returns exactly **one** RVA, `.data` `0x55A570`; the 8 bytes there are
+`40 d6 35 40 01 00 00 00` = `0x14035D640`. That slot is a **member of the table
+below**, not a `g_pool` variable, so E-076's "the pool base is resolved
+indirectly" is refined: the pool is reached by **indexing the table**, not through
+a stored base pointer.
+
+**2. The table.** `.data` `0x553050` begins a contiguous run of 8-byte absolute
+pointers (``image_base + rva``) into the E-076 pool. `PeImage.pointer_array(0x553050)`
+walks **4,039** entries and stops at the first NULL at `.data` `0x55AE88`
+(file off `0x559488`); a **second run of 19** entries resumes at `0x55AE90`; the
+block ends at `0x55AF28`, after which non-pointer data (UTF-8 text) begins. Head
+verbatim (slot ? target RVA ? name):
+
+```
+[0] 0x553050 -> 0x362E60  pl000.pac     [4] 0x553070 -> 0x362F78  pl016.pac
+[1] 0x553058 -> 0x362EA8  pl011.pac     [5] 0x553078 -> 0x362FC0  pl018.pac
+[2] 0x553060 -> 0x362EE8  pl013.pac     [6] 0x553080 -> 0x363008  pl001.pac
+[3] 0x553068 -> 0x362F30  pl015.pac     [7] 0x553088 -> 0x363050  pl002.pac
+                                        [8] 0x553090 -> 0x363098  pl021.pac
+                                        [9] 0x553098 -> 0x3630E0  pl023.pac
+```
+
+Of the **4,059** non-null slots, **4,055** are E-076 pool entry starts; the four
+exceptions resolve to `at.ptx` (`0x3679E4`), `Video/` (`0x3631DC`), a `.data`
+pointer (`0x5D9DC0`) and `0x36C355`. The block is therefore a near-permutation of
+the 4,056-string pool, in an order that is not pool order and not sorted.
+
+**3. The single consumer.** The 4-byte literal `0x553050` occurs **exactly once**
+in the 6,356,432-byte image: `.text` `0x334F1`
+(`PeImage.find_all(b"\x50\x30\x55\x00") == [0x334F1]`). It is the `disp32` of an
+indexed absolute load in a tail-callable accessor (raw bytes, `.text`):
+
+```
+0x334E1  48 63 CA                 movsxd rcx, edx
+0x334E4  48 8D 05 15 CB FC FF     lea    rax, [rip-0x334EB]   ; target RVA 0 = module base
+0x334EB  33 D2                    xor    edx, edx             ; clear the id for the next call
+0x334ED  48 8B 8C C8 50 30 55 00  mov    rcx, [rax + rcx*8 + 0x553050]
+0x334F5  E9 F6 FE FF FF           jmp    ...
+```
+
+The engine computes the module base (`lea` whose RIP-relative target is RVA `0`)
+and then reads ``[module_base + 0x553050 + 8*index]``; the result is a `char*`
+into the E-076 pool. The RIP-relative scanner cannot see this because the table
+base is an **addressing displacement**, not a RIP-relative operand.
+
+**Inference (marked, unproven).** The `.data` block is an **asset-name table
+indexed by an integer id**, and `0x334E1` is its resolver. The id may be the PAC
+**slot id** (E-001) or a separate asset id; not established.
+
+**Negative / correction.** The `.data` globals at `0x553000..0x55304F` are an
+unrelated **state block**, not the table's base: `0x2AC78` = `8B 05 82 83 52 00`
+reads `[0x553000]`, and `0x2ACA9` = `8B 05 55 83 52 00 85 C0 78 10 89 05 47 83
+52 00 C7 05 41 83 52 00 FF FF FF FF` reads `[0x553004]`, writes it back and sets
+`[0x553000] = 0xFFFFFFFF`. This refutes a working hypothesis of this slice that
+`0x553000` was the table's struct base.
+
+**Unknown.** The `index` semantics and its caller; the four non-pool targets; what
+`0x55AF28` (? `0x1405D9DC0`) is; whether the block is one array or several
+concatenated (NULL at `0x55AE88`, second run at `0x55AE90`). The byte-level
+MOD/MOT decoders (F1/F4) are unchanged.
+
+**Consequence.** `tools/dmc3/pe.py` gains `PeImage.absolute_pointers_to` and
+`PeImage.pointer_array` (plus `POINTER_SIZE`), with 9 tests in
+`tests/test_dmc3_pe.py`. No game data committed.
