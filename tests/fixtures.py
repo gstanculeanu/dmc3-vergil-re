@@ -244,17 +244,20 @@ def mod_vertex_block(
     start: int = 0x80,
     normals: tuple = None,
     filler: int = 0x40,
+    attributes: tuple = None,
 ) -> bytes:
-    """A synthetic ``MOD `` data block whose payload is vertices (E-094).
+    """A synthetic ``MOD `` data block whose payload is vertices (E-094/E-095).
 
-    The payload opens with ``count`` ``f32[3]`` position triples followed by
-    ``count`` ``f32[3]`` normal triples (unit length by default), then
-    ``filler`` bytes of ``0x40``.  ``start`` is the block's body-relative offset
-    so the prefix offsets point where the real reader expects them.
+    The payload opens with ``count`` ``f32[3]`` position triples, ``count``
+    ``f32[3]`` normal triples (unit length by default), then ``count`` u16 pairs
+    (the E-095 attribute array), and finally ``filler`` bytes of ``0x40``.
+    ``start`` is the block's body-relative offset so the prefix offsets point
+    where the real reader expects them.
 
     Positions are ``(k + 0.5, -(k + 0.25), k * 0.125)``; normals default to
-    ``(0, 0, 1)``.  Pass ``normals=()`` (or a list of non-unit triples) to build
-    a block with no usable normal run.
+    ``(0, 0, 1)``; attributes default to ``(0x0100 + k, 0x0200 + k)``.  Pass
+    ``normals=()`` (or a list of non-unit triples) to build a block with no
+    usable normal run.
     """
     blob = bytearray(0x2C)
     payload = bytearray()
@@ -264,6 +267,10 @@ def mod_vertex_block(
         normals = [(0.0, 0.0, 1.0)] * count
     for n in normals:
         payload += struct.pack("<3f", *n)
+    if attributes is None:
+        attributes = [(0x0100 + k, 0x0200 + k) for k in range(count)]
+    for pair in attributes:
+        payload += struct.pack("<2H", *pair)
     payload += b"\x40" * filler
     payload_offset = start + 0x2C
     struct.pack_into("<I", blob, 0x04, payload_offset + 12 * count)
@@ -272,7 +279,9 @@ def mod_vertex_block(
     return bytes(blob) + bytes(payload)
 
 
-def mod_vertex_directory_body(count: int = 4, normals: tuple = None) -> bytes:
+def mod_vertex_directory_body(
+    count: int = 4, normals: tuple = None, attributes: tuple = None
+) -> bytes:
     """A synthetic one-record ``MOD `` body carrying a vertex block (E-094)."""
     array_size = 2 * 0x40
     record = mod_descriptor(tag=0x8001, count=count, data_offset=array_size)
@@ -280,7 +289,9 @@ def mod_vertex_directory_body(count: int = 4, normals: tuple = None) -> bytes:
     return (
         record
         + footer
-        + mod_vertex_block(count=count, start=array_size, normals=normals)
+        + mod_vertex_block(
+            count=count, start=array_size, normals=normals, attributes=attributes
+        )
     )
 
 

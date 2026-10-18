@@ -530,6 +530,14 @@ class ModBodyBlock:
         """Body offset of the normal array for a ``count``-vertex block (E-094)."""
         return self.payload_offset + count * BODY_BLOCK_TUPLE_SIZE
 
+    def attribute_offset(self, count: int) -> int:
+        """Body offset of the per-vertex attribute array (E-095).
+
+        The array follows the ``count`` position and ``count`` normal triples and
+        holds :data:`BODY_BLOCK_ATTRIBUTE_SIZE` bytes (two u16s) per vertex.
+        """
+        return self.payload_offset + count * BODY_BLOCK_ATTRIBUTE_UNIT
+
     @classmethod
     def parse(
         cls, body: bytes, index: int, data_offset: int, span: int
@@ -576,6 +584,21 @@ BODY_BLOCK_NORMAL_TOLERANCE = 2e-3
 
 BODY_BLOCK_NORMAL_MIN_RUN = 8
 """Shortest run of consecutive unit triples treated as the normal array (E-094)."""
+
+BODY_BLOCK_ATTRIBUTE_UNIT = 2 * BODY_BLOCK_TUPLE_SIZE
+"""``0x18`` — position + normal bytes per vertex before the attribute array (E-095).
+
+The attribute array starts ``count * BODY_BLOCK_ATTRIBUTE_UNIT`` bytes into the
+payload, i.e. just past the position and normal arrays.
+"""
+
+BODY_BLOCK_ATTRIBUTE_SIZE = 0x04
+"""``4`` — bytes per vertex in the attribute array: two little-endian u16s (E-095).
+
+E-094 read these bytes as one u32 per vertex (the "4-byte field").  Reading the
+same bytes as two u16s gives small per-vertex values; the u16 reading is the
+observation, the values' meaning is [UNKNOWN].
+"""
 
 
 def unit_triple(
@@ -629,6 +652,27 @@ def _block_triples(
             break
         triples.append((f32(body, offset), f32(body, offset + 4), f32(body, offset + 8)))
     return tuple(triples)
+
+
+def block_attributes(
+    body: bytes, block: ModBodyBlock, count: int
+) -> tuple[tuple[int, int], ...]:
+    """The ``count`` little-endian u16 pairs following the normals (E-095).
+
+    E-094 read the four bytes per vertex between the normal array and the next
+    array as one u32.  Reading them as **two u16s** gives small values that vary
+    per vertex (the pair array is constant in only a handful of blocks), so the
+    two-u16 reading is the observation; the values' *meaning* (e.g. a UV pair) is
+    **[INFERRED]** and not asserted.
+    """
+    start = block.attribute_offset(count)
+    pairs = []
+    for k in range(count):
+        offset = start + k * BODY_BLOCK_ATTRIBUTE_SIZE
+        if offset + BODY_BLOCK_ATTRIBUTE_SIZE > len(body):
+            break
+        pairs.append((u16(body, offset), u16(body, offset + 2)))
+    return tuple(pairs)
 
 
 def normal_run(

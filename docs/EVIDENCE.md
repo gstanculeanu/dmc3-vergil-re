@@ -5299,7 +5299,7 @@ block-laying `mod_directory_body()`; `tests/test_mod.py` gains `TestModBodyBlock
 No game data committed.
 
 
-## E-094 — `MOD ` data-block payloads open with `count` `f32[3]` positions then `count` unit-length (normal) triples (F1, bounded slice)
+## E-094 ï¿½ `MOD ` data-block payloads open with `count` `f32[3]` positions then `count` unit-length (normal) triples (F1, bounded slice)
 
 **Observation (read-only from
 `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\`, all `*.pac` files).**
@@ -5310,7 +5310,7 @@ length is the **descriptor's own count** (the high u16 of the descriptor's
 `+0x1C` tag word, E-091/E-092): `count` triples that read as coordinates,
 followed by `count` triples of **unit length**.
 
-Worked example — `em013.pac` slot 8, `MOD ` chunk at **file offset 0xFB6E0**
+Worked example ï¿½ `em013.pac` slot 8, `MOD ` chunk at **file offset 0xFB6E0**
 (data span 0x6E0), body = `data[0x24:]`; descriptor 0 `count = 36`, array size
 `0x80`, block `@body+0x80` (span `0x63C`, `offset_a=0x4C0`, `offset_b=0x550`,
 `offset_c=0x590`), **payload at body +0xAC = file +0xFB7B0**:
@@ -5326,7 +5326,7 @@ k=71  body+0x400: 00 00 00 00 47 44 3b bf 6b 8c 2e bf   (  0.0000, -0.7315, -0.6
 
 The first 36 triples (k = 0..35) are arbitrary coordinates; the next 36
 (k = 36..71) all have unit length. A run of **36 u32 `0x400`** begins at
-body +0x49C = payload + 1008 = **28 bytes per vertex** — i.e. 12 (position) + 12
+body +0x49C = payload + 1008 = **28 bytes per vertex** ï¿½ i.e. 12 (position) + 12
 (normal) + 4.
 
 **Census of the install (1,535 `ordered and in_block` record descriptors across
@@ -5334,10 +5334,10 @@ the 286 `MOD ` chunks):**
 
 | observation | result |
 |---|---|
-| descriptor `count == 4` | 689 blocks — **none** has an 8-long unit-triple run |
+| descriptor `count == 4` | 689 blocks ï¿½ **none** has an 8-long unit-triple run |
 | contains a run of >= 8 consecutive unit-length triples | 502 |
 | that run starts at exactly `count` | 305 |
-| starts within `count` ± 1 | 431 |
+| starts within `count` ï¿½ 1 | 431 |
 | run length equals `count` | 418 |
 
 So on the subset that is not the `count == 4` shape the payload reads as
@@ -5349,7 +5349,7 @@ the 1,535 blocks.
 different arrays. In `em013.pac` slot 2 (`MOD ` chunk at **file offset 0x78550**,
 body span 0x2550, descriptor 0 `count = 230`, block `@body+0x80`, `offset_a=0x1A10`,
 `offset_b=0x1DB0`, `offset_c=0x1F70`, payload body+0xAC) a uniform run of **230
-u32 `0x400`** starts at body +0x19EC and ends at body +0x1D84 — it **straddles
+u32 `0x400`** starts at body +0x19EC and ends at body +0x1D84 ï¿½ it **straddles
 `offset_a = 0x1A10`**. E-093's [INFERRED] "the two interior offsets split the
 payload into three consecutive regions" is therefore not supported by the bytes,
 and its `ModBodyBlock.regions` is pure arithmetic on the two offsets rather than
@@ -5362,7 +5362,7 @@ position array's length is not always exactly `count`.
 
 **Unknown (recorded, not inferred).** The meaning of the `0x400` run (1024, a
 likely Q10 `1.0` weight, unproven), of the 4-byte field between the normals and
-that run, and of the descriptor's tag (`0x8001`/`0x8002`/…) all remain
+that run, and of the descriptor's tag (`0x8001`/`0x8002`/ï¿½) all remain
 **[UNKNOWN]**; the `u16 0x1F`/`0x12` fills beyond them are unassigned.
 
 **Tooling.** `tools/dmc3/mod.py`: `unit_triple`, `block_positions`,
@@ -5371,3 +5371,71 @@ that run, and of the descriptor's tag (`0x8001`/`0x8002`/…) all remain
 `BODY_BLOCK_NORMAL_MIN_RUN = 8`; all exported from `dmc3`. `tests/fixtures.py`
 gains `mod_vertex_block()` / `mod_vertex_directory_body()`; `tests/test_mod.py`
 gains `TestModBodyVertices` (9 tests). No game data committed.
+
+## E-095 â€” `MOD ` data-block attribute array: the 4-byte-per-vertex field after the normals is two u16s, and the `0x400` run is not general (F1, bounded slice)
+
+**Observation (read-only from
+`G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\`, all `*.pac` files).**
+E-094 recorded, after a block's `count` position triples and `count` unit-length
+(normal) triples, a "4-byte field" per vertex and then a run of `count` u32
+`0x400` at "28 bytes per vertex". Reading the same bytes as little-endian u16s
+shows the 4-byte field is **two u16s**, and the following array is *not*
+generally an all-`0x400` run.
+
+Worked example â€” the `em013.pac` `MOD ` chunk at **file offset 0xFB6E0**
+(PAC slot 8; descriptor 0 `count = 36`, array size `0x80`, block `@body+0x80`,
+payload `@body+0xAC` = file +0xFB7B0). After the 36 position triples
+(`body+0x0AC..0x25C`) and the 36 normal triples (`body+0x25C..0x40C`), the bytes
+at **`body+0x40C`** are 36 little-endian u16 pairs. First pairs verbatim
+(raw bytes â†’ values):
+
+```
+body+0x40C: de 06 f1 05   (0x06DE=1758, 0x05F1=1521)
+body+0x410: de 06 30 06   (0x06DE=1758, 0x0630=1584)
+body+0x414: 83 07 34 06   (0x0783=1923, 0x0634=1588)
+```
+
+read back through `dmc3.mod.block_attributes` as
+`((1758, 1521), (1758, 1584), (1923, 1588))`, min/max over all 72 u16s
+`1340`/`1923` (`0x53C`/`0x783`). E-094 read the first four bytes as the single
+u32 `0x05F106DE`; the pair reading `(0x06DE, 0x05F1)` is the observation.
+
+**Census of the install (286 `MOD ` chunks; subset = the 303 blocks whose unit
+normal run starts exactly at `count` *and* is exactly `count` long, so the
+position array is `count` triples and the attribute offset is unambiguous):**
+
+| observation | result |
+|---|---|
+| attribute u16-pair array is single-valued (constant) per block | 3 / 303 |
+| every low u16 `< 0x1000` | 299 / 303 |
+| every high u16 `< 0x1000` | 259 / 303 |
+| every u32 at payload + 28Â·count is `0x400` | **2 / 303** |
+| every u32 at payload + 28Â·count is `0` | 115 / 303 |
+| u32 array at payload + 28Â·count is single-valued per block | 202 / 303 |
+
+So the per-vertex attribute array is genuinely per-vertex (constant in only
+3/303), while the *next* 4-byte array is constant per block in two thirds of the
+blocks. **[INFERRED]/[UNKNOWN]** the two-u16 values are a per-vertex attribute
+(their low values and per-vertex variation are *consistent with* a UV pair, but
+no UV relation is proven) and the next array's meaning is unassigned.
+
+**Correction to E-094.** Its "a run of **36 u32 `0x400`** begins at payload +
+1008 = 28 bytes per vertex" is a property of the worked chunk, not a general
+rule: on the 303 clean blocks only **2** carry an all-`0x400` array at
+`payload + 28Â·count` (115 carry all-zero); the modal content is not `0x400`. The
+`0x400` fill should be treated as a per-block value, not a fixed constant of the
+format. E-094's position/normal reading is unaffected (its clean subset still
+reproduces `normal_run == (count, count)`).
+
+**Unknown (recorded, not inferred).** The attribute values' meaning, the next
+array's meaning, the descriptor tag (`0x8001`/`0x8002`/â€¦), and the `u16 0x1F`
+fill after the next array all remain **[UNKNOWN]**.
+
+**Tooling.** `tools/dmc3/mod.py` gains `block_attributes()`,
+`ModBodyBlock.attribute_offset()`, and the constants
+`BODY_BLOCK_ATTRIBUTE_UNIT = 0x18` (position + normal bytes per vertex before the
+attribute array) and `BODY_BLOCK_ATTRIBUTE_SIZE = 0x04` (two u16s), all exported
+from `dmc3`. `tests/fixtures.py`'s `mod_vertex_block()` / `mod_vertex_directory_body()`
+gain an `attributes` parameter; `tests/test_mod.py` gains `TestModBodyAttributes`
+(6 tests). Validated read-only against the real `em013.pac` chunk above. No game
+data committed.

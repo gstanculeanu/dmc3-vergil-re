@@ -5,6 +5,8 @@ import unittest
 import fixtures
 from dmc3 import Chunk, ModBodyBlock, ModBodyDirectory, ModBodyPrefix, ModHeader
 from dmc3.mod import (
+    BODY_BLOCK_ATTRIBUTE_SIZE,
+    BODY_BLOCK_ATTRIBUTE_UNIT,
     BODY_BLOCK_NORMAL_MIN_RUN,
     BODY_BLOCK_NORMAL_TOLERANCE,
     BODY_BLOCK_OFFSET_A,
@@ -24,6 +26,7 @@ from dmc3.mod import (
     BODY_TAG_NAMESPACE,
     BODY_TAG_OFFSET,
     HEADER_SIZE,
+    block_attributes,
     block_normals,
     block_positions,
     descriptor_count,
@@ -404,6 +407,59 @@ class TestModBodyVertices(unittest.TestCase):
         # the normal array starts exactly at offset_a here, but nothing in the
         # offsets tells the reader so -- normal_run finds it from the bytes.
         self.assertEqual(normal_run(body, block), (9, 9))
+
+
+class TestModBodyAttributes(unittest.TestCase):
+    """E-095: the four bytes per vertex after the normal array read as two u16s
+    (an attribute array), not one u32.  The reading is asserted; the values'
+    *meaning* is [INFERRED]/[UNKNOWN]."""
+
+    def test_layout_constants(self):
+        self.assertEqual(BODY_BLOCK_ATTRIBUTE_UNIT, 0x18)
+        self.assertEqual(BODY_BLOCK_ATTRIBUTE_SIZE, 0x04)
+
+    def test_attribute_offset_follows_the_normals(self):
+        body = fixtures.mod_vertex_directory_body(count=5)
+        block = ModBodyDirectory.parse(body).blocks[0]
+        self.assertEqual(
+            block.attribute_offset(5), block.payload_offset + 5 * 0x18
+        )
+        self.assertEqual(block.attribute_offset(5), block.normal_offset(5) + 5 * 12)
+
+    def test_attributes_are_read_back_as_u16_pairs(self):
+        body = fixtures.mod_vertex_directory_body(count=5)
+        block = ModBodyDirectory.parse(body).blocks[0]
+        attrs = block_attributes(body, block, 5)
+        self.assertEqual(len(attrs), 5)
+        self.assertEqual(attrs[0], (0x0100, 0x0200))
+        self.assertEqual(attrs[4], (0x0104, 0x0204))
+
+    def test_explicit_attribute_pairs_round_trip(self):
+        pairs = [(0x0100 + k, 0x0200 + k) for k in range(8)]
+        body = fixtures.mod_vertex_directory_body(count=8, attributes=pairs)
+        block = ModBodyDirectory.parse(body).blocks[0]
+        # the normal array is unchanged by the attributes
+        self.assertEqual(normal_run(body, block), (8, 8))
+        self.assertEqual(block_attributes(body, block, 8), tuple(pairs))
+
+    def test_attributes_stop_at_the_body_end(self):
+        body = fixtures.mod_vertex_directory_body(count=3)
+        block = ModBodyDirectory.parse(body).blocks[0]
+        # asking for more pairs than the body holds yields only what fits
+        self.assertLessEqual(
+            len(block_attributes(body, block, 10_000)), len(body) // 4
+        )
+
+    def test_u16_reading_differs_from_a_u32_reading(self):
+        # the worked example's first four bytes are DE 06 F1 05 -- one u32
+        # 0x05F106DE but the pair (0x06DE, 0x05F1); this locks the two-u16 view
+        pairs = [(0x06DE, 0x05F1), (0x06DE, 0x0630), (0x0783, 0x0634)]
+        body = fixtures.mod_vertex_directory_body(count=3, attributes=pairs)
+        block = ModBodyDirectory.parse(body).blocks[0]
+        self.assertEqual(block_attributes(body, block, 3), tuple(pairs))
+        raw = body[block.attribute_offset(3):block.attribute_offset(3) + 4]
+        self.assertEqual(raw, b"\xde\x06\xf1\x05")
+        self.assertEqual(struct.unpack("<I", raw)[0], 0x05F106DE)
 
 
 if __name__ == "__main__":

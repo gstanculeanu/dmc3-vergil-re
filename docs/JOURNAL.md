@@ -2282,3 +2282,46 @@ moves and health bar and everything."*
   alongside the descriptor tag (`0x8001`/`0x8002`/`0x8008`�). F4 stays blocked on
   the engine route and is not re-spun; F2/F3/F5/F6/F8 and the GoW3R clip leaf
   encoding (F9) remain available.
+
+---
+
+## 2026-10-18 — F1 bounded slice: the 4-byte-per-vertex field is two u16s; the `0x400` run is not general (E-095)
+
+- Did: picked the critical path **F1** (issue #1) and followed E-094's own stated
+  next step — "the 4-byte field between the normals and the `0x400` run". Read the
+  residual arrays read-only across all `*.pac` files under
+  `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\` (286 `MOD ` chunks).
+  Added `block_attributes()` and `ModBodyBlock.attribute_offset()` plus the
+  `BODY_BLOCK_ATTRIBUTE_UNIT = 0x18` / `BODY_BLOCK_ATTRIBUTE_SIZE = 0x04`
+  constants to `tools/dmc3/mod.py`, exported from `dmc3`; gave
+  `tests/fixtures.py`'s `mod_vertex_block()` / `mod_vertex_directory_body()` an
+  `attributes` parameter; added `TestModBodyAttributes` (6 tests). Full suite:
+  **622 tests, all green** (616 baseline + 6). Nothing written to the game; no
+  game data committed. Validated read-only through the new API against the real
+  `em013.pac` chunk at file offset 0xFB6E0 (reproduces `(0x06DE, 0x05F1)` ...).
+- Found (**E-095**):
+  - The four bytes per vertex that E-094 read as one u32 are **two little-endian
+    u16s**. Worked example `em013.pac` slot 8 (`count = 36`): bytes at
+    `body+0x40C` are `de 06 f1 05` -> u32 `0x05F106DE`, but the pair
+    `(0x06DE=1758, 0x05F1=1521)`; then `(0x06DE, 0x0630)`, `(0x0783, 0x0634)`;
+    all 72 u16s in `[0x53C, 0x783]`.
+  - Census over the **303** blocks whose unit normal run starts exactly at `count`
+    and is exactly `count` long: the attribute u16-pair array is constant in only
+    **3/303** (so it is genuinely per-vertex); low u16 `< 0x1000` in 299/303, high
+    u16 `< 0x1000` in 259/303.
+  - **Correction to E-094:** its "run of `count` u32 `0x400` at 28 bytes per
+    vertex" is a property of the worked chunk, not the format — on the 303 clean
+    blocks only **2** carry an all-`0x400` array at `payload + 28`*count; **115**
+    carry all-zero and the modal value is neither. The next array is constant per
+    block in 202/303.
+  - **[INFERRED]/[UNKNOWN]:** the pair is a per-vertex attribute (UV-consistent
+    values, unproven); the next array's meaning and the descriptor tag stay
+    unassigned.
+- Docs: E-095 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §5.1 gains the "E-095
+  update" subsection (and the E-094 correction) and the title gains E-095;
+  `docs/BACKLOG.md` F1 row updated (evidence cell adds E-095, status rewritten).
+- Next: the next array (`payload + 0x1C*count`, constant per block in 202/303)
+  and the `u16 0x1F`/`0x12` fill after it are the remaining residual arrays; the
+  attribute values still need engine ground truth or a decoded peer to be named.
+  F4 stays blocked on the engine route and is not re-spun; F2/F3/F5/F6/F8 and the
+  GoW3R clip leaf encoding (F9) remain available.

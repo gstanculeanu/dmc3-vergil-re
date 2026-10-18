@@ -4,6 +4,8 @@ Read-only tooling.  Nothing here writes to a game installation.
 """
 
 from .mod import (
+    BODY_BLOCK_ATTRIBUTE_SIZE,
+    BODY_BLOCK_ATTRIBUTE_UNIT,
     BODY_BLOCK_NORMAL_MIN_RUN,
     BODY_BLOCK_NORMAL_TOLERANCE,
     BODY_BLOCK_OFFSET_A,
@@ -27,6 +29,7 @@ from .mod import (
     ModBodyDirectory,
     ModBodyPrefix,
     ModHeader,
+    block_attributes,
     block_normals,
     block_positions,
     body_blocks,
@@ -215,11 +218,14 @@ __all__ = [
     "BODY_BLOCK_TUPLE_SIZE",
     "BODY_BLOCK_NORMAL_TOLERANCE",
     "BODY_BLOCK_NORMAL_MIN_RUN",
+    "BODY_BLOCK_ATTRIBUTE_UNIT",
+    "BODY_BLOCK_ATTRIBUTE_SIZE",
     "ModBodyBlock",
     "ModBodyDescriptor",
     "ModBodyDirectory",
     "ModBodyPrefix",
     "ModHeader",
+    "block_attributes",
     "block_normals",
     "block_positions",
     "body_blocks",

@@ -511,7 +511,7 @@ files**; evidence E-030), all little-endian:
 +0x24  ...     payload body (vertices, indices, normals, UVs, skin weights)  [UNKNOWN layout]
 ```
 
-### 5.1 `MOD ` payload body prefix — first decoded fields [E-031, E-091, E-092, E-093, E-094]
+### 5.1 `MOD ` payload body prefix — first decoded fields [E-031, E-091, E-092, E-093, E-094, E-095]
 
 **Status: [PARTIAL]** — evidence E-031 (pl021.pac), E-091 (all 286 install
 `MOD ` chunks). The body begins at `+0x24` (immediately after the header). Its
@@ -673,6 +673,34 @@ payload + 0x0C*count      count x f32[3]   unit length        [INFERRED: normals
 * `tools/dmc3/mod.py` exposes `unit_triple`, `block_positions`, `block_normals`,
   `normal_run`, `ModBodyBlock.normal_offset` and the `BODY_BLOCK_TUPLE_SIZE` /
   `BODY_BLOCK_NORMAL_*` constants. See **E-094**.
+
+#### E-095 update: the 4-byte-per-vertex field after the normals is two u16s; the `0x400` run is not general — structure [PARTIAL]
+
+E-094 read the four bytes per vertex after the normal array as one u32 and the
+following array as `count` u32 `0x400` ("28 bytes per vertex"). Reading the bytes
+as little-endian u16s gives, for `em013.pac` slot 8 `count = 36`, an attribute
+array starting at `payload + 24*count`:
+
+```
+payload + 0x00            count x f32[3]   [INFERRED: positions]
+payload + 0x0C*count      count x f32[3]   [INFERRED: normals]
+payload + 0x18*count      count x u16[2]   per-vertex attribute  (this entry)
+payload + 0x1C*count      count x u32      constant per block in 202/303
+```
+
+* Worked bytes at `body+0x40C`: `de 06 f1 05` → one u32 `0x05F106DE`, but the
+  pair `(0x06DE, 0x05F1)`; then `(0x06DE, 0x0630)`, `(0x0783, 0x0634)`.
+* Census (303 blocks with `normal_run == (count, count)`): the attribute
+  u16-pair array is constant in only **3/303** (so it is per-vertex); low u16
+  `< 0x1000` in 299/303, high u16 `< 0x1000` in 259/303. The next array
+  (`payload + 0x1C*count`) is constant per block in 202/303, all-zero in 115/303
+  and all-`0x400` in **2/303**.
+* **[INFERRED]/[UNKNOWN]** the attribute pair is a per-vertex attribute
+  (UV-consistent values, unproven); the next array's meaning is unassigned.
+* **Correction to E-094:** the `0x400` run is a per-block value, not a format
+  constant. `tools/dmc3/mod.py` exposes `block_attributes`,
+  `ModBodyBlock.attribute_offset` and the `BODY_BLOCK_ATTRIBUTE_UNIT = 0x18` /
+  `BODY_BLOCK_ATTRIBUTE_SIZE = 0x04` constants. See **E-095**.
 
 
 `SHW ` chunk header (verified bytes across all four `pl021.pac` `SHW `
