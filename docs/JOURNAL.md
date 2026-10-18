@@ -996,3 +996,30 @@ moves and health bar and everything."*
 - Next: comment on and close issue #9 (done); the format critical path
   (F1/F4) remains blocked on engine ground truth and is deliberately not
   re-spun.
+
+---
+
+## 2026-10-18 — F6 PNST raw-block header decoded; F2 +0x48 correction recorded
+
+- Did: bounded slice on issue #6 (F6 PNST weapon container). Read raw bytes from both
+  weapon archives (plwp_vergilsword.pac, plwp_newvergilsword.pac) under G:\... (read
+  only). Slots 0 and 3 of each file are identical 36,864-byte raw blocks opening with
+  u32 field_a = 1, u32 field_b = 17 (0x11), then a zero-filled run (first non-zero byte
+  at body+2049) and a structured tail. Added PnstRawBlock / parse_pnst_raw_block /
+  maybe_pnst_raw_block to tools/dmc3/pnst.py, a pnst_raw_block() fixture, and
+  TestPnstRawBlock (5 tests) on synthetic fixtures. Full suite: 254 tests, all green.
+  Committed a3c8a31 and pushed to origin main.
+- Found: E-048 records the raw-block header and tail observations (file offsets 0x30 and
+  0xB3A0 in both archives; slot 9's separate u16 stream at 0x88F20..0x890B0 in the
+  overlay archive). Also recorded E-049: re-reading the real SHW bytes falsifies the
+  "slots 24/26 byte-identical" claim (headers match, payloads diverge at body+0x11) and
+  shows +0x48 is not a uniform table across the four chunks — F2's texture-binding lead
+  stays [UNKNOWN] and is not retried from bytes alone.
+- Docs: E-048/E-049 in docs/EVIDENCE.md; docs/FORMATS.md sec.2 (raw-block header
+  [PARTIAL]) and sec.5 (F2 correction); docs/BACKLOG.md F6/F2 rows updated.
+- Commented issue #6 with findings; issue left open (tail semantics need engine ground
+  truth). Issue #9 (T2) was already closed; comment posted summarizing completion.
+- Next: the Phase 1 format critical path (F1 MOD payload, F4 MOT keyframe u16[1..3])
+  stays blocked on engine ground truth and is not re-spun. Pick another resolved-dependency
+  slice (F3 remaining untagged slots, G9 entry->resource binding on a larger WAD, or
+  H1/H2/H3 research) if the loop continues.
