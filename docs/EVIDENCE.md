@@ -1092,6 +1092,11 @@ byte-level work (E-050/E-051) was blocked on.
 **Note.** The `.wad`/`WAD_` string references are a promising entry point for
 finding the file loader, hence the container format.
 
+**Correction (E-055).** The scan pattern is `(modrm & 0xC7) == 0x05`
+(any RIP-relative `lea`/`mov`), not `modrm == 0x05`; and inside the executable
+segment `vaddr = file_offset - 0x4000`. `tools/gow3/eboot.py` implements the
+corrected scan and reproduces the 94 references above.
+
 ---
 
 ## E-054 — Named-blob descriptor table, and a **verified** length-changing rename
@@ -1146,7 +1151,104 @@ whether a *second* blob follows `MSGS_TXT` at `0x4EA09` and what it is.
 game install or the repo) and `scripts/vergil-name-mod.ps1` (`-Install` / `-Restore`
 / `-Status`, with a SHA-256-verified backup). 7 further tests (278 total).
 
+---
 
+## E-055 — Textures are plain DDS, and a same-size in-place tint reaches the boss
+
+**Observation.** Scanning `R_HADES.WAD` (85,727,632 bytes) for valid DDS headers
+(dwSize == 124, plausible dimensions) finds **142 textures**: **75 BC1 (DXT1)** and
+**67 BC3 (DXT5)**, up to 2048×2048 with 11 mip levels. The descriptor table at
+`0xD80` names them in the same style, e.g. `R_HERCULES10.WAD`'s first blob is
+`TXF2B7124B.67BE49FB.dds` (2,796,412 bytes).
+
+**Texture data size is computable from the texture's own header.** Checking the
+distance between consecutive textures confirmed it: the computed size is short by
+exactly **144 bytes** every time, i.e. a constant per-texture overhead of 144 bytes
+sits outside the DDS blob. That constant is unexplained, but it does not matter for
+an in-place edit: the *pixel data* boundary is known.
+
+**Observation — the edit, verified.** The largest texture (2048×2048, DXT5, 11 mips,
+5,592,416 bytes at `0x01ABCDBC`) had both RGB565 colour endpoints of every DXT
+colour block flattened to pure red (`0xF800`). Because `colour0 == colour1`, the
+four index bits select between two identical values and the block renders that solid
+colour whatever it originally held.
+
+| Check | Result |
+|---|---|
+| file size | **unchanged** (85,727,632 bytes) |
+| every changed byte inside the chosen texture | **yes** |
+| only colour-endpoint bytes changed | **yes** |
+| every colour endpoint now holds the tint | **yes** |
+| texture header untouched | **yes** |
+| blocks tinted | 349,526; 1,317,870 of 1,398,104 endpoint bytes changed (the rest already held it) |
+| source `R_HADES.WAD` sha256 | **unchanged** |
+
+**Inference.** GoW3R textures are plain DDS and can be replaced **in place** at
+identical size, so *texture* replacement needs no container writer at all — only a
+mesh swap does. Widening the endpoints to a solid colour is a deliberately crude
+"tint" chosen to be unmistakable on screen: it proves the mod pipeline reaches the
+boss model, independently of the localisation change.
+
+**Unknown.** The 144-byte per-texture overhead. Which texture is albedo vs normal
+map (tinting a normal map gives odd shading but is still visible). Whether the game
+verifies texture hashes.
+
+**Tooling.** `tools/gow3/dds.py` (`parse_at`, `find_textures`, `level_size`,
+`data_size`, `colour_blocks`, `rgb565`, `tint_in_place`, `changed_ranges`),
+`tools/gow3/make_boss_mod.py` (builds both files, verifies every changed byte) and
+`scripts/vergil-boss-mod.ps1`. 20 further tests (317 total).
+
+
+---
+
+## E-055 — `eboot.elf`: file↔vaddr mapping and a reusable RIP-relative reference scanner
+
+**Observation.** `C:\Users\GigelCastel\Desktop\gow3\gow3-windows\out\eboot.elf`
+(4,597,471 bytes) is a 64-bit little-endian ELF: `e_entry = 0x144070`, program
+header table at `0x40`, 10 headers of 56 bytes. Exactly one `PT_LOAD` is
+executable: `p_offset = 0x4000`, `p_vaddr = 0`, `p_filesz = 0x3BD518`, flags
+`R|X`. So inside the code segment `vaddr = file_offset - 0x4000` — **not**
+`vaddr == file_offset`. The string tables live in a read-only `PT_LOAD` at
+`p_offset 0x3C4000` / `p_vaddr 0x3C0000`.
+
+A byte-pattern scan of the executable segment for `lea`/`mov` with a RIP-relative
+memory operand — optional REX (`0x40..0x4F`), then `8D`/`8B`, then a ModRM byte
+with `(modrm & 0xC7) == 0x05`, then `disp32` — finds **26,706** references.
+Requiring the target to equal the vaddr of one of the loader strings reproduces
+E-053 exactly:
+
+| target | string vaddrs | instruction refs |
+|---|---|---|
+| `WAD_` | 21 | 81 |
+| `hfsm` | 18 | **9** |
+| `ms::tMove` | 2 | 1 (`0xED578`) |
+| `attachment::` | 6 | 3 (`0xD0D94`, `0xD0DCE`, `0xDBF14`) |
+| `DEPENDENCY` / `.wad` | 1 / 1 | 0 / 0 |
+| **total to those 49 string starts** | | **94** |
+
+The nine `hfsm` references are at `0x10BB24, 0x10BD7B, 0x10BFF4, 0x10C5A4,
+0x10C7B4, 0x10CAC4, 0x10CD54, 0x10D044, 0x10D2B4` — the same cluster E-053
+recorded, an independent confirmation that the AI state machines are named from
+data rather than compiled.
+
+**Correction to E-053.** E-053 described the pattern as `modrm = 0x05`. The real
+bytes use **any** RIP-relative ModRM (`mod == 00, r/m == 101`), i.e.
+`(modrm & 0xC7) == 0x05`. The first `WAD_` reference E-053 listed, `0x100D49`, is
+`48 8d 3d 06 04 25 00` = `lea rdi, [rip + 0x250406]` (ModRM `0x3D`, rdi), whose
+target is the `WAD_` string at `0x351156`. A `modrm == 0x05` scan misses it.
+
+**Inference.** The mapping plus the scanner locate the code that consumes any
+named loader string, which is where the numeric record opcodes live. The scan is a
+byte pattern, not a disassembler, so a hit is only meaningful when its target is a
+real string address.
+
+**Unknown.** The loader logic itself: the numeric record opcode constants and the
+directory→bulk binding (G9/G10) remain [UNKNOWN].
+
+**Tooling.** `tools/gow3/eboot.py` (`ElfImage`, `ProgramSegment`, `from_path`,
+`file_offset_to_vaddr`, `vaddr_to_file_offset`, `read`, `find_all`,
+`rip_relative_references`, `references_to_string`); 17 unit tests on a synthetic
+ELF (no game data committed).
 
 ---
 
