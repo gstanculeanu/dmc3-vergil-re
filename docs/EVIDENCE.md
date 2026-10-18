@@ -2973,6 +2973,75 @@ data committed). `docs/FORMATS.md` §1.3 and `docs/BACKLOG.md` F3 updated. F3 st
 open: slots 6, 7, 11, 22 and all field meanings are still [UNKNOWN].
 
 
+---
+
+## E-063 — `eboot.elf`: the `WAD_` references and the two loader strings that are not referenced (G9/G10, bounded slice)
+
+**Observation.** Read-only from
+`C:\Users\GigelCastel\Desktop\gow3\gow3-windows\out\eboot.elf` (4,597,471 B),
+using the corrected RIP-relative scanner (E-056) plus a new **limited
+instruction decoder** (`ElfImage.reference_context` /
+`string_reference_contexts` in `tools/gow3/eboot.py`), cross-checked against
+capstone 5.0.9 (a local recon tool, **not** a repository dependency).
+
+1. **The strings `.wad` (`vaddr 0x35D7C7`) and `DEPENDENCY` (`vaddr 0x330686`)
+   each occur once but have ZERO RIP-relative references.** The standing route
+   *"find the loader via the `.wad` / `DEPENDENCY` references"* therefore finds
+   nothing. Only `WAD_` (21 occurrences, **81** references) and `hfsm`
+   (18 occurrences, 9 references) are reachable this way.
+
+2. **Every `WAD_` reference loads the string with a RIP-relative `lea`** and then
+   either compares it or passes it to a helper. Decoded prefixes (address:
+   instruction, with the resolved operand):
+
+   * `0x10FCB: lea rsi, [rip+0x2DF5C0]` → target `0x2F0592`, then
+     `0x10FD2: mov edx, 4`. Exact bytes:
+     `48 8d 35 c0 f5 2d 00 | ba 04 00 00 00`. So the banner prefix `"WAD_"` is
+     handed to the following call with an explicit **length 4**. This is the only
+     `WAD_` site that supplies a length immediate.
+   * Of the 81 sites, the first directly-following call is `0x1F7200` at **25**,
+     `0x1AAC30` at **15**, `0x1AAC80` at **7**, `0x2E9D70` at 2, `0x1AACF0` at 2,
+     `0x2E9E00`/`0x1011A0`/`0x15BB30` at 1 each; the remainder are followed by a
+     second `lea` or a non-decoded instruction.
+   * `0x100D49: lea rdi, [rip+0x250406]` → target `0x351156`, then
+     `call 0x1011A0`. Disassembling `0x1011A0` shows an **object
+     registration/lookup routine**: it derives a kind via `0x1F7200`, calls
+     virtual methods through `[rax+0x80]` / `[rax+0x88]`, and iterates a
+     `(u32 id, u16 field)` table (`movsxd rax,[r12]; add rax,r12;
+     mov edi,[rax+r14*8]; movzx edx,word[rax+r14*8+4]`) with count `[r12+0xC]`.
+
+3. **False lead recorded.** A whole-image disassembly finds **42**
+   `and eax, 0x80000000` sites in `0x40187..0x43C5B`; each is paired with
+   `or eax, 0x3F800000` and `vsqrtss`/`vmulss` — a **float sign-bit / reciprocal
+   routine**, not marker handling. Recorded so the `0x80000000` marker
+   hypothesis is not re-tried against that region.
+
+**Inference.** The `WAD_`-reference route reaches **object/asset name
+registration and lookup** code (helpers `0x1F7200`, `0x1011A0`, `0x1AAC30`),
+**not** the byte-level directory-record dispatcher: no site references the
+numeric record opcodes (`1`, `2`, `3`, `0x12`, `0x15`, `0x80000000 | n`). The one
+site that passes an explicit constant (`0x10FCB`) uses **4**, matching the
+four-character `"WAD_"` prefix — the banner is matched by a **4-byte prefix
+comparison**, not by whole-string equality.
+
+**Unknown.** The directory-record dispatcher that reads the numeric opcodes; the
+entry → resource binding (E-044) and the `WadGraph` name → WAD binding (E-045).
+The semantics of `0x1F7200` / `0x1011A0` / `0x1AAC30` beyond "name → object" are
+unproven. The reference scanner sees only RIP-relative `lea`/`mov`; a string
+moved as an immediate or through an offset table is invisible to it, which is why
+`.wad`/`DEPENDENCY` show zero hits.
+
+**Tooling.** `tools/gow3/eboot.py` gains `DecodedInstruction` and
+`_decode_instruction` — a deliberately tiny decoder for exactly the forms a
+string-reference site uses (RIP-relative `lea`/`mov`, `mov r32, imm32` /
+`mov r64, imm64`, `call rel32`) — plus `ElfImage.reference_context` and
+`string_reference_contexts`, so a site's trailing constants and callee are
+readable without a general disassembler. Decoding stops at the first unrecognised
+byte, so the result is always a prefix, never a guess. 8 unit tests on a
+synthetic ELF (no game data committed); the module stays stdlib-only.
+
+
+
 
 
 

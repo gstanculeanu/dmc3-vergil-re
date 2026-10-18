@@ -166,5 +166,92 @@ class TestRipRelativeScan(unittest.TestCase):
         self.assertEqual(image.references_to_string(b"NOPE"), [])
 
 
+class TestReferenceContext(unittest.TestCase):
+    CALL_TARGET = 0x1234
+
+    def _mov_edx(self, imm):
+        return b"\xba" + struct.pack("<I", imm)
+
+    def _call(self, at_vaddr, target):
+        rel = target - (at_vaddr + 5)
+        return b"\xe8" + struct.pack("<i", rel)
+
+    def test_decodes_length_argument_and_call(self):
+        # The real shape observed at a `WAD_` reference: load the string, then
+        # pass an explicit length (4) to a compare helper.
+        lea = rip_lea(DATA_VADDR, EXEC_VADDR)          # 7 bytes
+        mov_at = EXEC_VADDR + len(lea)
+        call_at = mov_at + 5
+        code = lea + self._mov_edx(4) + self._call(call_at, self.CALL_TARGET)
+        image = eboot.ElfImage.from_bytes(synthetic_elf(code))
+
+        context = image.reference_context(EXEC_VADDR)
+        self.assertEqual([d.mnemonic for d in context], ["lea", "mov", "call"])
+        self.assertEqual(context[0].operand, DATA_VADDR)
+        self.assertEqual(context[0].length, 7)
+        self.assertEqual(context[1].operand, 4)
+        self.assertEqual(context[1].length, 5)
+        self.assertEqual(context[2].operand, self.CALL_TARGET)
+        self.assertEqual(context[2].length, 5)
+
+    def test_context_stops_at_unknown_instruction(self):
+        lea = rip_lea(DATA_VADDR, EXEC_VADDR)
+        # `4c 89 f7` = mov rdi, r14 — outside the tiny decoded set, so stop.
+        code = lea + b"\x4c\x89\xf7"
+        image = eboot.ElfImage.from_bytes(synthetic_elf(code))
+        context = image.reference_context(EXEC_VADDR)
+        self.assertEqual(len(context), 1)
+        self.assertEqual(context[0].mnemonic, "lea")
+
+    def test_no_rex_lea_context(self):
+        lea = rip_lea(DATA_VADDR, EXEC_VADDR, rex=False)  # 6 bytes
+        image = eboot.ElfImage.from_bytes(
+            synthetic_elf(lea + self._mov_edx(8))
+        )
+        context = image.reference_context(EXEC_VADDR)
+        self.assertEqual(context[0].length, 6)
+        self.assertEqual(context[0].operand, DATA_VADDR)
+        self.assertEqual(context[1].operand, 8)
+
+    def test_mov_r64_imm64_is_ten_bytes(self):
+        imm = 0x1122334455667788
+        code = b"\x48\xb8" + struct.pack("<Q", imm)
+        image = eboot.ElfImage.from_bytes(synthetic_elf(code))
+        context = image.reference_context(EXEC_VADDR)
+        self.assertEqual(len(context), 1)
+        self.assertEqual(context[0].length, 10)
+        self.assertEqual(context[0].operand, imm)
+
+    def test_non_rip_lea_is_not_decoded(self):
+        # `lea eax, [0x2000]` (ModRM 0x05 without mod==00... here 0x04/0x25):
+        # absolute addressing, outside the decoded RIP-relative form.
+        code = b"\x8d\x04\x25" + struct.pack("<I", DATA_VADDR)
+        image = eboot.ElfImage.from_bytes(synthetic_elf(code))
+        self.assertEqual(image.reference_context(EXEC_VADDR), ())
+
+    def test_context_empty_for_non_executable_address(self):
+        image = eboot.ElfImage.from_bytes(synthetic_elf(b"\x90" * 8))
+        self.assertEqual(image.reference_context(DATA_VADDR), ())
+
+    def test_string_reference_contexts(self):
+        lea = rip_lea(DATA_VADDR, EXEC_VADDR)
+        code = lea + self._mov_edx(4)
+        image = eboot.ElfImage.from_bytes(synthetic_elf(code))
+        contexts = image.string_reference_contexts(b"MSGS_TXT")
+        self.assertEqual(len(contexts), 1)
+        self.assertEqual(contexts[0][1].operand, 4)
+
+    def test_decoder_and_scanner_agree_on_rip_relative(self):
+        # Guard against the decoder and the reference scanner diverging.
+        for rex in (True, False):
+            lea = rip_lea(DATA_VADDR, EXEC_VADDR, rex=rex)
+            image = eboot.ElfImage.from_bytes(synthetic_elf(lea))
+            self.assertEqual(image.rip_relative_references(DATA_VADDR),
+                             [EXEC_VADDR])
+            context = image.reference_context(EXEC_VADDR)
+            self.assertEqual(len(context), 1)
+            self.assertEqual(context[0].operand, DATA_VADDR)
+
+
 if __name__ == "__main__":
     unittest.main()

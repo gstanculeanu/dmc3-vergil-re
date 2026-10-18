@@ -52,6 +52,7 @@ from .wadgraph import (
     parse_records as parse_wadgraph_records,
     record_name,
 )
+from .eboot import DecodedInstruction as EbootDecodedInstruction
 from . import eboot
 from . import lang
 from . import anim
@@ -59,6 +60,7 @@ from . import anim
 __all__ = [
     "eboot",
     "anim",
+    "EbootDecodedInstruction",
     "FIELD_OFFSETS",
     "FIELD_SIZE",
     "PARAM_SIZE",

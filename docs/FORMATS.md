@@ -751,9 +751,21 @@ committed).
 
 The WAD **record opcodes are numeric** (E-053), so the loader is not findable by
 opcode name. `tools/gow3/eboot.py` maps addresses and lists the code that
-references a named string (`WAD_`, `hfsm`, `DEPENDENCY`, `.wad`), which is the
-route to the numeric constants. `[UNKNOWN]`: the loader logic and the
-directory→bulk binding (G9/G10).
+references a named string (`WAD_`, `hfsm`, `DEPENDENCY`, `.wad`), and — using a
+small limited instruction decoder (`reference_context` /
+`string_reference_contexts`, E-063) — reports the constants passed alongside a
+reference.
+
+E-063 result: the `.wad` and `DEPENDENCY` strings have **zero** RIP-relative
+references, so that route finds nothing; only `WAD_` (81 refs) and `hfsm` (9 refs)
+are reachable. The `WAD_` sites feed object/asset **name registration** helpers
+(`0x1F7200` at 25 sites, `0x1AAC30` at 15, `0x1011A0`, …), not the directory
+dispatcher, and the only explicit length passed is **4** — the banner is matched
+by a 4-byte `"WAD_"` prefix. The 42 `and eax, 0x80000000` sites in
+`0x40187..0x43C5B` are a float sign-bit routine, not marker handling.
+
+`[UNKNOWN]`: the directory-record dispatcher that reads the numeric opcodes, and
+the directory→bulk binding (G9/G10).
 
 ### 7.7 Animation clip header — [PARTIAL] (E-058, E-059, E-060)
 

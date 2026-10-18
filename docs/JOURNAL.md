@@ -1254,3 +1254,49 @@ moves and health bar and everything."*
 - Next: F3 slots 6/7/11/22 remain undecoded; the Phase 1 format critical path
   (F1/F4/F2/F5/F6/F8) stays blocked on engine ground truth and is not re-spun.
 
+---
+
+## 2026-10-18 — G9/G10 bounded slice: the `WAD_` references lead to name registration, not the directory dispatcher (E-063)
+
+- Did: followed the standing prompt's engine-ground-truth route — use
+  `tools/gow3/eboot.py` to locate the WAD loader from the `.wad` / `WAD_` /
+  `DEPENDENCY` string references, then read the numeric constants. Added a
+  **limited instruction decoder** to `tools/gow3/eboot.py`
+  (`DecodedInstruction`, `_decode_instruction`, `ElfImage.reference_context`,
+  `ElfImage.string_reference_contexts`) covering exactly the forms a string
+  reference site uses (RIP-relative `lea`/`mov`, `mov r32, imm32` /
+  `mov r64, imm64`, `call rel32`); it stops at the first unrecognised byte.
+  Exported `EbootDecodedInstruction` from `gow3/__init__`. 8 new tests in
+  `tests/test_gow3_eboot.py`. Full suite: **363 tests, all green**.
+- Found (**E-063**, read-only from `out/eboot.elf`; cross-checked with capstone
+  5.0.9, which is a local recon tool, **not** a repo dependency):
+  - **The prompt's route is partially disproven.** `.wad` (`0x35D7C7`) and
+    `DEPENDENCY` (`0x330686`) each occur once but have **zero** RIP-relative
+    references. Only `WAD_` (81 refs) and `hfsm` (9 refs) are reachable this way.
+  - The `WAD_` sites load the string with `lea` and hand it to **name
+    registration/lookup** helpers — `0x1F7200` (25 sites), `0x1AAC30` (15),
+    `0x1AAC80` (7), `0x1011A0`, `0x2E9D70`, `0x1AACF0`, … — none of which
+    references the record opcodes (`1`, `2`, `3`, `0x12`, `0x15`,
+    `0x80000000|n`). The `WAD_` route reaches object/asset registration, not the
+    directory dispatcher.
+  - The one site that passes an explicit length is `0x10FCB`:
+    `48 8d 35 c0 f5 2d 00` (`lea rsi,[rip+0x2DF5C0]` → `0x2F0592`) then
+    `ba 04 00 00 00` (`mov edx, 4`). So the banner is matched by a **4-byte
+    `"WAD_"` prefix comparison**, not whole-string equality.
+  - **False lead recorded:** the 42 `and eax, 0x80000000` sites in
+    `0x40187..0x43C5B` are a float sign-bit/reciprocal routine (paired with
+    `or eax, 0x3F800000` + `vsqrtss`), not `0x80000000|class` marker handling.
+- Unknown (recorded, not guessed): the directory-record dispatcher and its
+  numeric opcodes; the entry → resource binding (E-044) and the `WadGraph`
+  name → WAD binding (E-045). The scanner sees only RIP-relative `lea`/`mov`, so
+  a string moved as an immediate or through an offset table stays invisible.
+- Docs: E-063 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §7.6 updated;
+  `docs/BACKLOG.md` G9/G10 rows updated; `tools/gow3/eboot.py` module docstring.
+- Next: the directory dispatcher is not reachable by string reference under the
+  current scanner; the remaining G9/G10 route is to find the record `type`
+  dispatch structurally (e.g. a jump table indexed by the numeric opcode) or to
+  decode the `DC_` id `0x10` table's entry→resource binding on a second WAD
+  (E-044). F1/F4 stay blocked on DMC3-side engine ground truth and are not
+  re-spun; F3 slots 6/7/11/22 and the clip internal encoding remain open.
+
+
