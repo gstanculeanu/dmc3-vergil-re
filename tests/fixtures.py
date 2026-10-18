@@ -295,6 +295,60 @@ def mod_vertex_directory_body(
     )
 
 
+def mod_record_block(
+    count: int = 4,
+    start: int = 0x80,
+    values: tuple = None,
+    fill: int = 0x001F001F,
+    tail_words: int = 16,
+) -> bytes:
+    """A synthetic ``MOD `` block with the E-096 32-byte-per-vertex record.
+
+    The payload is ``count`` position triples, ``count`` unit normal triples,
+    ``count`` u16 pairs (E-095 attributes), ``count`` u32 ``values`` (the E-096
+    value array), then ``tail_words`` u32 ``fill`` words.  The descriptor's
+    interior offsets follow the relations observed on the install:
+    ``offset_a = payload + 28*count + 0x24`` and ``offset_b = offset_a + 4*count``.
+    """
+    blob = bytearray(0x2C)
+    payload = bytearray()
+    for k in range(count):
+        payload += struct.pack("<3f", k + 0.5, -(k + 0.25), k * 0.125)
+    for _ in range(count):
+        payload += struct.pack("<3f", 0.0, 0.0, 1.0)
+    for k in range(count):
+        payload += struct.pack("<2H", 0x0100 + k, 0x0200 + k)
+    if values is None:
+        values = [0x0C040800] * count
+    for value in values:
+        payload += struct.pack("<I", value)
+    payload += struct.pack("<I", fill) * tail_words
+    payload_offset = start + 0x2C
+    value_offset = payload_offset + 28 * count
+    offset_a = value_offset + 0x24
+    offset_b = offset_a + 4 * count
+    struct.pack_into("<I", blob, 0x04, offset_a)
+    struct.pack_into("<I", blob, 0x0C, offset_b)
+    struct.pack_into("<I", blob, 0x1C, payload_offset + 32 * count + 4 * tail_words)
+    return bytes(blob) + bytes(payload)
+
+
+def mod_record_directory_body(
+    count: int = 4, values: tuple = None, tail_words: int = 16
+) -> bytes:
+    """A synthetic one-record ``MOD `` body carrying an E-096 record block."""
+    array_size = 2 * 0x40
+    record = mod_descriptor(tag=0x8001, count=count, data_offset=array_size)
+    footer = mod_descriptor(tag_word=(0 << 16) | 0x2C, data_offset=0, aux=4)
+    return (
+        record
+        + footer
+        + mod_record_block(
+            count=count, start=array_size, values=values, tail_words=tail_words
+        )
+    )
+
+
 def shw_chunk(
     alpha: float = 0.5,
     field_08: int = 0,

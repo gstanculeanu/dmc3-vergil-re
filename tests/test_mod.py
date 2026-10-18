@@ -7,13 +7,18 @@ from dmc3 import Chunk, ModBodyBlock, ModBodyDirectory, ModBodyPrefix, ModHeader
 from dmc3.mod import (
     BODY_BLOCK_ATTRIBUTE_SIZE,
     BODY_BLOCK_ATTRIBUTE_UNIT,
+    BODY_BLOCK_FILL_WORDS,
     BODY_BLOCK_NORMAL_MIN_RUN,
     BODY_BLOCK_NORMAL_TOLERANCE,
     BODY_BLOCK_OFFSET_A,
     BODY_BLOCK_OFFSET_B,
     BODY_BLOCK_OFFSET_C,
+    BODY_BLOCK_OFFSET_SLACK,
     BODY_BLOCK_PREFIX_SIZE,
+    BODY_BLOCK_RECORD_SIZE,
     BODY_BLOCK_TUPLE_SIZE,
+    BODY_BLOCK_VALUE_SIZE,
+    BODY_BLOCK_VALUE_UNIT,
     BODY_BLOCK_ZERO_OFFSETS,
     BODY_DESCRIPTOR_ARRAY_OFFSET,
     BODY_DESCRIPTOR_AUX_OFFSET,
@@ -29,7 +34,9 @@ from dmc3.mod import (
     block_attributes,
     block_normals,
     block_positions,
+    block_values,
     descriptor_count,
+    fill_start,
     maybe_mod_body_directory,
     maybe_mod_body_prefix,
     maybe_mod_header,
@@ -460,6 +467,76 @@ class TestModBodyAttributes(unittest.TestCase):
         raw = body[block.attribute_offset(3):block.attribute_offset(3) + 4]
         self.assertEqual(raw, b"\xde\x06\xf1\x05")
         self.assertEqual(struct.unpack("<I", raw)[0], 0x05F106DE)
+
+
+class TestModBodyRecord(unittest.TestCase):
+    """E-096: a clean block's per-vertex record is 32 bytes (position + normal +
+    u16-pair attribute + 4-byte value), the value array is single-valued per
+    block, and the descriptor's interior offsets are computed from `count`
+    (`offset_a == payload + 28*count + 0x24`, `offset_b == offset_a + 4*count`)."""
+
+    def test_layout_constants(self):
+        self.assertEqual(BODY_BLOCK_RECORD_SIZE, 0x20)
+        self.assertEqual(BODY_BLOCK_VALUE_UNIT, 0x1C)
+        self.assertEqual(BODY_BLOCK_VALUE_SIZE, 0x04)
+        self.assertEqual(BODY_BLOCK_OFFSET_SLACK, 0x24)
+        self.assertIn(0x001F001F, BODY_BLOCK_FILL_WORDS)
+        self.assertIn(0x801F801F, BODY_BLOCK_FILL_WORDS)
+
+    def test_record_size_is_the_sum_of_its_fields(self):
+        self.assertEqual(
+            BODY_BLOCK_RECORD_SIZE,
+            2 * BODY_BLOCK_TUPLE_SIZE + BODY_BLOCK_ATTRIBUTE_SIZE + BODY_BLOCK_VALUE_SIZE,
+        )
+        self.assertEqual(BODY_BLOCK_VALUE_UNIT + BODY_BLOCK_VALUE_SIZE, BODY_BLOCK_RECORD_SIZE)
+
+    def test_value_and_tail_offsets_follow_the_record(self):
+        body = fixtures.mod_record_directory_body(count=6)
+        block = ModBodyDirectory.parse(body).blocks[0]
+        self.assertEqual(block.value_offset(6), block.payload_offset + 6 * 0x1C)
+        self.assertEqual(block.value_offset(6), block.attribute_offset(6) + 6 * 4)
+        self.assertEqual(block.tail_offset(6), block.payload_offset + 6 * 0x20)
+        self.assertEqual(block.tail_offset(6), block.value_offset(6) + 6 * 4)
+
+    def test_offsets_are_count_derived(self):
+        body = fixtures.mod_record_directory_body(count=6)
+        block = ModBodyDirectory.parse(body).blocks[0]
+        self.assertEqual(block.offset_a, block.value_offset(6) + 0x24)
+        self.assertEqual(block.offset_b, block.offset_a + 4 * 6)
+        self.assertEqual(block.offset_slack(6), 0x24)
+
+    def test_values_round_trip(self):
+        values = [0x0C040800 + k for k in range(5)]
+        body = fixtures.mod_record_directory_body(count=5, values=values)
+        block = ModBodyDirectory.parse(body).blocks[0]
+        self.assertEqual(block_values(body, block, 5), tuple(values))
+        # the value array is unchanged by reading the attributes
+        self.assertEqual(block_attributes(body, block, 5)[0], (0x0100, 0x0200))
+
+    def test_values_stop_at_the_body_end(self):
+        body = fixtures.mod_record_directory_body(count=3)
+        block = ModBodyDirectory.parse(body).blocks[0]
+        self.assertLessEqual(len(block_values(body, block, 10_000)), len(body) // 4)
+
+    def test_fill_start_marks_the_end_of_the_record(self):
+        body = fixtures.mod_record_directory_body(count=6)
+        block = ModBodyDirectory.parse(body).blocks[0]
+        start = fill_start(body, block)
+        self.assertEqual(start, block.tail_offset(6))
+        self.assertEqual(struct.unpack_from("<I", body, start)[0], 0x001F001F)
+        # no fill word appears before the 32-byte-per-vertex data ends
+        for offset in range(block.payload_offset, start, 4):
+            self.assertNotIn(struct.unpack_from("<I", body, offset)[0], BODY_BLOCK_FILL_WORDS)
+
+    def test_fill_start_is_none_without_fill_words(self):
+        body = fixtures.mod_record_directory_body(count=4, tail_words=12)
+        block = ModBodyDirectory.parse(body).blocks[0]
+        # overwrite the tail with a non-fill word
+        tail = block.tail_offset(4)
+        patched = bytearray(body)
+        for offset in range(tail, len(patched) - 3, 4):
+            struct.pack_into("<I", patched, offset, 0x7F7F7F7F)
+        self.assertIsNone(fill_start(bytes(patched), block))
 
 
 if __name__ == "__main__":

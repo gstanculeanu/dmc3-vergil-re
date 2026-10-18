@@ -2325,3 +2325,53 @@ moves and health bar and everything."*
   attribute values still need engine ground truth or a decoded peer to be named.
   F4 stays blocked on the engine route and is not re-spun; F2/F3/F5/F6/F8 and the
   GoW3R clip leaf encoding (F9) remain available.
+
+---
+
+## 2026-10-18 — F1 bounded slice: the per-vertex record is 32 bytes; the interior offsets are `count` arithmetic (E-096)
+
+- Did: picked the critical path **F1** (issue #1) and followed E-095's own stated
+  next step — "the next array (`payload + 0x1C*count`) and the `u16 0x1F`/`0x12`
+  fill after it". Read the whole block tail read-only across all `*.pac` files
+  under `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\` (the 303
+  blocks whose unit-normal run is exactly `(count, count)`). Added
+  `block_values()`, `fill_start()`, `ModBodyBlock.value_offset()` /
+  `tail_offset()` / `offset_slack()` and the `BODY_BLOCK_RECORD_SIZE = 0x20`,
+  `BODY_BLOCK_VALUE_UNIT = 0x1C`, `BODY_BLOCK_VALUE_SIZE = 0x04`,
+  `BODY_BLOCK_OFFSET_SLACK = 0x24`, `BODY_BLOCK_FILL_WORDS` constants to
+  `tools/dmc3/mod.py`, exported from `dmc3`; added `mod_record_block()` /
+  `mod_record_directory_body()` fixtures and `TestModBodyRecord` (8 tests). Full
+  suite: **630 tests, all green** (622 baseline + 8). Nothing written to the game;
+  no game data committed.
+- Found (**E-096**), read-only on the install:
+  - **The record is 32 bytes**: position (`0x0C`) + normal (`0x0C`) +
+    E-095 u16-pair attribute (`0x04`) + a 4-byte **value** (`0x04`). No
+    `0x1F`-fill word occurs before `payload + 32*count` on **303/303** blocks
+    (258 start the fill exactly there, 36 later, 9 carry none), so
+    `payload + 32*count` is a lower bound on the data.
+  - **The descriptor's interior offsets are count arithmetic**, not boundaries:
+    `descriptor +0x04 == payload + 28*count + 0x24` on **303/303** and
+    `descriptor +0x0C - descriptor +0x04 == 4*count` on **303/303**. This
+    **disproves E-093's** "the two interior offsets split the payload into three
+    consecutive regions"; `offset_a` is `0x24` bytes into the value array and
+    `offset_b` is `0x24` bytes past the record. E-094's `0x400` run is the value
+    array.
+  - Worked example `em013.pac` slot 1 (`count = 44`): positions
+    `(14.2878, 165.8537, -7.5560)`, normals `(0.5088, -0.0501, -0.8594)`,
+    attributes `(3719, 2370)`, value array `0x0C040800` x44, fill
+    `0x801F801F 0x001F001F …` at `body+0x102C`; validated read-only through the
+    new API (`value_offset = 0xF7C`, `offset_a = 0xFA0`, `offset_b = 0x1050`,
+    `offset_slack = 0x24`).
+  - **[INFERRED]/[UNKNOWN]:** the value array is single-valued per block in
+    202/303 (so the per-vertex reading is inferred); the value's meaning, the
+    attribute pair, the fill words and why the `0x24` slack exists stay unknown.
+- Docs: E-096 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §5.1 gains the "E-096
+  update" subsection and the E-093/E-094 correction; `docs/BACKLOG.md` F1 row
+  updated (evidence cell adds E-096, status rewritten).
+- Next: with positions, normals, the u16-pair attribute and the value array all
+  located, the block's remaining unknown is **connectivity** — no index buffer has
+  been located, so test the triangle-strip hypothesis (positions ordered as a
+  strip, `count - 2` triangles) against a block whose `count` and tail length
+  agree, and/or take the 4-byte value / attribute pair to the engine. F4 stays
+  blocked on the engine route and is not re-spun; F2/F3/F5/F6/F8 and the GoW3R
+  clip leaf encoding (F9) remain available.

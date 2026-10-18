@@ -5439,3 +5439,75 @@ from `dmc3`. `tests/fixtures.py`'s `mod_vertex_block()` / `mod_vertex_directory_
 gain an `attributes` parameter; `tests/test_mod.py` gains `TestModBodyAttributes`
 (6 tests). Validated read-only against the real `em013.pac` chunk above. No game
 data committed.
+
+## E-096 — `MOD ` clean blocks: the per-vertex record is 32 bytes and the descriptor's interior offsets are computed from `count` (F1, bounded slice)
+
+**Observation (read-only from
+`G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\`, all `*.pac` files).**
+E-095 left "the next array" at `payload + 28·count` and the "`u16 0x1F` fill" as
+the open residual. Reading the whole block tail (payload start to block end) on
+the **303** blocks whose unit-normal run is exactly `(count, count)` — so the
+position array is `count` triples and the record boundary is unambiguous — shows
+the bytes immediately after the E-095 attribute array are a **4-byte-per-vertex
+value array**, and the descriptor's two interior offsets are **derived from
+`count`**, not array boundaries.
+
+Worked example — `em013.pac` slot 1 `MOD ` chunk (descriptor 0, `count = 44`),
+block `@body+0xA80`, payload `@body+0xAC`:
+
+```
+body+0x0AC positions (14.2878, 165.8537, -7.5560) (0.0140, 166.0658, -9.5666) …
+body+0x2BC normals   (0.5088, -0.0501, -0.8594) (0.0000, -0.0159, -0.9999) …
+body+0x4CC attributes (3719, 2370) (4060, 2406) (4071, 1971) …      (E-095 pairs)
+body+0x4F4 value array 0x0C040800 x44                                (E-096)
+body+0x5A4 tail  0x801F801F 0x001F001F 0x001F001F 0x801F801F …        (E-096 fill)
+```
+
+Read back through the new API (`value_offset`, `tail_offset`, `offset_slack`,
+`block_values`, `fill_start`): payload `0xAAC`, value array at `0xF7C`, tail at
+`0x102C`, `offset_a = 0xFA0`, `offset_b = 0x1050`, `offset_slack = 0x24`,
+`block_values` = `0x0C040800` x44 — all reproduce the raw bytes above. The 44
+position triples are real coordinates (14.29, 165.85, -7.56) and the 44 normal
+triples are unit length, so the 32-byte record is *observed*, not assumed.
+
+**Census (303 clean blocks):**
+
+| observation | result |
+|---|---|
+| `offset_a == payload + 28·count + 0x24` | **303 / 303** |
+| `offset_b - offset_a == 4·count` | **303 / 303** |
+| no `0x1F`-fill word before `payload + 32·count` | **303 / 303** |
+| first fill word is exactly at `payload + 32·count` | 258 / 303 |
+| first fill word is later than `payload + 32·count` | 36 / 303 |
+| block carries no `0x1F`-fill word at all | 9 / 303 |
+| value array over `[payload+28·count, payload+32·count)` is single-valued | 202 / 303 |
+| attribute array over `[payload+24·count, payload+28·count)` is single-valued | 3 / 303 |
+
+So the per-vertex record is **32 bytes** — position (`0x0C`) + normal (`0x0C`) +
+u16-pair attribute (`0x04`, E-095) + a 4-byte value (`0x04`) — and the fill tail
+begins no earlier than its end. The value array is single-valued per block in
+202/303, so the per-vertex reading is **[INFERRED]**.
+
+**Correction to E-093/E-094 (the interior offsets are not boundaries).**
+`offset_a` is `0x24` bytes *past* the start of the value array
+(`payload + 28·count + 0x24`) and `offset_b` is `0x24` bytes *past* the end of the
+32-byte-per-vertex data (`payload + 32·count + 0x24`) — both exactly on 303/303.
+Neither offset marks an array start or end; E-093's "the two interior offsets
+split the payload into three consecutive regions" is therefore wrong, and E-094's
+"run of `count` u32 `0x400`" (E-095 already qualified) is the value array.
+Why the `0x24` slack exists is **[UNKNOWN]**.
+
+**Unknown (recorded, not inferred).** The meaning of the 4-byte value field
+(observed values include `0x0`, `0x400`, `0x1400`, `0x2400`, `0x3400`,
+`0x0C081400` — `[UNKNOWN]`), of the E-095 attribute pair, of the `0x1F` fill
+words, and of the `0x24` slack all remain **[UNKNOWN]**.
+
+**Tooling.** `tools/dmc3/mod.py` gains `ModBodyBlock.value_offset()`,
+`ModBodyBlock.tail_offset()`, `ModBodyBlock.offset_slack()`, the module functions
+`block_values()` and `fill_start()`, and the constants
+`BODY_BLOCK_RECORD_SIZE = 0x20`, `BODY_BLOCK_VALUE_UNIT = 0x1C`,
+`BODY_BLOCK_VALUE_SIZE = 0x04`, `BODY_BLOCK_OFFSET_SLACK = 0x24` and
+`BODY_BLOCK_FILL_WORDS`, all exported from `dmc3`. `tests/fixtures.py` gains
+`mod_record_block()` / `mod_record_directory_body()`; `tests/test_mod.py` gains
+`TestModBodyRecord` (8 tests). Validated read-only against the real `em013.pac`
+chunk above. No game data committed.

@@ -511,7 +511,7 @@ files**; evidence E-030), all little-endian:
 +0x24  ...     payload body (vertices, indices, normals, UVs, skin weights)  [UNKNOWN layout]
 ```
 
-### 5.1 `MOD ` payload body prefix — first decoded fields [E-031, E-091, E-092, E-093, E-094, E-095]
+### 5.1 `MOD ` payload body prefix — first decoded fields [E-031, E-091, E-092, E-093, E-094, E-095, E-096]
 
 **Status: [PARTIAL]** — evidence E-031 (pl021.pac), E-091 (all 286 install
 `MOD ` chunks). The body begins at `+0x24` (immediately after the header). Its
@@ -701,6 +701,43 @@ payload + 0x1C*count      count x u32      constant per block in 202/303
   constant. `tools/dmc3/mod.py` exposes `block_attributes`,
   `ModBodyBlock.attribute_offset` and the `BODY_BLOCK_ATTRIBUTE_UNIT = 0x18` /
   `BODY_BLOCK_ATTRIBUTE_SIZE = 0x04` constants. See **E-095**.
+
+#### E-096 update: the per-vertex record is 32 bytes and the descriptor's interior offsets are computed from `count` — structure [PARTIAL]
+
+Reading the whole block tail on the **303** blocks with
+`normal_run == (count, count)` (E-094) shows the E-095 "next array" is a
+**4-byte-per-vertex value array**, and the descriptor's two interior offsets name
+nothing at all — they are `count` arithmetic:
+
+```
+payload + 0x00            count x f32[3]   [INFERRED: positions]   (E-094)
+payload + 0x0C*count      count x f32[3]   [INFERRED: normals]     (E-094)
+payload + 0x18*count      count x u16[2]   per-vertex attribute    (E-095)
+payload + 0x1C*count      count x u32      value array; single-valued per block in 202/303  [INFERRED]
+payload + 0x20*count      fill tail        0x001F001F / 0x801F801F words  [UNKNOWN]
+```
+
+* **The record is 32 bytes.** No `0x1F`-fill word occurs before
+  `payload + 32*count` on any of the 303 blocks (258 start the fill exactly
+  there, 36 later, 9 carry no fill word). So `payload + 32*count` is a lower
+  bound on the per-vertex data.
+* **The interior offsets are count-derived [VERIFIED].**
+  `descriptor +0x04 == payload + 28*count + 0x24` on **303/303**, and
+  `descriptor +0x0C - descriptor +0x04 == 4*count` on **303/303**. `offset_a` is
+  `0x24` bytes into the value array and `offset_b` is `0x24` bytes *past* the
+  record — neither marks an array boundary.
+* **Correction to E-093/E-094:** "the two interior offsets split the payload into
+  three consecutive regions" (E-093) is wrong; E-094's `0x400` run is the value
+  array. Why the `0x24` slack exists is **[UNKNOWN]**.
+* Worked example `em013.pac` slot 1 (`count = 44`): positions `(14.2878, 165.8537,
+  -7.5560)`, normals `(0.5088, -0.0501, -0.8594)`, attributes `(3719, 2370)`,
+  value array `0x0C040800` x44, fill `0x801F801F 0x001F001F …`; the reader
+  reproduces `value_offset = 0xF7C`, `offset_a = 0xFA0`, `offset_b = 0x1050`.
+* `tools/dmc3/mod.py` exposes `block_values`, `fill_start`,
+  `ModBodyBlock.value_offset` / `tail_offset` / `offset_slack` and the
+  `BODY_BLOCK_RECORD_SIZE = 0x20`, `BODY_BLOCK_VALUE_UNIT = 0x1C`,
+  `BODY_BLOCK_VALUE_SIZE = 0x04`, `BODY_BLOCK_OFFSET_SLACK = 0x24`,
+  `BODY_BLOCK_FILL_WORDS` constants. See **E-096**.
 
 
 `SHW ` chunk header (verified bytes across all four `pl021.pac` `SHW `

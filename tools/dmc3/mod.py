@@ -538,6 +538,27 @@ class ModBodyBlock:
         """
         return self.payload_offset + count * BODY_BLOCK_ATTRIBUTE_UNIT
 
+    def value_offset(self, count: int) -> int:
+        """Body offset of the trailing 4-byte-per-vertex value array (E-096)."""
+        return self.payload_offset + count * BODY_BLOCK_VALUE_UNIT
+
+    def tail_offset(self, count: int) -> int:
+        """Body offset where a clean block's fill tail begins (E-096).
+
+        The vertex record is :data:`BODY_BLOCK_RECORD_SIZE` bytes per vertex, so
+        the data ends here.  On the 303 clean blocks no ``0x1F``-fill word occurs
+        before this offset.
+        """
+        return self.payload_offset + count * BODY_BLOCK_RECORD_SIZE
+
+    def offset_slack(self, count: int) -> int:
+        """``offset_a`` minus the start of the value array — ``0x24`` when clean.
+
+        On the 303 clean blocks :attr:`offset_a` is exactly
+        ``value_offset(count) + BODY_BLOCK_OFFSET_SLACK`` (E-096).
+        """
+        return self.offset_a - self.value_offset(count)
+
     @classmethod
     def parse(
         cls, body: bytes, index: int, data_offset: int, span: int
@@ -599,6 +620,45 @@ E-094 read these bytes as one u32 per vertex (the "4-byte field").  Reading the
 same bytes as two u16s gives small per-vertex values; the u16 reading is the
 observation, the values' meaning is [UNKNOWN].
 """
+
+BODY_BLOCK_RECORD_SIZE = 0x20
+"""``32`` — bytes per vertex in a clean block: position (0x0C) + normal (0x0C) +
+attribute pair (:data:`BODY_BLOCK_ATTRIBUTE_SIZE`) + value
+(:data:`BODY_BLOCK_VALUE_SIZE`).
+
+[INFERRED] from E-096: on the 303 blocks whose unit-normal run is exactly
+``(count, count)``, **no** ``0x1F``-fill word occurs before
+``payload + 32*count`` — 258 blocks start the fill exactly there, 36 later — so
+``payload + 32*count`` is a lower bound on the per-vertex record's extent.
+The 32-byte split is the reading, not a proven meaning.
+"""
+
+BODY_BLOCK_VALUE_UNIT = 0x1C
+"""``28`` — bytes per vertex before the trailing 4-byte value array (E-096).
+
+Position + normal (E-094) + attribute pair (E-095) = 28 bytes.
+"""
+
+BODY_BLOCK_VALUE_SIZE = 0x04
+"""``4`` — bytes per vertex in the trailing value array (E-096).
+
+The array is *single-valued* per block in 202/303 clean blocks, so a per-vertex
+reading is [INFERRED]; the values' meaning is [UNKNOWN].
+"""
+
+BODY_BLOCK_OFFSET_SLACK = 0x24
+"""``36`` — the descriptor's ``offset_a`` minus the value-array start (E-096).
+
+On the 303 clean blocks ``descriptor +0x04 == payload + 28*count + 0x24`` exactly
+(303/303) and ``descriptor +0x0C - descriptor +0x04 == 4*count`` exactly
+(303/303), so the two interior offsets are *computed from* ``count`` rather than
+naming array boundaries.  This corrects E-093's "the two interior offsets split
+the payload into three regions" — ``offset_b`` is 0x24 bytes *past* the end of
+the 32-byte-per-vertex data.  Why the 0x24 slack exists is [UNKNOWN].
+"""
+
+BODY_BLOCK_FILL_WORDS = (0x001F001F, 0x801F801F, 0x001F801F, 0x801F001F)
+"""The ``0x1F``-word fill values observed after a clean block's record (E-096)."""
 
 
 def unit_triple(
@@ -673,6 +733,44 @@ def block_attributes(
             break
         pairs.append((u16(body, offset), u16(body, offset + 2)))
     return tuple(pairs)
+
+
+def block_values(
+    body: bytes, block: ModBodyBlock, count: int
+) -> tuple[int, ...]:
+    """The ``count`` little-endian u32 records of a block's value array (E-096).
+
+    The array follows the ``count`` position and normal triples and the ``count``
+    u16 pairs of :func:`block_attributes`.  The array is *single-valued* per block
+    in 202/303 clean blocks, so the per-vertex reading is [INFERRED]; the values'
+    meaning is [UNKNOWN].
+    """
+    start = block.value_offset(count)
+    values = []
+    for k in range(count):
+        offset = start + k * BODY_BLOCK_VALUE_SIZE
+        if offset + BODY_BLOCK_VALUE_SIZE > len(body):
+            break
+        values.append(u32(body, offset))
+    return tuple(values)
+
+
+def fill_start(body: bytes, block: ModBodyBlock) -> Optional[int]:
+    """Body offset of the first ``0x1F``-fill word in a block, or ``None`` (E-096).
+
+    Scans the block payload in 4-byte steps for a word in
+    :data:`BODY_BLOCK_FILL_WORDS`.  On the 303 clean blocks the first fill word is
+    never before ``payload + 32*count`` (258 blocks start exactly there, 36 start
+    later, and 9 carry no fill word at all), which is what makes
+    :data:`BODY_BLOCK_RECORD_SIZE` a lower bound on the vertex record.
+    """
+    end = min(block.end, len(body))
+    offset = block.payload_offset
+    while offset + 4 <= end:
+        if u32(body, offset) in BODY_BLOCK_FILL_WORDS:
+            return offset
+        offset += 4
+    return None
 
 
 def normal_run(
