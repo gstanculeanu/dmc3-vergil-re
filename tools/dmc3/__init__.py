@@ -3,7 +3,14 @@
 Read-only tooling.  Nothing here writes to a game installation.
 """
 
-from .mod import BODY_PREFIX_SIZE, ModBodyPrefix, ModHeader
+from .mod import (
+    BODY_PREFIX_SIZE,
+    BODY_TAG_MASK,
+    BODY_TAG_NAMESPACE,
+    BODY_TAG_OFFSET,
+    ModBodyPrefix,
+    ModHeader,
+)
 from .raw import (
     DDS_MAGIC,
     PAC_TEXTURE_DESCRIPTOR_OFFSET,
@@ -167,6 +174,9 @@ __all__ = [
     "angle_units_to_radians",
     "angle_units_to_degrees",
     "BODY_PREFIX_SIZE",
+    "BODY_TAG_MASK",
+    "BODY_TAG_NAMESPACE",
+    "BODY_TAG_OFFSET",
     "ModBodyPrefix",
     "ModHeader",
     "PNST_MAGIC",

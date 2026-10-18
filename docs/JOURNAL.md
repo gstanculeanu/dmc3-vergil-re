@@ -2110,3 +2110,46 @@ moves and health bar and everything."*
   engine ground truth (`dmc3.exe`) or a decoded peer artifact. F1/F4 stay blocked
   on the engine route and are not re-spun; the GoW3R clip leaf keyframe encoding
   (F9) is available and decodable from the file.
+
+---
+
+## 2026-10-18 — F1 bounded slice: the `MOD ` body's `+0x1C` field is one tagged u32 (E-091)
+
+- Did: picked the critical path **F1** (issue #1) after re-reading the journal
+  (F1/F4 are the stated preferred path; F3 untagged slots are now all framed).
+  Read all 194 `*.pac` files under
+  `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\` (read-only) and
+  censused the four bytes at `MOD ` body `+0x1C` across all **286** `MOD `
+  chunks. Changed `ModBodyPrefix` in `tools/dmc3/mod.py` to carry the u32
+  `tag_word` with `tag` / `count` / `marker` / `tag_in_namespace` accessors,
+  added `BODY_TAG_OFFSET` / `BODY_TAG_NAMESPACE` / `BODY_TAG_MASK` (exported from
+  `dmc3`), rewrote `tests/fixtures.py::mod_body` to write the single tagged u32
+  (`tag` keyword), and added `TestModBodyTaggedCount` (4 tests). Full suite:
+  **591 tests, all green** (587 baseline + 4). Nothing written to the game; no
+  game data committed.
+- Found (**E-091**), and this **corrects E-031**:
+  - The `u16` "marker" at body `+0x1C` and the `u16` "count" at body `+0x1E`
+    are the two halves of **one little-endian u32** `(count << 16) | tag`, not
+    two fields. Verified on `pl021.pac`: `0x01DA8001` (slot 1, count 474),
+    `0x012A8001` (slot 12, count 298), `0x00B68001` (slots 23/25, count 182).
+  - The low half (**tag**) is in the `0x8000` namespace on **286/286** install
+    `MOD ` chunks: `0x8001` x279, `0x8002` x4, `0x8201` x2, `0x8005` x1. So
+    `0x8001` is a per-chunk tag (likely a MOD subtype), **not a magic**, and
+    E-031's "marker constant" is only the modal value.
+  - The same tagged shape recurs at body `+0x5C` (188/286) and body `+0x9C`
+    (170/286) — recorded as observations, not claimed as a record framing.
+  - `body +0x24` is a multiple of `64` in 375/623 tagged records; [UNKNOWN].
+  - Confirmed the body is **heterogeneous**: slots 23/25 (the byte-identical
+    pair) carry a strictly increasing, 16-byte-aligned u32 section-offset table
+    at body `+0x6C` (`0xD0, 0x960, 0x11F0, 0x14D0, 0x17B0, 0x18F0`, cumulative
+    start offsets, last section to the body end); slots 1/12 do not. So no
+    single body layout generalises yet.
+- Evidence: **E-091** in `docs/EVIDENCE.md` (raw bytes + the 286-chunk census);
+  `docs/FORMATS.md` §5.1 rewritten with the tagged-u32 spec and the E-031
+  correction; `docs/BACKLOG.md` F1 row updated (evidence cell adds E-091).
+- Next: the tag's meaning is the fresh lead — it is per-chunk data, so
+  correlating tag values with the chunk's headers (`+0x10`/`+0x14`/`+0x20`) or
+  with the PAC slot may name a MOD subtype. Beyond that, the vertex layout past
+  `+0x5C` is still F1's gap (engine route via `.pdata`, or a decoded peer). F4
+  stays blocked on the engine route and is not re-spun; the GoW3R clip leaf
+  keyframe encoding (F9) remains available.

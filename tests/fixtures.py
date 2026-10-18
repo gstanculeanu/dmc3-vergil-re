@@ -127,28 +127,29 @@ def mod_chunk(
 
 
 def mod_body(
-    marker: int = 0x8001,
+    tag: int = 0x8001,
     count: int = 182,
     field_24: int = 128,
     field_2c: int = 0x00120002,
     vector: tuple[float, float, float, float] = (-0.196165, 0.0, 42.0706, 73.5689),
     repeat: int = 182,
 ) -> bytes:
-    """A synthetic ``MOD `` payload body mirroring pl021.pac slot 23 (E-031).
+    """A synthetic ``MOD `` payload body mirroring pl021.pac slot 23 (E-031/E-091).
 
     Layout (body-relative, little-endian), all other prefix bytes zero::
 
-        +0x1C u16 marker   (observed 0x8001)
-        +0x1E u16 count    (observed 474/300/182/182 across pl021.pac MOD chunks)
-        +0x24 u32 field    (observed 768/192/128/128)
-        +0x2C u32 field    (observed varies)
-        +0x4C 4x f32       vector/quaternion-like, meaning [UNKNOWN]
-        +0x5C u32 repeat   (equals ``count`` for the duplicated slots 23/25)
+        +0x1C u32 tagged count   (count << 16) | tag; tag in the 0x8000 namespace
+        +0x24 u32 field          (observed 768/192/128/128)
+        +0x2C u32 field          (observed varies)
+        +0x4C 4x f32             vector/quaternion-like, meaning [UNKNOWN]
+        +0x5C u32 repeat         (equals ``count`` for the duplicated slots 23/25)
+
+    The tag default 0x8001 is the observed value in 279/286 real MOD chunks
+    (E-091); other observed tags are 0x8002 / 0x8201 / 0x8005.
     """
     # BODY_PREFIX_SIZE (0x60) covers through ``repeat`` at body +0x5C.
     blob = bytearray(0x60)
-    struct.pack_into("<H", blob, 0x1C, marker)
-    struct.pack_into("<H", blob, 0x1E, count)
+    struct.pack_into("<I", blob, 0x1C, ((count & 0xFFFF) << 16) | (tag & 0xFFFF))
     struct.pack_into("<I", blob, 0x24, field_24)
     struct.pack_into("<I", blob, 0x2C, field_2c)
     struct.pack_into("<4f", blob, 0x4C, *vector)

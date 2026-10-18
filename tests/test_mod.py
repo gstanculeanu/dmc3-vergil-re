@@ -6,6 +6,9 @@ import fixtures
 from dmc3 import Chunk, ModBodyPrefix, ModHeader
 from dmc3.mod import (
     BODY_PREFIX_SIZE,
+    BODY_TAG_MASK,
+    BODY_TAG_NAMESPACE,
+    BODY_TAG_OFFSET,
     HEADER_SIZE,
     maybe_mod_body_prefix,
     maybe_mod_header,
@@ -127,6 +130,34 @@ class TestModBodyPrefix(unittest.TestCase):
         with self.assertRaises(ValueError):
             ModBodyPrefix.parse(fixtures.mod_body()[:BODY_PREFIX_SIZE - 1])
         self.assertIsNone(maybe_mod_body_prefix(b"\x00" * 10))
+
+
+class TestModBodyTaggedCount(unittest.TestCase):
+    """E-091: body +0x1C is one tagged u32 ``(count << 16) | tag``."""
+
+    def test_tag_word_packs_tag_and_count(self):
+        prefix = ModBodyPrefix.parse(fixtures.mod_body(tag=0x8001, count=474))
+        self.assertEqual(prefix.tag_word, (474 << 16) | 0x8001)
+        self.assertEqual(prefix.tag, 0x8001)
+        self.assertEqual(prefix.marker, 0x8001)  # E-031 alias
+        self.assertEqual(prefix.count, 474)
+
+    def test_tag_offset_constant(self):
+        self.assertEqual(BODY_TAG_OFFSET, 0x1C)
+        self.assertEqual(BODY_TAG_NAMESPACE, 0x8000)
+        self.assertEqual(BODY_TAG_MASK, 0xF000)
+
+    def test_all_four_observed_tags_are_in_namespace(self):
+        # 286/286 real MOD chunks carry a 0x8000-namespace tag (E-091):
+        # 0x8001 x279, 0x8002 x4, 0x8201 x2, 0x8005 x1.
+        for tag in (0x8001, 0x8002, 0x8201, 0x8005):
+            prefix = ModBodyPrefix.parse(fixtures.mod_body(tag=tag, count=182))
+            self.assertEqual(prefix.tag, tag)
+            self.assertTrue(prefix.tag_in_namespace, hex(tag))
+
+    def test_tag_outside_namespace_is_detected(self):
+        prefix = ModBodyPrefix.parse(fixtures.mod_body(tag=0x0001, count=182))
+        self.assertFalse(prefix.tag_in_namespace)
 
 
 if __name__ == "__main__":

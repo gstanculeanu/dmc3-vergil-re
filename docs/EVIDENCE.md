@@ -5076,3 +5076,64 @@ layout and interprets nothing; `nonzero_count` and `trailing_zero_count` expose
 the observed census. Validated read-only against the real `pl021.pac` (all counts
 reproduced), locked by the synthetic `raw_chunk_slot11` fixture and
 `TestSlot11Table` (6 tests). No game data committed.
+
+## E-091 — `MOD ` body +0x1C is one tagged u32 `(count << 16) | tag`, not two fields (F1, bounded slice)
+
+**Observation (read-only from
+`G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\`, all 194 `*.pac`
+files, 286 `MOD ` chunks).** E-031 described the body's `+0x1C` `u16` "marker"
+(`0x8001`) and `+0x1E` `u16` "count" as two adjacent fields. Reading the four
+bytes as **one little-endian u32** shows they are the two halves of a single
+field, `(count << 16) | tag`:
+
+* the **low u16** (`tag`) is in the `0x8000` namespace on **286/286** chunks —
+  `0x8001` x279, `0x8002` x4, `0x8201` x2, `0x8005` x1 (i.e. every tag has its
+  high nibble `0x8`);
+* the **high u16** is exactly the count E-031 recorded.
+
+Raw bytes at body `+0x18..+0x25` for the four `pl021.pac` `MOD ` chunks (body =
+file offset + `0x24`), little-endian:
+
+```
+             +0x18     +0x1C           +0x20
+slot 1   00 00 00 00  01 80 da 01   00 00 00 00   -> u32 0x01DA8001 (tag 0x8001, count 474)
+slot 12  00 00 00 00  01 80 2a 01   00 00 00 00   -> u32 0x012A8001 (tag 0x8001, count 298)
+slot 23  00 00 00 00  01 80 b6 00   00 00 00 00   -> u32 0x00B68001 (tag 0x8001, count 182)
+slot 25  00 00 00 00  01 80 b6 00   00 00 00 00   -> u32 0x00B68001 (tag 0x8001, count 182)
+```
+
+**Census of the whole install (286 `MOD ` chunks in 194 PAC files):**
+
+| field | observation |
+|---|---|
+| body `+0x1C` low u16 (`tag`) | `0x8001` x279, `0x8002` x4, `0x8201` x2, `0x8005` x1 — **286/286 in `0x8000..0x8FFF`** |
+| body `+0x1C` high u16 | the E-031 `count` (by construction of the u32) |
+| body `+0x24` | a multiple of `64` in 375/623 of the tagged records read; meaning [UNKNOWN] |
+| body `+0x5C` low u16 | `0x8001` x179, `0x4` x61, `0x8002` x8, … — a *second* tagged field in 188/286 chunks |
+| body `+0x9C` low u16 | `0x8001` x165, `0x130` x54, … — a *third* tagged field in 170/286 chunks |
+
+**Correction to E-031 [OBSERVATION WAS IMPRECISE].** The "marker" at body `+0x1C`
+and the "count" at body `+0x1E` are not two fields; `+0x1E` is the high half of
+the u32 at `+0x1C`. The value `0x8001` is a **tag**, not a marker constant; the
+rare tags (`0x8002`, `0x8201`, `0x8005`) are the first evidence that the tag is
+per-chunk data (likely a MOD subtype), not a magic. The count E-031 recorded is
+unaffected. `body +0x5C`'s "equals count for slots 23/25 only" (E-031) stands: it
+is an independent field, and in 188/286 chunks it carries the same tagged shape.
+
+**Unknown (recorded, not inferred).** What the tag selects; what the count
+counts; whether `+0x5C`/`+0x9C` are further tagged records; and the
+vertex/index/normal/UV/skin-weight layout. The body is **heterogeneous** across
+the four `pl021.pac` chunks (the journal's E-086 note stands): slots 23/25 — the
+byte-identical pair — carry a strictly increasing, 16-byte-aligned u32
+section-offset table at body `+0x6C` (`0xD0, 0x960, 0x11F0, 0x14D0, 0x17B0,
+0x18F0`, cumulative start offsets, last section running to the body end), while
+slots 1/12 do not, so the layout beyond `+0x5C` is **not** yet a single spec.
+
+**Tooling.** `tools/dmc3/mod.py`: `ModBodyPrefix` now carries `tag_word` (the u32)
+with `tag`/`count`/`marker`/`tag_in_namespace` accessors, and the constants
+`BODY_TAG_OFFSET = 0x1C`, `BODY_TAG_NAMESPACE = 0x8000`, `BODY_TAG_MASK = 0xF000`,
+exported from `dmc3`. `tests/fixtures.py::mod_body` writes the single tagged u32
+(`tag` keyword); `TestModBodyTaggedCount` (4 tests) locks the packing, the
+namespace check and the four observed tags. Validated read-only against the real
+install (`tag_in_namespace` `286/286`, `pl021.pac` tags all `0x8001`). No game
+data committed.

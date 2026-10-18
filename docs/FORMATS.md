@@ -511,15 +511,16 @@ files**; evidence E-030), all little-endian:
 +0x24  ...     payload body (vertices, indices, normals, UVs, skin weights)  [UNKNOWN layout]
 ```
 
-### 5.1 `MOD ` payload body prefix — first decoded fields [E-031]
+### 5.1 `MOD ` payload body prefix — first decoded fields [E-031, E-091]
 
-**Status: [PARTIAL]** — evidence E-031. The body begins at `+0x24` (immediately
-after the header). Its first decoded prefix, body-relative (all little-endian):
+**Status: [PARTIAL]** — evidence E-031 (pl021.pac), E-091 (all 286 install
+`MOD ` chunks). The body begins at `+0x24` (immediately after the header). Its
+first decoded prefix, body-relative (all little-endian):
 
 ```
 body +0x00..+0x1B  zero bytes (28 bytes)
-body +0x1C  u16    marker            0x8001 in all four pl021.pac MOD chunks  [UNKNOWN]
-body +0x1E  u16    count            varies per mesh (474/300/182/182)        [UNKNOWN what it counts]
+body +0x1C  u32    tagged count  (count << 16) | tag
+                   tag in 0x8000..0x8FFF on 286/286 chunks  [E-091; what it selects UNKNOWN]
 body +0x20  u32    0 in all observed chunks                                   [UNKNOWN]
 body +0x24  u32    varies per mesh (768/192/128/128)                          [UNKNOWN]
 body +0x28  u32    0 in all observed chunks                                   [UNKNOWN]
@@ -532,17 +533,32 @@ body +0x58  f32    vector-like                                                [U
 body +0x5C  u32    equals ``count`` for the duplicated slots 23/25 only       [UNKNOWN]
 ```
 
-* `body +0x1E` (the count) reappears verbatim at `body +0x5C` for the two
+* **The `+0x1C` field is one tagged u32, not two `u16`s (E-091).** E-031 read the
+  `u16` at `+0x1C` as a "marker" (`0x8001`) and the `u16` at `+0x1E` as a "count".
+  The four bytes are a single little-endian u32 whose **low half is a tag** and
+  whose **high half is the count**. Across all **286** `MOD ` chunks in the
+  install the tag is `0x8001` x279, `0x8002` x4, `0x8201` x2, `0x8005` x1 —
+  every one in the `0x8000` namespace, so the tag is per-chunk data (likely a MOD
+  subtype), not a magic.
+* `body +0x1E` (the high half) reappears verbatim at `body +0x5C` for the two
   byte-identical slots 23/25, which supports reading it as a stored count; what
   it counts is an inference, not an observation.
-* `marker == 0x8001` coincides with the `0x8000` zero base used for MOT frame
-  times (E-026); any relationship is [UNKNOWN].
-* `tools/dmc3/mod.py` exposes `ModBodyPrefix` decoding exactly this prefix;
-  the vertex/index/normal/UV/skin-weight layout beyond it remains the remainder
-  of issue F1.
+* The tag shares the `0x8000` base with MOT frame times (E-026); any relationship
+  is [UNKNOWN].
+* `body +0x5C` and `body +0x9C` carry the same tagged shape (`0x8000`-namespace
+  low `u16`) in 188/286 and 170/286 chunks respectively (E-091); whether they are
+  further tagged records is [UNKNOWN].
+* `tools/dmc3/mod.py` exposes `ModBodyPrefix` (with `tag_word`, `tag`, `count`,
+  `tag_in_namespace`) decoding exactly this prefix; the
+  vertex/index/normal/UV/skin-weight layout beyond it remains the remainder of
+  issue F1.
 
 The payload body layout beyond `+0x5C` is **not** decoded — that is the
-remainder of issue F1 (vertex/index/normal/UV/skin-weight layout).
+remainder of issue F1 (vertex/index/normal/UV/skin-weight layout). The body is
+**heterogeneous** across the four `pl021.pac` chunks: slots 23/25 (the
+byte-identical pair) carry a strictly increasing, 16-byte-aligned u32
+section-offset table at body `+0x6C` (`0xD0, 0x960, 0x11F0, 0x14D0, 0x17B0,
+0x18F0`), while slots 1/12 do not (E-091).
 * `+0x14 == 0xF4240` (1,000,000) in 187/286 chunks suggests one field may be a
   byte size or vertex count, but that is an inference, not an observation.
 

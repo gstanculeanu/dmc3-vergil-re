@@ -109,33 +109,43 @@ def maybe_mod_header(chunk: Chunk) -> Optional[ModHeader]:
 BODY_PREFIX_SIZE = 0x60
 """Size of the decoded body prefix (through ``repeat`` at body +0x5C)."""
 
+BODY_TAG_OFFSET = 0x1C
+"""Body-relative offset of the leading **tagged count** u32 (evidence E-091)."""
+
+BODY_TAG_NAMESPACE = 0x8000
+"""High nibble of every observed tag at :data:`BODY_TAG_OFFSET` (E-091)."""
+
+BODY_TAG_MASK = 0xF000
+"""Mask selecting the tag's namespace nibble."""
+
 
 @dataclass(frozen=True)
 class ModBodyPrefix:
-    """Decoded prefix of a ``MOD `` payload body (evidence E-031).
+    """Decoded prefix of a ``MOD `` payload body (evidence E-031, E-091).
 
     The body starts at chunk +0x24, immediately after the :class:`ModHeader`.
     Every field below is an **observation**: its bytes are consistent across the
-    four ``MOD `` chunks in ``pl021.pac``, but its *meaning* is [UNKNOWN] and is
+    ``MOD `` chunks in the install, but its *meaning* is [UNKNOWN] and is
     deliberately not named beyond its offset.  This is the first decoded field
     of the payload body; the vertex/index/weight layout beyond it remains open
     (issue F1).
+
+    **E-091 correction to E-031.** The ``u16`` "marker" at body +0x1C and the
+    ``u16`` "count" at body +0x1E are not two adjacent fields: they are the two
+    halves of **one little-endian u32** ``(count << 16) | tag``.  Across all
+    **286** ``MOD `` chunks in the install the low half (``tag``) is a
+    ``0x8000``-namespace value — ``0x8001`` x279, ``0x8002`` x4, ``0x8201`` x2,
+    ``0x8005`` x1 — and the high half is exactly the count E-031 recorded.
     """
 
-    marker: int
-    """Body +0x1C (chunk +0x40): u16, observed 0x8001 in every pl021.pac MOD
-    chunk.  Coincides with the 0x8000 zero base used for MOT frame times
-    (E-026); any relationship is [UNKNOWN]."""
-
-    count: int
-    """Body +0x1E (chunk +0x42): u16, varies per mesh (474, 300, 182, 182 in
-    pl021.pac slots 1/12/23/25).  Reappears verbatim at ``repeat`` for the
-    byte-identical slots 23/25, which supports reading it as a stored count.
-    What it counts (vertices, primitives, bones, …) is [UNKNOWN]."""
+    tag_word: int
+    """Body +0x1C (chunk +0x40): u32, ``(count << 16) | tag``.  See :attr:`tag`
+    and :attr:`count`.  Meaning of the tag beyond its ``0x8000`` namespace is
+    [UNKNOWN]."""
 
     field_24: int
     """Body +0x24 (chunk +0x48): u32, varies per mesh (768, 192, 128, 128).
-    Meaning [UNKNOWN]."""
+    A multiple of 64 in 375/623 tagged records; meaning [UNKNOWN]."""
 
     field_2c: int
     """Body +0x2C (chunk +0x50): u32, varies per mesh.  In slot 23 the bytes
@@ -150,6 +160,26 @@ class ModBodyPrefix:
     for slot 1 (0x01418002) or slot 12 (0x012D8001), so it is an independent
     field.  Meaning [UNKNOWN]."""
 
+    @property
+    def tag(self) -> int:
+        """Low u16 of :attr:`tag_word` — the leading tag (E-091)."""
+        return self.tag_word & 0xFFFF
+
+    @property
+    def marker(self) -> int:
+        """Alias for :attr:`tag`, kept for the E-031 name."""
+        return self.tag_word & 0xFFFF
+
+    @property
+    def count(self) -> int:
+        """High u16 of :attr:`tag_word` — the E-031 count."""
+        return (self.tag_word >> 16) & 0xFFFF
+
+    @property
+    def tag_in_namespace(self) -> bool:
+        """True when :attr:`tag`'s high nibble is ``0x8`` (286/286 chunks, E-091)."""
+        return (self.tag & BODY_TAG_MASK) == BODY_TAG_NAMESPACE
+
     @classmethod
     def parse(cls, body: bytes) -> "ModBodyPrefix":
         """Parse the body prefix of a ``MOD `` chunk.
@@ -162,8 +192,7 @@ class ModBodyPrefix:
                 f"MOD body only {len(body)} bytes, need {BODY_PREFIX_SIZE} for the prefix"
             )
         return cls(
-            marker=u16(body, 0x1C),
-            count=u16(body, 0x1E),
+            tag_word=u32(body, BODY_TAG_OFFSET),
             field_24=u32(body, 0x24),
             field_2c=u32(body, 0x2C),
             vector=(
