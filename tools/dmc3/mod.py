@@ -559,6 +559,17 @@ class ModBodyBlock:
         """
         return self.offset_a - self.value_offset(count)
 
+    @property
+    def tail_next_target(self) -> int:
+        """The offset the first forward tail entry names when it is derived (E-098).
+
+        ``block.end + BODY_BLOCK_TAIL_NEXT_DELTA``.  Since :attr:`end` is the
+        next block's ``data_offset``, this is that block's ``payload + 0x24``.
+        This is the [VERIFIED] structural value on 1,210/1,251 install blocks;
+        what lives there is [UNKNOWN].
+        """
+        return self.end + BODY_BLOCK_TAIL_NEXT_DELTA
+
     @classmethod
     def parse(
         cls, body: bytes, index: int, data_offset: int, span: int
@@ -786,6 +797,18 @@ of at least two such entries and every target lands inside another block; the
 BODY_BLOCK_TAIL_MIN_VALUES = 2
 """Fewest consecutive entries :func:`tail_entries` treats as a recovered table."""
 
+BODY_BLOCK_TAIL_NEXT_DELTA = 0x50
+"""``80`` — the first forward tail entry is ``block.end + 0x50`` on 1,210/1,251
+install blocks (E-098).
+
+``block.end`` is the next block's ``data_offset`` (:func:`body_blocks`), so the
+entry is the next block's ``data_offset + BODY_BLOCK_PREFIX_SIZE +
+BODY_BLOCK_OFFSET_SLACK`` (i.e. its ``payload_offset + 0x24``).  The first entry
+is therefore a *derived* constant offset, not an arbitrary cross-reference — a
+refinement of E-097's "cross-reference table" reading.  The *meaning* of the
+pointed-at location is [UNKNOWN].
+"""
+
 
 def block_tail(body: bytes, block: ModBodyBlock, count: int) -> bytes:
     """The bytes of a block *after* its 32-byte-per-vertex record (E-097).
@@ -830,6 +853,30 @@ def tail_entries(
             continue
         entries.append(value)
     return tuple(entries)
+
+
+def tail_forward_entries(
+    body: bytes, block: ModBodyBlock, count: int
+) -> tuple[int, ...]:
+    """The tail's **forward** entries — targets at or after ``block.end`` (E-098).
+
+    Shorthand for :func:`tail_entries` with ``min_offset=block.end``.  Backward
+    values (which :func:`tail_entries` can also return) are excluded, because a
+    block's own ``data_offset`` lies before its :attr:`ModBodyBlock.end`.
+    """
+    return tail_entries(body, block, count, min_offset=block.end)
+
+
+def tail_next_ok(body: bytes, block: ModBodyBlock, count: int) -> bool:
+    """True when the first forward tail entry names the derived ``end + 0x50`` (E-098).
+
+    Reproduces the install census: the first forward entry equals
+    :attr:`ModBodyBlock.tail_next_target` on 1,210/1,251 blocks.  A block with no
+    forward entry returns ``False``.  This is a structural test only — nothing is
+    asserted about what the target location holds.
+    """
+    entries = tail_forward_entries(body, block, count)
+    return bool(entries) and entries[0] == block.tail_next_target
 
 
 def normal_run(

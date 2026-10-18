@@ -511,7 +511,7 @@ files**; evidence E-030), all little-endian:
 +0x24  ...     payload body (vertices, indices, normals, UVs, skin weights)  [UNKNOWN layout]
 ```
 
-### 5.1 `MOD ` payload body prefix — first decoded fields [E-031, E-091, E-092, E-093, E-094, E-095, E-096, E-097]
+### 5.1 `MOD ` payload body prefix - first decoded fields [E-031, E-091, E-092, E-093, E-094, E-095, E-096, E-097, E-098]
 
 **Status: [PARTIAL]** — evidence E-031 (pl021.pac), E-091 (all 286 install
 `MOD ` chunks). The body begins at `+0x24` (immediately after the header). Its
@@ -771,6 +771,33 @@ payload + 0x20*count + …  zeros, a small word (e.g. 0x36, 0x08)     [UNKNOWN]
 * `tools/dmc3/mod.py` exposes `block_tail`, `tail_entries` and the
   `BODY_BLOCK_TAIL_ENTRY_SIZE = 0x08`, `BODY_BLOCK_TAIL_MIN_VALUES = 2`
   constants. See **E-097**.
+
+#### E-098 update: the first *forward* tail entry is the derived `block.end + 0x50` - structure [VERIFIED]
+
+E-097's entries point both backward and forward. Reading the **forward** ones
+(targets at or after `block.end`) shows the first is a fixed, derived value. On
+the **286** `MOD ` chunks / **1,556** blocks:
+
+| observation | result |
+|---|---|
+| blocks with ≥ 1 forward tail entry | 1,251 |
+| first entry `== block.end + 0x50` | **1,210** |
+| first entry `== block.end + 0xA0` | 22 |
+| other deltas | 19 |
+| forward entries per block (0/1/2/3) | 305 / 38 / 1,204 / 9 |
+
+* `body_blocks()` sets a block's `end` to the *next* block's `data_offset`, so
+  `end + 0x50` is that block's `data_offset + 0x2C + 0x24` = its
+  `payload + 0x24` (`0x50 = BODY_BLOCK_PREFIX_SIZE + BODY_BLOCK_OFFSET_SLACK`).
+  The first tail entry is therefore a **structural constant offset** into the
+  next block, not a free pointer. [INFERRED] the tail is a structured record
+  whose first field is derived; only the second entry (1,204 blocks) can be a
+  free reference. What lives at the target is **[UNKNOWN]**.
+* Recorded negatives: the first entry is **not** the next block's
+  `offset_a`/`offset_b`/`value_offset`/`tail_offset` (E-098).
+* `tools/dmc3/mod.py` exposes `BODY_BLOCK_TAIL_NEXT_DELTA = 0x50`,
+  `ModBodyBlock.tail_next_target`, `tail_forward_entries()` and `tail_next_ok()`.
+  See **E-098**.
 
 
 `SHW ` chunk header (verified bytes across all four `pl021.pac` `SHW `

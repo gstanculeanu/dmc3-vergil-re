@@ -5570,3 +5570,56 @@ filter), exported from `dmc3`. `tests/fixtures.py` gains
 `TestModBodyTailEntries` (8 tests). Validated read-only through the new API: it
 reproduces the 1,305 / 1,657 census and the worked example above. No game data
 committed.
+
+---
+
+## E-098 — `MOD ` block tails: the first forward entry is the derived `block.end + 0x50`, not an arbitrary cross-reference (F1, bounded slice)
+
+**Observation (read-only from
+`G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\`, all `*.pac`
+files).** E-097 read the tail after the 32-byte-per-vertex record as a
+"block-level cross-reference table" and its own next note asked what a
+`(offset, 0)` entry names. Reading the *first forward* entry — the tail values at
+or after `block.end`, i.e. the ones that point into a following block — shows the
+first one is a fixed, derived value.
+
+Census on the **286** `MOD ` chunks, **1,556** blocks:
+
+| observation | result |
+|---|---|
+| blocks with ≥ 1 forward tail entry (`value >= block.end`) | 1,251 |
+| of those, first entry `== block.end + 0x50` | **1,210** |
+| first entry `== block.end + 0xA0` (`2 × 0x50`) | 22 |
+| other first-entry deltas (0x640, 0x68C0, 0x2D0, 0xB500, 0x4E8, 0x140, …) | 19 |
+| forward-entry counts per block (0 / 1 / 2 / 3) | 305 / 38 / **1,204** / 9 |
+
+Because `body_blocks()` sets a block's `end` to the *next* block's `data_offset`,
+`block.end + 0x50` is exactly that next block's `data_offset + 0x2C + 0x24` =
+its `payload_offset + 0x24` (`0x50 = BODY_BLOCK_PREFIX_SIZE +
+BODY_BLOCK_OFFSET_SLACK`). So the first tail entry is a **structural constant
+offset into the next block**, not a free pointer list.
+
+**Inference (marked, unproven).** The tail is a *structured record* whose first
+field is derived from the block boundaries; E-097's "cross-reference table"
+reading must be narrowed — at most the second entry (present on 1,204 blocks) is
+a free reference. *What lives at the target* (`next.payload + 0x24`) is
+**[UNKNOWN]**; the entry's meaning is not asserted.
+
+**Recorded negatives (not re-run).**
+- The first entry is **not** the next block's `offset_a`/`offset_b`
+  (e.g. `em013.pac` slot 1 block 0's entry `0x1100` is the next block's
+  `payload + 0x24`, while that block's `offset_a`/`offset_b` are `0x1700`/`0x17E0`),
+  nor its `value_offset`, nor its `tail_offset`.
+- The 22 `+0xA0` blocks and the handful of larger deltas are recorded, not
+  explained; over 96 % of first entries are the `+0x50` constant.
+
+**Tooling.** `tools/dmc3/mod.py` gains
+`BODY_BLOCK_TAIL_NEXT_DELTA = 0x50`,
+`ModBodyBlock.tail_next_target` (`end + 0x50`),
+`tail_forward_entries()` (`tail_entries(..., min_offset=block.end)`) and
+`tail_next_ok()` (the first forward entry equals the derived target), exported
+from `dmc3`. `tests/fixtures.py` gains `mod_two_block_tail_body()` (a
+16-byte-aligned two-block body) and `tests/test_mod.py` gains
+`TestModBodyTailNext` (6 tests). Validated read-only through the new API: it
+reproduces `1,556` blocks / `1,251` with a forward entry / `1,210` `tail_next_ok`
+and the entry-count census above. No game data committed.

@@ -18,6 +18,7 @@ from dmc3.mod import (
     BODY_BLOCK_RECORD_SIZE,
     BODY_BLOCK_TAIL_ENTRY_SIZE,
     BODY_BLOCK_TAIL_MIN_VALUES,
+    BODY_BLOCK_TAIL_NEXT_DELTA,
     BODY_BLOCK_TUPLE_SIZE,
     BODY_BLOCK_VALUE_SIZE,
     BODY_BLOCK_VALUE_UNIT,
@@ -45,6 +46,8 @@ from dmc3.mod import (
     maybe_mod_header,
     normal_run,
     tail_entries,
+    tail_forward_entries,
+    tail_next_ok,
     unit_triple,
 )
 
@@ -605,6 +608,50 @@ class TestModBodyTailEntries(unittest.TestCase):
         values = struct.unpack_from(f"<{len(payload) // 2}H", payload)
         # a synthetic position array is not a set of small indices
         self.assertGreater(max(values), 5)
+
+
+class TestModBodyTailNext(unittest.TestCase):
+    """E-098: the first forward tail entry is the derived ``block.end + 0x50``
+    (the next block's ``payload + 0x24``) on 1,210/1,251 install blocks."""
+
+    def test_next_delta_constant(self):
+        self.assertEqual(BODY_BLOCK_TAIL_NEXT_DELTA, 0x50)
+        # the delta decomposes into the block prefix plus the E-096 slack
+        self.assertEqual(BODY_BLOCK_TAIL_NEXT_DELTA, BODY_BLOCK_PREFIX_SIZE + BODY_BLOCK_OFFSET_SLACK)
+
+    def test_tail_next_target_is_end_plus_delta(self):
+        body = fixtures.mod_two_block_tail_body(count=4)
+        directory = ModBodyDirectory.parse(body)
+        block0 = directory.blocks[0]
+        self.assertEqual(block0.tail_next_target, block0.end + 0x50)
+        # end is the next block's data_offset, so the target is that block's
+        # payload + 0x24
+        self.assertEqual(block0.tail_next_target, directory.blocks[1].payload_offset + 0x24)
+
+    def test_tail_next_ok_on_the_fixture(self):
+        body = fixtures.mod_two_block_tail_body(count=4)
+        directory = ModBodyDirectory.parse(body)
+        block0 = directory.blocks[0]
+        self.assertTrue(tail_next_ok(body, block0, 4))
+        self.assertEqual(tail_forward_entries(body, block0, 4), (block0.tail_next_target,))
+
+    def test_tail_forward_entries_exclude_backward_values(self):
+        # a backward target (below block.end) is not a forward entry
+        body = fixtures.mod_tail_directory_body(count=4, tail_words=2, entries=(0x100,))
+        block = ModBodyDirectory.parse(body).blocks[0]
+        self.assertEqual(tail_forward_entries(body, block, 4), ())
+
+    def test_tail_next_ok_false_without_forward_entries(self):
+        body = fixtures.mod_tail_directory_body(count=4, tail_words=2, entries=())
+        block = ModBodyDirectory.parse(body).blocks[0]
+        self.assertFalse(tail_next_ok(body, block, 4))
+
+    def test_tail_next_ok_false_for_the_last_block(self):
+        # the last block has no forward room, so it has no forward entry and the
+        # derived-reference test is False
+        body = fixtures.mod_two_block_tail_body(count=3)
+        directory = ModBodyDirectory.parse(body)
+        self.assertFalse(tail_next_ok(body, directory.blocks[1], 3))
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ from .mod import (
     BODY_BLOCK_RECORD_SIZE,
     BODY_BLOCK_TAIL_ENTRY_SIZE,
     BODY_BLOCK_TAIL_MIN_VALUES,
+    BODY_BLOCK_TAIL_NEXT_DELTA,
     BODY_BLOCK_TUPLE_SIZE,
     BODY_BLOCK_VALUE_SIZE,
     BODY_BLOCK_VALUE_UNIT,
@@ -47,6 +48,8 @@ from .mod import (
     maybe_mod_body_directory,
     normal_run,
     tail_entries,
+    tail_forward_entries,
+    tail_next_ok,
     unit_triple,
 )
 from .raw import (
@@ -238,6 +241,7 @@ __all__ = [
     "BODY_BLOCK_FILL_WORDS",
     "BODY_BLOCK_TAIL_ENTRY_SIZE",
     "BODY_BLOCK_TAIL_MIN_VALUES",
+    "BODY_BLOCK_TAIL_NEXT_DELTA",
     "ModBodyBlock",
     "ModBodyDescriptor",
     "ModBodyDirectory",
@@ -254,6 +258,8 @@ __all__ = [
     "maybe_mod_body_directory",
     "normal_run",
     "tail_entries",
+    "tail_forward_entries",
+    "tail_next_ok",
     "unit_triple",
     "PNST_MAGIC",
     "PnstArchive",

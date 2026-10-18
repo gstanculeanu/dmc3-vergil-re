@@ -409,6 +409,38 @@ def mod_tail_directory_body(
     )
 
 
+def mod_two_block_tail_body(
+    count: int = 4, tail_words: int = 4
+) -> bytes:
+    """A synthetic two-record ``MOD `` body whose first block has a derived tail
+    reference to the second (E-098).
+
+    The first block's single forward entry is exactly ``block0.end + 0x50``,
+    where ``block0.end`` is the second block's ``data_offset`` — the relation
+    :func:`dmc3.mod.tail_next_ok` reproduces on 1,210/1,251 install blocks.
+    Both blocks are otherwise ``mod_tail_block`` payloads; block 0 is zero-padded
+    to a 16-byte multiple so its end (the next block's ``data_offset``) is
+    16-byte aligned, as on the install.
+    """
+    array_size = 3 * 0x40  # two records + footer
+    empty = mod_tail_block(count=count, start=0, tail_words=tail_words, entries=())
+    base_len = len(empty) + 8  # one 8-byte entry appended
+    pad = (-base_len) % 16
+    block0_len = base_len + pad
+    entry0 = array_size + block0_len + 0x50
+    record0 = mod_descriptor(tag=0x8001, count=count, data_offset=array_size)
+    record1 = mod_descriptor(
+        tag=0x8001, count=count, data_offset=array_size + block0_len
+    )
+    footer = mod_descriptor(tag_word=(0 << 16) | 0x2C, data_offset=0, aux=4)
+    block0 = mod_tail_block(
+        count=count, start=array_size, tail_words=tail_words, entries=(entry0,)
+    ) + b"\x00" * pad
+    block1 = mod_tail_block(count=count, start=array_size + block0_len,
+                            tail_words=tail_words, entries=())
+    return record0 + record1 + footer + block0 + block1
+
+
 def shw_chunk(
     alpha: float = 0.5,
     field_08: int = 0,
