@@ -1008,6 +1008,47 @@ The helpers are `stride_residue()` / `stride_offset_run()` and the constants
 `ClipSubBlocks.tag10_residue_ok` / `tag16_continuation_ok`. The leaf keyframe
 encoding is still the F9 gap.
 
+##### The tag-`0x0F` sub-block is a channel offset table — [PARTIAL] (E-079)
+
+Every one of `R_HADES.WAD`'s 77 clips carries **exactly one** tag-`0x0F` sub-block,
+and its payload is a little-endian u16 **offset list** (8 / 24 / 32 / 40 entries,
+i.e. 8..40 channels per clip). Censused read-only:
+
+| relation | result |
+|---|---|
+| every entry `<= 0x1800` | **77/77** |
+| every entry is the `0x1800` sentinel or `== 0x20 (mod 0x30)` | **77/77** |
+| list is non-decreasing | 74/77 |
+| last entry is `0x1800` | 76/77 |
+
+`0x1800` is `0x30 * 128` — the span of the tag-`0x16` ramp (E-066) — and `0x20` is
+one of E-068's three `0x30` residues, so the list reads as channel positions in the
+shared 48-byte record array, `0x1800` acting as its end sentinel. The entry count is
+a per-clip channel count and not a header field. Worked example `cshadesRip02IdleL`
+at file `0xF0C60`, `50 00 00 18 00 18 ...` = `(80, 6144 x7)`.
+
+##### Leaf payloads carry `0xCC` fill, so a size is a capacity — [PARTIAL] (E-079)
+
+A run of two or more `0xCC` bytes (the MSVC uninitialised fill) occurs in **227 of
+the 714** sub-block payloads; in **148** of those the run reaches the block's end.
+Those blocks are exactly the **leaves**: tag-`0x0B` **62/77**, tag-`0x1B` **64/87**,
+tag-`0x1C` **22/23**. The tag-`0x10` container holds `0xCC` in **76/77** clips but
+never at its end — there the fill belongs to the blocks nested inside it. So the
+size a preamble record implies for a **leaf** is a *capacity* and the live bytes end
+at the fill; the same offset is not a data length for a tag-`0x10` container.
+
+Two bounded negatives from the same census: the E-064 `count` field is **not** the
+clip's frame count (equal on 1/77), and no tag-`0x1B` payload is a zlib/gzip, lzma
+or bz2 stream (87/87), so the leaf is not simply compressed data.
+
+The helpers are `u16_values()` / `fill_run_start()` / `channel_offset_list()` /
+`channel_offset_ok()` and the constants `CLIP_DATA_CHANNEL_TAG` (0x0F) /
+`CLIP_DATA_CHANNEL_RESIDUE` (0x20) / `CLIP_DATA_CHANNEL_LIMIT` (0x1800) /
+`CLIP_DATA_FILL` (0xCC) / `CLIP_DATA_FILL_MIN_RUN` (2), exposed through
+`ClipSubBlock.fill_run_start` / `live_length` / `offset_list` / `channel_offset_ok`
+and `ClipSubBlocks.channel_blocks` / `channel_count` / `channel_offset_ok`. The leaf
+keyframe encoding is still the F9 gap.
+
 ---
 
 ## 8. DMC3 HD `dmc3.exe` — PE file↔RVA mapping and reference scanning (E-069, E-070)

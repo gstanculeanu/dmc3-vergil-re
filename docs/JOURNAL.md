@@ -1776,3 +1776,43 @@ moves and health bar and everything."*
 - Next: follow the record array to its builder (find who writes the 0x88-byte
   entries) or follow `0x333F0`/`0x33500` (the load path) to the container reader;
   F3 slots 6/7/11/22 and the GoW3R clip keyframe encoding remain available.
+
+---
+
+## 2026-10-18 — F9/G9 bounded slice: the clip's tag-`0x0F` leaf is a channel offset list; leaf payloads carry `0xCC` fill (E-079)
+
+- Did: picked up the GoW3R clip leaf (F9/G9) rather than a fifth DMC3-engine step.
+  Before the slice I spent a bounded look at the engine route E-078 named (the
+  accessor's caller, the registry's type-id consumer, the file open/read pair
+  `0x333F0`/`0x33500`) and **stopped**: the registry's type array (`ctx+0x18408`)
+  has **no reader** with that displacement anywhere in `.text` (all seven imm32
+  hits are the registrar's own writes), so the loader dispatch is not reachable by
+  the string/displacement routes used so far. Recorded here, not as a doc claim.
+  Then censused the clip leaf read-only from `R_HADES.WAD` (85,727,632 B): 77 clips,
+  714 sub-blocks.
+- Found (**E-079**):
+  - **The tag-`0x0F` sub-block is a per-clip u16 offset list.** Exactly one per
+    clip; 8/24/32/40 entries (8..40 channels). Every entry is `<= 0x1800` and
+    either the `0x1800` sentinel or `== 0x20 (mod 0x30)` — **77/77**; non-decreasing
+    74/77; last entry `0x1800` 76/77. `0x1800 = 0x30 * 128` is the tag-`0x16` ramp
+    span (E-066) and `0x20` is one of E-068's residues, so this is the **channel
+    table** over the shared 48-byte record array.
+  - **Leaf payloads are partially filled with `0xCC`.** A `>= 2`-byte `0xCC` run
+    occurs in 227/714 payloads and reaches the block end in 148; those are exactly
+    the leaves (0x0B 62/77, 0x1B 64/87, 0x1C 22/23). The tag-`0x10` container has
+    `0xCC` in 76/77 clips but **never at its end** — the fill there belongs to the
+    nested blocks. So a **leaf size is a capacity**, not a data length.
+  - **Two negatives:** the E-064 `count` is **not** the frame count (equal on 1/77;
+    ratios 0.5..3.0), and **no** tag-`0x1B` payload is zlib/gzip/lzma/bz2 on 87/87
+    (one raw-deflate 0xA0->5-byte degenerate hit, not evidence) — so the leaf is not
+    simply compressed animation data.
+- Docs: E-079 in `docs/EVIDENCE.md`; `docs/FORMATS.md` gains two §7.7 subsections;
+  `docs/BACKLOG.md` F9 row updated. Code: `tools/gow3/anim.py` gains
+  `u16_values` / `fill_run_start` / `channel_offset_list` / `channel_offset_ok` and
+  the `ClipSubBlock`/`ClipSubBlocks` accessors; `tests/test_gow3_anim.py` gains
+  `TestClipLeafBlocks` (8 tests). Nothing written to any game install; no game data
+  committed.
+- Next: fix the *meaning* of a tag-`0x0F` entry — the 48-byte-strided record array
+  it indexes is the next target, and it is the same array the tag-`0x16` ramp and
+  the tag-`0x10` residue point at; the leaf keyframe encoding follows from it.
+  `F3` slots 6/7/11/22 remain the always-available DMC3 fallback.

@@ -846,5 +846,78 @@ class TestStrideResidues(unittest.TestCase):
         self.assertFalse(no_tag16.tag16_continuation_ok)
 
 
+class TestClipLeafBlocks(unittest.TestCase):
+    """E-079: the tag-0x0F offset list, and 0xCC fill in leaf payloads."""
+
+    def test_u16_values_reads_little_endian_and_ignores_a_trailing_byte(self):
+        self.assertEqual(anim.u16_values(b"\x50\x00\x00\x18"), (0x0050, 0x1800))
+        self.assertEqual(anim.u16_values(b"\x01\x02\x03"), (0x0201,))
+        self.assertEqual(anim.u16_values(b""), ())
+
+    def test_fill_run_start_finds_the_first_run(self):
+        payload = b"\x01\x02" + b"\xCC" * 3 + b"\x00"
+        self.assertEqual(anim.fill_run_start(payload), 2)
+        self.assertIsNone(anim.fill_run_start(b"\x01\xCC\x02\xCC"))
+        # one 0xCC byte is data, not the fill
+        self.assertIsNone(anim.fill_run_start(b"\x01\xCC\x02"))
+        self.assertEqual(anim.fill_run_start(b"\x01\xCC\x02", min_run=1), 1)
+
+    def test_fill_run_start_rejects_bad_arguments(self):
+        with self.assertRaises(ValueError):
+            anim.fill_run_start(b"", min_run=0)
+        with self.assertRaises(ValueError):
+            anim.fill_run_start(b"", fill=0x100)
+
+    def test_channel_offset_ok_accepts_the_observed_shape(self):
+        self.assertEqual(anim.CLIP_DATA_CHANNEL_TAG, 0x0F)
+        self.assertEqual(anim.CLIP_DATA_CHANNEL_RESIDUE, 0x20)
+        self.assertEqual(anim.CLIP_DATA_CHANNEL_LIMIT, 0x30 * 128)
+        self.assertTrue(anim.channel_offset_ok((0x20, 0x50, 0x1800)))
+        # every real entry is 0x20 mod 0x30, and the sentinel is 0x1800
+        self.assertTrue(anim.channel_offset_ok((0x50, 0x800, 0x1800)))
+
+    def test_channel_offset_ok_rejects_other_residues_limits_and_empty(self):
+        self.assertFalse(anim.channel_offset_ok((0x10, 0x1800)))     # tag-0x10 residue
+        self.assertFalse(anim.channel_offset_ok((0x20, 0x1801)))     # past the limit
+        self.assertFalse(anim.channel_offset_ok((0x20, 0x2000)))     # past the limit
+        self.assertFalse(anim.channel_offset_ok(()))
+
+    def test_channel_block_reports_its_offset_list(self):
+        payload = struct.pack("<4H", 0x50, 0x800, 0x1800, 0x1800)
+        block = anim.ClipSubBlock(tag=anim.CLIP_DATA_CHANNEL_TAG, offset=0x40,
+                                  size=len(payload), payload=payload)
+        self.assertEqual(block.offset_list, (0x50, 0x800, 0x1800, 0x1800))
+        self.assertTrue(block.channel_offset_ok)
+        # a different tag never counts as the channel table
+        other = anim.ClipSubBlock(tag=anim.CLIP_DATA_TAG16, offset=0x40,
+                                  size=len(payload), payload=payload)
+        self.assertFalse(other.channel_offset_ok)
+
+    def test_fill_bounds_a_leaf_payload_but_not_the_container(self):
+        leaf = anim.ClipSubBlock(tag=0x1B, offset=0,
+                                 size=8, payload=b"\x01\x02\x03\xCC\xCC\xCC\xCC\xCC")
+        self.assertEqual(leaf.fill_run_start, 3)
+        self.assertEqual(leaf.live_length, 3)
+        all_live = anim.ClipSubBlock(tag=0x1B, offset=0, size=4,
+                                     payload=b"\x01\x02\x03\x04")
+        self.assertIsNone(all_live.fill_run_start)
+        self.assertEqual(all_live.live_length, 4)
+
+    def test_clip_sub_blocks_report_the_channel_count(self):
+        first = anim.ClipSubBlock(tag=anim.CLIP_DATA_CHANNEL_TAG, offset=0x40,
+                                  size=8,
+                                  payload=struct.pack("<4H", 0x50, 0x1800,
+                                                      0x1800, 0x1800))
+        second = anim.ClipSubBlock(tag=anim.CLIP_DATA_TAG16, offset=0x48, size=2,
+                                   payload=b"\x00\x00")
+        blocks = anim.ClipSubBlocks(offset=0, blocks=(first, second), end=0x100)
+        self.assertEqual(blocks.channel_blocks, (first,))
+        self.assertEqual(blocks.channel_count, 4)
+        self.assertTrue(blocks.channel_offset_ok)
+        without = anim.ClipSubBlocks(offset=0, blocks=(second,), end=0x100)
+        self.assertEqual(without.channel_count, 0)
+        self.assertFalse(without.channel_offset_ok)
+
+
 if __name__ == "__main__":
     unittest.main()

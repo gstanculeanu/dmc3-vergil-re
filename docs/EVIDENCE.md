@@ -4233,3 +4233,68 @@ archives and `.sfd` movies, so the ordering is not the on-disk `plNNN` numbering
 constants), exported from `dmc3`; `PeImage.pointer_at` added to `tools/dmc3/pe.py`;
 `tests/test_dmc3_assets.py` (13 tests) and `TestPointerAt` (4 tests) on synthetic
 fixtures. No game data committed.
+
+
+## E-079 - GoW3R clip leaf: the tag-`0x0F` sub-block is a channel offset list, and leaf payloads carry `0xCC` fill (F9/G9, bounded slice)
+
+**Observation.** From `R_HADES.WAD` (85,727,632 B, read-only,
+`...\gow3\CUSA01715\EXEC\WAD\PS4_LE\`) the E-064..E-068 reader walks **77 clips**
+and **714 sub-blocks**. Two sub-block facts were censused through the new helpers;
+no field is assigned a meaning beyond what the bytes show.
+
+**A. Exactly one tag-`0x0F` sub-block per clip, and it is an offset list.** All 77
+clips have one; the payload is always an even-length run of little-endian u16s.
+Its length is one of **8 (16 clips) / 24 (1) / 32 (56) / 40 (4)** values, i.e. a
+per-clip count of 8..40. Worked example, `cshadesRip02IdleL`, file offset `0xF0C60`,
+size `0x10`, verbatim:
+
+```
+50 00 00 18 00 18 00 18 00 18 00 18 00 18 00 18
+```
+
+read as u16 `0x0050, 0x1800 x7` -> `(80, 6144, 6144, 6144, 6144, 6144, 6144,
+6144)`.
+
+* every value is `<= 0x1800` **77/77**;
+* every value is `0x1800` (the sentinel) or `== 0x20 (mod 0x30)` **77/77**;
+* the list is non-decreasing **74/77**;
+* the last value is `0x1800` **76/77**.
+
+`0x1800` is `CLIP_DATA_STRIDE * 128` (`0x30 * 128`), the span of the tag-`0x16`
+ramp (E-066), and `0x20` is one of E-068's three observed `0x30` residues. **So the
+tag-`0x0F` sub-block reads as a list of channel positions in the shared 48-byte
+record array [INFERRED], with `0x1800` as its end sentinel; the entry count is a
+per-clip channel count, not a header field.**
+
+**B. Leaf sub-block payloads are partially filled, with `0xCC` marking the end.**
+A run of two or more `0xCC` bytes occurs in **227 of the 714** payloads, and in
+**148** of those the run reaches the block's end. The blocks whose run reaches the
+end are exactly the *leaf* tags: `0x0B` **62/77**, `0x1B` **64/87**, `0x1C`
+**22/23**. The tag-`0x10` container holds `0xCC` in **76/77** clips but **never at
+its end**, because there the fill belongs to the sub-blocks nested inside it. So a
+**leaf's stored size (to the next preamble target) is a capacity, and its live bytes
+end at the `0xCC` fill**; the same offset is not a data length for the tag-`0x10`
+container.
+
+**C. Two bounded negatives.**
+* The preamble's `count` field is **not** the clip's frame count: the two are equal
+  on only **1/77** clips (they differ by factors of 0.5..3.0), so the E-064 `count`
+  remains [UNKNOWN].
+* No tag-`0x1B` payload is a zlib/gzip, lzma or bz2 stream on **87/87** blocks;
+  one raw-deflate decode of a 0xA0-byte block yields 5 bytes, which is a degenerate
+  coincidence, not evidence. The tag-`0x1B` block is therefore **not** simply
+  compressed animation data, and its leaf encoding stays [UNKNOWN].
+
+**Inference (marked).** The tag-`0x0F` list plus the E-068 residue structure place
+the per-clip channel table in the data section: the channel count varies 8..40 per
+clip and the offsets are 48-byte-strided. Which record field a channel names, and
+the leaf keyframe encoding, remain [UNKNOWN].
+
+**Consequence.** `tools/gow3/anim.py` gains `CLIP_DATA_CHANNEL_TAG` (`0x0F`),
+`CLIP_DATA_CHANNEL_RESIDUE` (`0x20`), `CLIP_DATA_CHANNEL_LIMIT` (`0x1800`),
+`CLIP_DATA_FILL` (`0xCC`), `CLIP_DATA_FILL_MIN_RUN` (`2`), the functions
+`u16_values`, `fill_run_start`, `channel_offset_list` and `channel_offset_ok`, the
+`ClipSubBlock` properties `fill_run_start` / `live_length` / `offset_list` /
+`channel_offset_ok`, and the `ClipSubBlocks` properties `channel_blocks` /
+`channel_count` / `channel_offset_ok`. 8 new tests in `tests/test_gow3_anim.py`
+(`TestClipLeafBlocks`) run on synthetic payloads. No game data committed.

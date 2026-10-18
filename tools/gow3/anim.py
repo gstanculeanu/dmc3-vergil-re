@@ -33,8 +33,11 @@ tag-0x16 table is 122/123 entries rather than 128; E-068: the u16 offset lists
 inside the sub-blocks share a 0x30-byte stride -- every tag-0x10 block opens with
 a value `== 0x10 (mod 0x30)`, the tag-0x16 `0x30 * k` prefix is residue 0x00, its
 continuation is residue 0x20, and the word after that continuation is one of
-0x1710/0x1800/0x3C00). The *internal* clip encoding (bone channels, keyframes)
-is [UNKNOWN] and is not interpreted here.
+0x1710/0x1800/0x3C00). E-079: the tag-0x0F sub-block is a per-clip u16 offset list
+whose entries sit at 0x20 (mod 0x30) and end in a 0x1800 sentinel, and sub-block
+payloads are partially filled, so 0xCC marks where the live bytes end. The
+*internal* clip encoding (bone channels, keyframes) is [UNKNOWN] and is not
+interpreted here.
 """
 
 from __future__ import annotations
@@ -543,6 +546,28 @@ CLIP_DATA_TAG10_RESIDUE = 0x10              # every tag-0x10 opens with this res
 CLIP_DATA_TAG16_CONTINUATION_RESIDUE = 0x20  # residue of the post-`0x30 * k` run
 CLIP_DATA_CONTINUATION_TERMINATORS = (0x1710, 0x1800, 0x3C00)  # == 0x30 * {123,128,320}
 
+# The tag-0x0F sub-block is a per-clip u16 **offset list** (E-079). Censused
+# read-only on all 77 clips of R_HADES.WAD (77 tag-0x0F blocks among 714
+# sub-blocks): exactly one per clip, 8 / 24 / 32 / 40 entries, every entry
+# <= 0x1800 and either the 0x1800 sentinel or `== 0x20 (mod 0x30)` -- 77/77 lists
+# satisfy that, 74/77 are non-decreasing and 76/77 end in 0x1800. 0x1800 is
+# `0x30 * 128`, the span of the tag-0x16 ramp (E-066), so the list reads as channel
+# positions in the shared 0x30-strided record array (E-068); the entry count is a
+# per-clip channel count and not a header field.
+CLIP_DATA_CHANNEL_TAG = 0x0F
+CLIP_DATA_CHANNEL_RESIDUE = 0x20      # 0x30-residue of every non-sentinel entry
+CLIP_DATA_CHANNEL_LIMIT = 0x1800      # the sentinel == CLIP_DATA_STRIDE * 128
+
+# Sub-block payloads are **partially filled** (E-079). A run of >= 2 0xCC bytes
+# (the MSVC uninitialised fill) occurs in 227 of the 714 payloads, and in 148 of
+# those the run reaches the block's end -- every such block is a *leaf* (tags 0x0B
+# 62/77, 0x1B 64/87, 0x1C 22/23), so a leaf's stored size is a *capacity* and its
+# live bytes end at the fill. The tag-0x10 container also holds 0xCC (76/77) but
+# never at its end, because there the fill belongs to the nested sub-blocks; a
+# fill-run offset is therefore a live-length bound only for a leaf.
+CLIP_DATA_FILL = 0xCC
+CLIP_DATA_FILL_MIN_RUN = 2
+
 
 def tag16_prefix_length(payload: bytes) -> int:
     """Count leading u16 where ``payload`` equals ``0x30 * k`` (E-066).
@@ -613,6 +638,59 @@ def stride_offset_run(payload: bytes, start_word: int = 0,
         prev = value
         at += 2
     return tuple(values)
+
+
+def u16_values(payload: bytes) -> tuple:
+    """The payload read as little-endian u16s (a trailing odd byte is ignored)."""
+    return tuple(struct.unpack_from("<H", payload, at)[0]
+                 for at in range(0, len(payload) - 1, 2))
+
+
+def fill_run_start(payload: bytes, fill: int = CLIP_DATA_FILL,
+                   min_run: int = CLIP_DATA_FILL_MIN_RUN) -> Optional[int]:
+    """Offset of the first run of >= ``min_run`` ``fill`` bytes, or ``None`` (E-079).
+
+    A shipped clip leaves the uninitialised tail of a partially-filled **leaf**
+    sub-block as 0xCC, so the first such run bounds its live bytes. The offset is
+    *not* a live-length bound for the tag-0x10 container, whose 0xCC belongs to the
+    sub-blocks nested inside it (E-079). ``None`` means no run of that length occurs.
+    """
+    if min_run <= 0:
+        raise ValueError("min_run must be positive")
+    if not 0 <= fill <= 0xFF:
+        raise ValueError("fill must be a byte")
+    run = 0
+    for index, byte in enumerate(payload):
+        if byte == fill:
+            run += 1
+            if run >= min_run:
+                return index + 1 - min_run
+        else:
+            run = 0
+    return None
+
+
+def channel_offset_list(payload: bytes) -> tuple:
+    """The tag-0x0F payload as its u16 offset list (E-079)."""
+    return u16_values(payload)
+
+
+def channel_offset_ok(values) -> bool:
+    """True when every entry is the 0x1800 sentinel or 0x20 (mod 0x30) (E-079).
+
+    ``values`` is a sequence of u16s (e.g. :func:`channel_offset_list`'s result);
+    the empty sequence fails, because an empty list is not an observed tag-0x0F
+    block.
+    """
+    values = tuple(values)
+    if not values:
+        return False
+    return all(
+        value == CLIP_DATA_CHANNEL_LIMIT
+        or (value < CLIP_DATA_CHANNEL_LIMIT
+            and value % CLIP_DATA_STRIDE == CLIP_DATA_CHANNEL_RESIDUE)
+        for value in values
+    )
 
 
 def find_nested_preamble(payload: bytes,
@@ -695,6 +773,32 @@ class ClipSubBlock:
         """A tag-0x16 continuation ends in one of the three observed words (E-068)."""
         return self.tag16_continuation_terminator in CLIP_DATA_CONTINUATION_TERMINATORS
 
+    @property
+    def fill_run_start(self) -> Optional[int]:
+        """Offset of this payload's 0xCC fill, or ``None`` when it is all live (E-079)."""
+        return fill_run_start(self.payload)
+
+    @property
+    def live_length(self) -> int:
+        """Payload length up to the 0xCC fill, else the full size (E-079).
+
+        Meaningful for a leaf sub-block; for the tag-0x10 container the fill belongs
+        to the blocks nested inside it, so the number is not a data length there.
+        """
+        start = self.fill_run_start
+        return len(self.payload) if start is None else start
+
+    @property
+    def offset_list(self) -> tuple:
+        """The payload as u16 values; a tag-0x0F block is an offset list (E-079)."""
+        return u16_values(self.payload)
+
+    @property
+    def channel_offset_ok(self) -> bool:
+        """A tag-0x0F block whose entries are all 0x20 (mod 0x30) or 0x1800 (E-079)."""
+        return (self.tag == CLIP_DATA_CHANNEL_TAG
+                and channel_offset_ok(self.offset_list))
+
     def nested_preamble(self, min_records: int = CLIP_DATA_NESTED_MIN_RECORDS):
         """The nested preamble inside this sub-block, or ``None`` (E-066)."""
         return find_nested_preamble(self.payload, min_records)
@@ -740,6 +844,22 @@ class ClipSubBlocks:
         """Every tag-0x16 continuation ends in an observed terminator (E-068)."""
         blocks = self.of_tag(CLIP_DATA_TAG16)
         return bool(blocks) and all(block.tag16_terminator_ok for block in blocks)
+
+    @property
+    def channel_blocks(self) -> tuple:
+        """Every sub-block named by a tag-0x0F record (E-079)."""
+        return self.of_tag(CLIP_DATA_CHANNEL_TAG)
+
+    @property
+    def channel_count(self) -> int:
+        """Entries in the clip's tag-0x0F offset list, 0 when there is none (E-079)."""
+        return sum(len(block.offset_list) for block in self.channel_blocks)
+
+    @property
+    def channel_offset_ok(self) -> bool:
+        """Every tag-0x0F sub-block carries a valid offset list (E-079)."""
+        blocks = self.channel_blocks
+        return bool(blocks) and all(block.channel_offset_ok for block in blocks)
 
     def nested_preamble(self, min_records: int = CLIP_DATA_NESTED_MIN_RECORDS):
         """The nested preamble inside the tag-0x10 sub-block, or ``None`` (E-066)."""
