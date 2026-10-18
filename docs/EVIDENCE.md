@@ -1009,6 +1009,92 @@ Until that is resolved a **writer** is not possible.
 
 ---
 
+## E-052 — The localisation table is plain ASCII with `*id*` markers (G7)
+
+**Observation.** `R_LANG_EN.WAD` (456,432 bytes) carries a **plain-text** table,
+4,132 entries, ids `100..2222`, first marker at `0x11E5`, the last entry ending at
+`0x5BF34`. Every entry is::
+
+    *<id>*\r\n<body lines>\r\n
+
+`*20001*` for example reads `1`, `FALSE`, `Fear Kratos`, `heroImage01`, then a
+description. The file is ASCII only (no UTF-16) — confirmed earlier in E-020.
+
+**The character-name block is ids 818..842**, a contiguous run of single-line
+names (read directly with `tools/gow3/lang_list.py --around 830`):
+
+```
+*818* Tartarus      *826* Gates of Tisiphone   *834* Hermes
+*819* The Pit of…   *827* Poseidon             *835* Poseidon Princess
+*820* The Forum     *828* Challenge Complete   *836* Daedalus
+*821* Hera's Garden *829* Athena               *837* Pandora
+*822* The Labyrinth *830* Peirithous           *838* Cronos
+*823* Heart of Gaia *831* Hephaestus           *839* Zeus
+*824* Hera          *832* Hades                *840..* (further entries)
+*825* Hercules      *833* Helios
+```
+
+`*832*` is `"Hades"` at file offset **0x0000C4B3**, body `\r\nHades\r\n` — 9 bytes.
+
+**Inference.** The boss/character display name is a single text entry, so
+renaming the bar is a text edit, not a model edit. **But the length matters:**
+"Hades" is 5 bytes and "Vergil" is 6, so the body grows by one byte and the
+container's stored sizes (the `DC_` chunk size and everything after it) would need
+updating — **which needs the WAD writer**. A same-length swap (e.g. `Helios` →
+`Vergil`, both 6) *can* be done in place with no writer, and would validate the
+whole mod-delivery path.
+
+`lang.replace_exact_line()` implements exactly that: it refuses any replacement
+whose byte length differs, returning `None`, so it cannot silently corrupt sizes.
+
+**Unknown.** Whether the game reads this entry for the boss health bar (as opposed
+to a menu or bestiary label) — needs one in-game look.
+
+**Tooling.** `tools/gow3/lang.py` (`parse_entries`, `search`, `replace_exact_line`)
+and `tools/gow3/lang_list.py` (CLI); 15 unit tests on a synthetic table.
+
+---
+
+## E-053 — `eboot.bin` references the WAD/asset names; the record opcodes are numeric
+
+**Observation.** The command strings used inside a WAD — `GroupStart`, `GroupEnd`,
+`PopHeap`, `DC_`, `MDLX`, `TXRX` — are **not present in the executable** at all.
+But these are:
+
+```
+eboot.bin   WAD_ 0x2ED340   hfsm 0x3538AD   ms::tMove 0x352AA4
+            attachment:: 0x35150C   DEPENDENCY 0x332C56   .wad 0x35FD97
+```
+
+Mapping file offsets to virtual addresses through the prepared ELF's program
+headers (`out/eboot.elf`, entry `0x144070`, one executable `PT_LOAD` at
+`vaddr=0`, `filesz=0x3BD518`) and scanning for x86-64 RIP-relative references
+gives **94 cross-references**, including a contiguous cluster:
+
+| code address | references |
+|---|---|
+| `0x00100D49`, `0x00101F10`, `0x00101F33`, `0x001061D5`, `0x00108A74`, `0x00108B53` | `WAD_*` names |
+| **`0x0010BB24` … `0x0010D2B4`** (9 sites) | **`hfsm*`** |
+| `0x000ED578` | `ms::tMove` |
+| `0x000D0D94`, `0x000D0DCE`, `0x000DBF14` | `attachment::` |
+| `0x0011B576` … `0x0011C5B6` | `WAD_` |
+
+**Inference.** Two things follow. (1) The **record opcodes are numeric constants in
+code**, not strings, which is why the command names are absent — so a
+disassembler, not a string search, is the route to the exact record framing.
+(2) The nine `hfsm` references confirm independently that the **AI state machines
+are instantiated by name from data** (E-022), rather than compiled.
+
+**Unknown.** The actual parsing logic. Locating it means finding the numeric
+opcode constants in the code, which is the "engine ground truth" the DMC3
+byte-level work (E-050/E-051) was blocked on.
+
+**Note.** The `.wad`/`WAD_` string references are a promising entry point for
+finding the file loader, hence the container format.
+
+
+---
+
 ## E-026 — MOT keyframe group: first u16 is an offset-binary frame time (F4, first field)
 
 **Observation.** `pl021_00_9.pac`, slot 0 at file offset 0x10, size-prefixed `MOT\0`

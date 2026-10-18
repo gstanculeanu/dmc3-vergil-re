@@ -98,3 +98,24 @@ gh issue list --state open
 Do not spin. Comment the blocker on the issue, record what you learned in
 `docs/EVIDENCE.md` and `docs/JOURNAL.md`, and finish the iteration. A recorded
 dead end is a real result.
+
+## Engine ground truth (added 2026-10-18)
+
+The DMC3 byte-level path is blocked on things bytes cannot reveal (E-050, E-051).
+The **GoW3 executable is the ground truth** for the container side, and it is
+available locally:
+
+* `...\gow3\CUSA01715\eboot.bin` — the game's own x86-64 code.
+* `...\gow3-windows\out\eboot.elf` — the same image with program headers, so file
+  offsets map to virtual addresses (entry `0x144070`, executable load at
+  `vaddr=0`, `filesz=0x3BD518`).
+
+Approach that already worked (E-053): find a string, map its file offset to a
+vaddr, then scan for x86-64 RIP-relative references
+(`REX.W 8D/8B modrm=0x05 disp32`, target = `insn_va + 7 + disp32`) to locate the
+code that consumes it. 94 references were found this way.
+
+Note: the WAD **record opcodes are numeric**, so `GroupStart`/`PopHeap`/`DC_` do
+**not** appear as strings. Find the loader via the `.wad` / `WAD_` / `DEPENDENCY`
+references, then read the numeric constants.
+

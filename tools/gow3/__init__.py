@@ -47,11 +47,12 @@ from .wadgraph import (
     WadGraphRecord,
     RECORD_SENTINEL,
     TRAILER_CONSTANT,
-    parse,
-    parse_header,
-    parse_records,
+    parse as parse_wadgraph,
+    parse_header as parse_wadgraph_header,
+    parse_records as parse_wadgraph_records,
     record_name,
 )
+from . import lang
 
 __all__ = [
     "FIELD_OFFSETS",
@@ -92,10 +93,11 @@ __all__ = [
     "WadGraphRecord",
     "RECORD_SENTINEL",
     "TRAILER_CONSTANT",
-    "parse",
-    "parse_header",
-    "parse_records",
+    "parse_wadgraph",
+    "parse_wadgraph_header",
+    "parse_wadgraph_records",
     "record_name",
+    "lang",
 ]
 
 __version__ = "0.1.0"
