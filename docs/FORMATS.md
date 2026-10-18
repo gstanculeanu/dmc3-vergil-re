@@ -514,18 +514,36 @@ already obtained via Source .smd/.ascii (E-015); the body exists only as FLVER.
   7 * entry_index, u32_10, u32_14 = 48160 + 240 * index, u32_18 in 0..5,
   u32_1c == 0`. Verified on this file; every field meaning is [UNKNOWN].
   `u32_00` is a running offset whose step equals the previous entry's `u32_10`;
-  `u32_14` points at a `"GX**"` magic block (exact for entries 0, 2, 4, 5;
-  +4/+16 off for 1/3 — discrepancy not explained). Entry 0's `u32_00`
-  (0xC1C0) opens a UTF-16LE name string (`costume_parsn_...`).
+  `u32_14` points at a `"GX**"` magic block which starts a 240-byte GX group
+  (eight blocks: GX00, GX04, GX20, GX22, GX24, GX26, GX30, then a
+  0x7FFFFFFF sentinel — see §6.1, evidence E-041); exact for all six sections
+  in this file. Entry 0's `u32_00` (0xC1C0, immediately after group 5) opens a
+  UTF-16LE name string (`costume_parsn_...`).
 * Header +0x0C (61488 = 0xF030) points at u16 index-like data
   (25, 39, 0 / 25, 40, 39 …); header +0x10 (405520 = 0x63010) points at
   further record data. Whether header +0x18 (== 6) is the section count or
   header +0x24 (== 12) is the record count is [UNKNOWN].
-* The `"GX**"` block layout (verified at 0xBC20): `"GXNN"`, u32 100,
-  u32 44/64/24, u32 0; GX04 at 0xBC44 is additionally followed by u32 0 and
-  f32 data (5, 1, 0.5, 0 / 5, 0.5, 1, 0). The same sequence recurs at
-  0xBEF0, 0xBFE0, 0xC0D0, ending each group with an f32 0x7FFFFFFF sentinel.
-  All block-internal meanings [UNKNOWN].
+### 6.1 FLVER GX blocks — [PARTIAL structure / [UNKNOWN] semantics] (E-041)
+
+Each section's `u32_14` (48160 + 240 * section index in this file) points at a
+240-byte group of eight blocks. Every block is `u32 tag; u32 constant 100;
+u32 size; bytes payload` where the payload is `size - 12` bytes:
+
+| Block | Tag | Size | Payload (observed) |
+|---|---|---|---|
+| 0 | `GX00` | 44 | 32 zero bytes |
+| 1 | `GX04` | 64 | 12 zeros; f32s 5.0, 1.0, 0.5, 0.0, 5.0, 0.5, 1.0, 0.0; 8 zeros |
+| 2-6 | `GX20` … `GX30` | 24 each | 12 zero bytes each |
+| 7 | sentinel u32 0x7FFFFFFF | 12 | empty |
+
+44 + 64 + 5*24 + 12 == 240, matching the section-stride delta. All six groups
+in `BD_M_10100.flver` are byte-identical; what follows group 5 at 0xC1C0 is
+the UTF-16LE name string from section 0's `u32_00`, not another group. Every
+field meaning is [UNKNOWN]; the sentinel tag terminates the group. See
+E-041 for the raw bytes and the correction to E-040's imprecise
+"+4/+16 off" reading. `tools/priorart/flver.py` decodes this structure via
+`parse_flver_gx_groups()` (unit-tested on synthetic fixtures, no game data
+committed).
 
 `tools/priorart/flver.py` exposes `FlverHeader` / `parse_flver_header()`
 and `FlverSection` / `parse_flver_sections()`, decoding exactly this header

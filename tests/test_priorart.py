@@ -9,6 +9,9 @@ from priorart import (
     HEADER_SIZE,
     SECTION_SIZE,
     SECTION_TABLE_OFFSET,
+    parse_flver_gx_block,
+    parse_flver_gx_group,
+    parse_flver_gx_groups,
     parse_flver_header,
     parse_flver_sections,
     parse_ascii,
@@ -219,6 +222,98 @@ class TestFlverSection(unittest.TestCase):
         del data[SECTION_TABLE_OFFSET:]  # drop the whole table
         with self.assertRaises(FlverError):
             parse_flver_sections(bytes(data))
+
+
+class TestFlverGxBlock(unittest.TestCase):
+    def setUp(self):
+        self.group, self.next_offset = parse_flver_gx_group(fx.flver_gx_group(), 0)
+
+    def test_block_tags_match_real_observation(self):
+        self.assertEqual(
+            [b.tag for b in self.group.blocks],
+            [
+                b"GX00",
+                b"GX04",
+                b"GX20",
+                b"GX22",
+                b"GX24",
+                b"GX26",
+                b"GX30",
+                struct.pack("<I", 0x7FFFFFFF),
+            ],
+        )
+
+    def test_block_constant_is_100_everywhere(self):
+        self.assertTrue(all(b.constant == 100 for b in self.group.blocks))
+
+    def test_block_sizes_match_real_observation(self):
+        self.assertEqual(
+            [b.size for b in self.group.blocks], [44, 64, 24, 24, 24, 24, 24, 12]
+        )
+        self.assertEqual(sum(b.size for b in self.group.blocks), 240)
+
+    def test_group_consumes_exactly_240_bytes(self):
+        self.assertEqual(self.next_offset, 240)
+
+    def test_payloads_match_real_bytes(self):
+        blocks = self.group.blocks
+        self.assertEqual(blocks[0].payload, b"\x00" * 32)   # GX00
+        self.assertEqual(blocks[2].payload, b"\x00" * 12)   # GX20
+        self.assertEqual(blocks[6].payload, b"\x00" * 12)   # GX30
+        self.assertEqual(blocks[7].payload, b"")            # sentinel
+        gx04 = (
+            b"\x00" * 12
+            + struct.pack("<8f", 5.0, 1.0, 0.5, 0.0, 5.0, 0.5, 1.0, 0.0)
+            + b"\x00" * 8
+        )
+        self.assertEqual(blocks[1].payload, gx04)           # GX04
+
+    def test_truncated_header_raises(self):
+        with self.assertRaises(FlverError):
+            parse_flver_gx_block(b"\x00" * 8, 0)
+
+    def test_size_smaller_than_header_raises(self):
+        bad = b"GX00" + struct.pack("<II", 100, 8)  # size 8 < 12-byte header
+        with self.assertRaises(FlverError):
+            parse_flver_gx_block(bad, 0)
+
+    def test_block_overrun_raises(self):
+        bad = b"GX00" + struct.pack("<II", 100, 100)  # claims 100 bytes, has 13
+        with self.assertRaises(FlverError):
+            parse_flver_gx_block(bad, 0)
+
+
+class TestFlverGxGroup(unittest.TestCase):
+    def test_group_next_offset_lands_on_next_group(self):
+        document = fx.flver_gx_document()
+        group, next_offset = parse_flver_gx_group(document, 0x200)
+        self.assertEqual(next_offset, 0x2F0)
+        group2, next_offset2 = parse_flver_gx_group(document, 0x2F0)
+        self.assertEqual(group2, group)
+        self.assertEqual(next_offset2, 0x3E0)
+
+    def test_group_without_sentinel_raises(self):
+        document = bytearray(fx.flver_gx_document())
+        # wipe the sentinel tag of the first group
+        struct.pack_into("<I", document, 0x200 + 228, 0)
+        with self.assertRaises(FlverError):
+            parse_flver_gx_group(bytes(document), 0x200)
+
+
+class TestFlverGxGroups(unittest.TestCase):
+    def test_all_sections_resolve_to_groups(self):
+        document = fx.flver_gx_document()
+        groups = parse_flver_gx_groups(document)
+        self.assertEqual(len(groups), 6)
+        self.assertTrue(all(g == groups[0] for g in groups))
+
+    def test_section_u32_14_points_at_each_group(self):
+        document = fx.flver_gx_document()
+        expected_offsets = [0x200, 0x2F0, 0x3E0, 0x200, 0x2F0, 0x3E0]
+        groups = parse_flver_gx_groups(document)
+        for index, offset in enumerate(expected_offsets):
+            group, _ = parse_flver_gx_group(document, offset)
+            self.assertEqual(group, groups[index], f"section {index}")
 
 
 if __name__ == "__main__":

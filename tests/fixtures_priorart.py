@@ -68,6 +68,78 @@ def flver_sections() -> bytes:
     return bytes(blob)
 
 
+def _gx_block(tag: bytes, size: int, payload: bytes) -> bytes:
+    """One GX block: u32 tag, u32 100, u32 size, payload (size - 12 bytes)."""
+    assert len(payload) == size - 12
+    return tag + struct.pack("<II", 100, size) + payload
+
+
+def flver_gx_group() -> bytes:
+    """One 240-byte GX group mirroring real observations (E-041).
+
+    Layout at every section's ``u32_14`` in ``BD_M_10100.flver``:
+
+        GX00(44), GX04(64), GX20(24), GX22(24), GX24(24), GX26(24),
+        GX30(24), sentinel(12)  == 240 bytes
+
+    GX00/GX20..GX30 payloads are zero bytes; GX04's payload is 12 zeros,
+    eight little-endian f32s (5.0, 1.0, 0.5, 0.0, 5.0, 0.5, 1.0, 0.0),
+    8 zeros. Every field meaning is [UNKNOWN]; this fixture locks the
+    observed byte layout, not any interpretation of it.
+    """
+    gx04_payload = (
+        b"\x00" * 12
+        + struct.pack("<8f", 5.0, 1.0, 0.5, 0.0, 5.0, 0.5, 1.0, 0.0)
+        + b"\x00" * 8
+    )
+    sentinel_tag = struct.pack("<I", 0x7FFFFFFF)
+    return b"".join(
+        [
+            _gx_block(b"GX00", 44, b"\x00" * 32),
+            _gx_block(b"GX04", 64, gx04_payload),
+            _gx_block(b"GX20", 24, b"\x00" * 12),
+            _gx_block(b"GX22", 24, b"\x00" * 12),
+            _gx_block(b"GX24", 24, b"\x00" * 12),
+            _gx_block(b"GX26", 24, b"\x00" * 12),
+            _gx_block(b"GX30", 24, b"\x00" * 12),
+            _gx_block(sentinel_tag, 12, b""),
+        ]
+    )
+
+
+def flver_gx_document() -> bytes:
+    """A minimal FLVER document: header, six sections, three GX groups.
+
+    Mirrors ``BD_M_10100.flver`` observations (E-040/E-041): header ``u32_18
+    == 6`` selects six sections; each section's ``u32_14`` points at one of
+    three groups at 0x200 / 0x2F0 / 0x3E0 (sections 0/3, 1/4, 2/5 share
+    groups). Group bytes mirror :func:`flver_gx_group`. No field meaning is
+    assumed; the fixture locks the observed layout for parser tests.
+    """
+    blob = bytearray(flver_header())
+    blob.extend(b"\x00" * (6 * 0x20))  # section table at 0x80..0x140
+
+    def pad(target: int) -> None:
+        blob.extend(b"\x00" * (target - len(blob)))
+
+    sections = [
+        (49600, 0, 7, 0, 366, 0x200, 0, 0),
+        (49616, 0, 7, 7, 360, 0x2F0, 1, 0),
+        (49966, 0, 7, 14, 362, 0x3E0, 2, 0),
+        (50326, 0, 7, 21, 370, 0x200, 3, 0),
+        (50688, 0, 7, 28, 374, 0x2F0, 4, 0),
+        (51432, 0, 7, 35, 334, 0x3E0, 5, 0),
+    ]
+    for index, fields in enumerate(sections):
+        struct.pack_into("<8I", blob, 0x80 + index * 0x20, *fields)
+    pad(0x200)
+    group = flver_gx_group()
+    for base in (0x200, 0x2F0, 0x3E0):
+        assert len(blob) == base
+        blob.extend(group)
+    return bytes(blob)
+
+
 def smd_text(materials=None) -> str:
     """A small but structurally faithful ``version 1`` SMD.
 

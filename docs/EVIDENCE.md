@@ -1844,9 +1844,64 @@ these six entries.
 
 **Unknown.** Every field's meaning; whether entries are 32 bytes (count from
 +0x18) or 16-byte records (count candidate +0x24 == 12); whether u32_00 is a
-name-string offset and u32_10 a size; what the "GX**" blocks encode; the
-why u32_14 is exact for entries 0, 2, 4, 5 but +4/+16 off for entries 1/3.
-`tools/priorart/flver.py` exposes `FlverSection` / `parse_flver_sections()`
-decoding exactly this table from real bytes, exercised by unit tests on a
-synthetic fixture (no game data committed). The body mesh beyond the table
-remains [UNKNOWN]; T7b is advanced but not complete.
+name-string offset and u32_10 a size; what the "GX**" blocks encode.
+
+**Correction (superseded by E-041).** E-040 claimed u32_14 is "+4/+16 off" for
+sections 1 and 3; re-reading the bytes shows all six sections point exactly at
+a GX00 block at 48160 + 240*index. E-041 records the corrected reading.
+
+---
+
+## E-041 — FLVER GX blocks: seven tagged blocks + sentinel per 240-byte group (T7b)
+
+**Observation.** ``BD_M_10100.flver`` (467,008 bytes). Each section's
+``u32_14`` (48160 + 240 * index: 0xBC20, 0xBD10, 0xBE00, 0xBEF0, 0xBFE0,
+0xC0D0) points exactly at a 240-byte group of eight blocks. Every block opens
+with a 4-byte tag, then u32 100 (0x64), then u32 block size, then
+``size - 12`` payload bytes:
+
+| Block | Tag | Size | Payload (observed) |
+|---|---|---|---|
+| 0 | ``GX00`` | 44 | 32 zero bytes |
+| 1 | ``GX04`` | 64 | 12 zeros; f32s 5.0, 1.0, 0.5, 0.0, 5.0, 0.5, 1.0, 0.0; 8 zeros |
+| 2-6 | ``GX20``/``GX22``/``GX24``/``GX26``/``GX30`` | 24 each | 12 zero bytes each |
+| 7 | sentinel u32 0x7FFFFFFF | 12 | empty |
+
+44 + 64 + 5*24 + 12 == 240, matching the section-stride delta
+(u32_14 increases by 240 per section). All six groups are byte-identical.
+What follows group 5 at 0xC1C0 is the UTF-16 name string opened by section 0's
+u32_00 ("costume..."); no seventh group exists (the last "GX" magic in the
+file is at 0xC19C).
+
+Worked example — group 0 at 0xBC20 (all values little-endian):
+
+```
+0xBC20  47 58 30 30 64 00 00 00 2C 00 00 00   "GX00"  const=100  size=44
+        00 * 32                                payload: 32 zero bytes
+0xBC4C  47 58 30 34 64 00 00 00 40 00 00 00   "GX04"  const=100  size=64
+        00 00 00 00 00 00 00 00 00 00 00 00    payload: 12 zeros
+        00 00 A0 40 00 00 80 3F 00 00 00 3F    f32s: 5.0, 1.0, 0.5, 0.0
+        00 00 00 00 00 00 A0 40 00 00 00 3F    f32s: 5.0, 0.5, 1.0, 0.0
+        00 * 8                                 payload: 8 zeros
+0xBC8C  47 58 32 30 64 00 00 00 18 00 00 00   "GX20"  const=100  size=24
+        00 * 12                                payload: 12 zero bytes
+... GX22/GX24/GX26/GX30 identical, each size 24 ...
+0xBD04  FF FF FF 7F 64 00 00 00 0C 00 00 00   sentinel const=100 size=12
+```
+
+**Inference.** The section table's ``u32_14`` entries point at GX groups
+exactly (all six sections; E-040's "+4/+16 off" claim was imprecise and is
+corrected above). The 0x7FFFFFFF tag terminates a group. Tags are ASCII digit
+suffixes; their meaning is not established.
+
+**Unknown.** Meaning of every tag (GX00/GX04/GX20/GX22/GX24/GX26/GX30), of
+the constant 100, of every size field, and of every payload. The f32 run in
+GX04 is vector-like in magnitude but its meaning is not established. This is
+raw structure from one file, not a format spec.
+
+**Consequence.** `tools/priorart/flver.py` exposes `FlverGxBlock`,
+`FlverGxGroup`, `parse_flver_gx_block`, `parse_flver_gx_group` and
+`parse_flver_gx_groups`, decoding exactly this structure from real bytes;
+exercised by unit tests on synthetic fixtures (no game data committed). The
+body mesh layout beyond the GX groups remains [UNKNOWN]; T7b is advanced but
+not complete.

@@ -54,11 +54,14 @@ Observed structure (meanings all [UNKNOWN]): each 32-byte section reads as
 u32_00, u32_04, u32_08=7, u32_0c=7*section_index, u32_10, u32_14,
 u32_18=section_type (0..5), u32_1c=0. The u32_00 values form a running offset
 whose delta equals the previous section's u32_10 (49600, +366, +360, +362,
-+370, +374); u32_14 = 48160 + 240*index points at a "GX**" magic block
-(exact for sections 0, 2, 4, 5; within 4 bytes for 1 and 3). u32_10 of the
++370, +374); u32_14 = 48160 + 240*index points at a "GX**" magic block which
+starts a 240-byte GX group (eight blocks: GX00, GX04, GX20, GX22, GX24, GX26,
+GX30, then a 0x7FFFFFFF sentinel — layout in section 6.1, evidence E-041).
+Exact for all six sections in this file. u32_10 of the
 last section (334) equals header +0x1C — coincidence or not is not established.
-At u32_00 of section 0 (0xC1C0) a UTF-16 name string begins ("costume_parsn_...").
-Header +0x0C (61488 = 0xF030) points at u16 index data
+At u32_00 of section 0 (0xC1C0, immediately after group 5) a UTF-16 name
+string begins ("costume_parsn_..."). Header +0x0C (61488 = 0xF030) points at
+u16 index data
 (25, 39, 0 / 25, 40, 39 ...); header +0x10 (405520 = 0x63010) points at
 24-byte record data beginning 0, 0x7F7F7F7F, 0x004B0039...; header +0x10 +
 header +0x0C == file size (405520 + 61488 == 467008) — an inference, not an
@@ -200,3 +203,130 @@ def parse_flver_sections(data: bytes) -> List[FlverSection]:
         fields = struct.unpack_from("<8I", data, off)
         sections.append(FlverSection(*fields))
     return sections
+
+
+GX_BLOCK_HEADER_SIZE = 0x0C  # u32 tag + u32 constant + u32 size
+GX_BLOCK_CONSTANT = 0x64     # 100, observed in every block
+GX_GROUP_SIZE = 0xF0         # 240 bytes per group, observed 6/6 groups
+GX_SENTINEL_TAG = 0x7FFFFFFF  # group terminator, observed as the last tag
+
+
+@dataclass(frozen=True)
+class FlverGxBlock:
+    """One raw GX block.
+
+    Observed in ``BD_M_10100.flver`` at each section's ``u32_14`` group:
+
+        u32 tag        block tag, e.g. b"GX00"; the group terminator reads
+                       u32 0x7FFFFFFF                                      [UNKNOWN]
+        u32 constant   100 (0x64) in every block, sentinel included        [UNKNOWN]
+        u32 size       total block bytes including this 12-byte header      [UNKNOWN]
+        bytes payload  size - 12 bytes                                      [UNKNOWN]
+
+    Block sizes observed in this file: GX00 44, GX04 64, GX20/GX22/GX24/GX26/
+    GX30 24 each, sentinel 12 (44 + 64 + 5*24 + 12 == 240). Every field
+    meaning is [UNKNOWN].
+    """
+
+    tag: bytes      # 4 raw bytes                                        [UNKNOWN]
+    constant: int   # u32 == 100 observed everywhere                     [UNKNOWN]
+    size: int       # u32 total block size including the 12-byte header    [UNKNOWN]
+    payload: bytes  # size - 12 bytes                                      [UNKNOWN]
+
+
+@dataclass(frozen=True)
+class FlverGxGroup:
+    """One 240-byte GX group.
+
+    Observed layout at every section's ``u32_14`` in ``BD_M_10100.flver``:
+
+        GX00(44), GX04(64), GX20(24), GX22(24), GX24(24), GX26(24),
+        GX30(24), sentinel(12)  == 240 bytes
+
+    All six sections' groups are byte-identical in this file. What follows
+    the last group (section 0's u32_00 = 0xC1C0) is a UTF-16 name string,
+    not another group. Every field meaning is [UNKNOWN].
+    """
+
+    blocks: Tuple[FlverGxBlock, ...]  # seven tagged blocks + sentinel [UNKNOWN]
+
+
+def parse_flver_gx_block(data: bytes, offset: int) -> Tuple[FlverGxBlock, int]:
+    """Parse one GX block at ``offset``.
+
+    Layout: ``u32 tag; u32 constant (observed 100); u32 size; bytes payload``
+    where ``payload`` is ``size - 12`` bytes. Returns ``(block, next_offset)``.
+
+    Raises :class:`FlverError` on truncation, on a ``size`` smaller than the
+    12-byte header, or when the block overruns ``data``.
+    """
+    if offset + GX_BLOCK_HEADER_SIZE > len(data):
+        raise FlverError(
+            f"GX block header needs {GX_BLOCK_HEADER_SIZE} bytes at 0x{offset:04X}, "
+            f"got {len(data) - offset}"
+        )
+    tag = data[offset:offset + 4]
+    constant, size = struct.unpack_from("<II", data, offset + 4)
+    if size < GX_BLOCK_HEADER_SIZE:
+        raise FlverError(
+            f"GX block size {size} < header {GX_BLOCK_HEADER_SIZE} at 0x{offset:04X}"
+        )
+    end = offset + size
+    if end > len(data):
+        raise FlverError(
+            f"GX block at 0x{offset:04X} overruns data: size {size}, "
+            f"available {len(data) - offset}"
+        )
+    payload = data[offset + GX_BLOCK_HEADER_SIZE:end]
+    return (
+        FlverGxBlock(tag=tag, constant=constant, size=size, payload=payload),
+        end,
+    )
+
+
+def parse_flver_gx_group(data: bytes, offset: int) -> Tuple[FlverGxGroup, int]:
+    """Parse one GX group starting at ``offset``.
+
+    A group is a sequence of blocks terminated by the sentinel block whose tag
+    is u32 0x7FFFFFFF with size 12. Observed group size is 240 bytes with tags
+    GX00, GX04, GX20, GX22, GX24, GX26, GX30, then the sentinel.
+
+    Returns ``(group, next_offset)`` where ``next_offset`` is the first byte
+    after the sentinel block. Raises :class:`FlverError` on truncation or when
+    no sentinel terminates the group.
+    """
+    blocks: List[FlverGxBlock] = []
+    pos = offset
+    sentinel = struct.pack("<I", GX_SENTINEL_TAG)
+    for _ in range(8):  # seven tagged blocks + sentinel, observed 6/6 groups
+        block, pos = parse_flver_gx_block(data, pos)
+        blocks.append(block)
+        if block.tag == sentinel:
+            break
+    else:
+        raise FlverError(
+            f"no GX sentinel tag (0x7FFFFFFF) within 8 blocks at 0x{offset:04X}"
+        )
+    if blocks[-1].size != 12:
+        raise FlverError(
+            f"GX sentinel block size {blocks[-1].size} != 12 at 0x{offset:04X}"
+        )
+    if pos - offset != GX_GROUP_SIZE:
+        raise FlverError(
+            f"GX group at 0x{offset:04X} is {pos - offset} bytes, expected "
+            f"{GX_GROUP_SIZE}"
+        )
+    return FlverGxGroup(blocks=tuple(blocks)), pos
+
+
+def parse_flver_gx_groups(data: bytes) -> List[FlverGxGroup]:
+    """Parse the GX group referenced by each section's ``u32_14``.
+
+    Returns one :class:`FlverGxGroup` per section, in table order. Raises
+    :class:`FlverError` on truncation or a bad magic (via
+    :func:`parse_flver_sections`) or on a malformed group.
+    """
+    sections = parse_flver_sections(data)
+    return [
+        parse_flver_gx_group(data, section.u32_14)[0] for section in sections
+    ]
