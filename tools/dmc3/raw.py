@@ -277,6 +277,74 @@ def maybe_slot9_table(data: bytes) -> Optional[Slot9Table]:
         return None
 
 
+SLOT11_FLOAT_COUNT = 168
+"""Number of little-endian f32s observed in ``pl021.pac`` slot 11 (evidence E-090).
+
+The count comes from the single observed chunk (672 bytes / 4) and locks the
+observed layout, not a rule. Like slot 9 (E-062) the span is a flat headerless
+f32 array; every field meaning is [UNKNOWN].
+"""
+
+
+@dataclass(frozen=True)
+class Slot11Table:
+    """``pl021.pac`` slot 11 as a little-endian f32 array (evidence E-090).
+
+    Observed at file offset 0x0780B0 of ``pl021.pac`` (span 0x2A0, 672 bytes):
+    the entire span is ``SLOT11_FLOAT_COUNT`` little-endian f32s with no header,
+    no count field and no separator — the same shape as slot 9 (E-062). The
+    first twelve values read ``9, 9, 9, 9, 10, 270, 0, 5, 330, 0, 18, 10``
+    (all integral). 142 of the 168 values are non-zero (indices 0..144, with
+    interior zeros at 6, 9 and 58) and the last 23 (indices 145..167) are zero;
+    67 distinct values occur, the most common being 9.0 (26x) and 0.0 (26x).
+
+    No record framing is established from the bytes: for every candidate record
+    size dividing 168 (2, 3, 4, 6, 7, 8, 12, 14, 21, 24, 28, 42, 56) no column
+    is constant and no non-zero record repeats, so the "42 x f32[4]" /
+    "24 x 7" hypotheses floated for this slot are neither confirmed nor refuted
+    — the record boundary (if any) is [UNKNOWN]. The parser reads exactly the
+    observed layout and interprets nothing.
+    """
+
+    floats: tuple[float, ...]
+    """``SLOT11_FLOAT_COUNT`` little-endian f32s."""
+
+    @property
+    def nonzero_count(self) -> int:
+        """Number of non-zero f32s (observed 142)."""
+        return sum(1 for value in self.floats if value != 0.0)
+
+    @property
+    def trailing_zero_count(self) -> int:
+        """Number of zero f32s at the end of the array (observed 23)."""
+        count = 0
+        for value in reversed(self.floats):
+            if value != 0.0:
+                break
+            count += 1
+        return count
+
+    @classmethod
+    def parse(cls, data: bytes) -> "Slot11Table":
+        """Parse the slot-11 f32 array from ``data`` (chunk-relative bytes)."""
+        want = 4 * SLOT11_FLOAT_COUNT
+        if len(data) != want:
+            raise ValueError(
+                f"slot-11 array only {len(data)} bytes, need {want} "
+                f"({SLOT11_FLOAT_COUNT} f32s)"
+            )
+        floats = tuple(f32(data, 4 * index) for index in range(SLOT11_FLOAT_COUNT))
+        return cls(floats=floats)
+
+
+def maybe_slot11_table(data: bytes) -> Optional[Slot11Table]:
+    """Like :meth:`Slot11Table.parse` but returns ``None`` on bad input."""
+    try:
+        return Slot11Table.parse(data)
+    except ValueError:
+        return None
+
+
 SLOT6_RECORD_SIZE = 4
 """Size in bytes of one ``pl021.pac`` slot-6 record: ``u8 field_a``,
 ``u8 field_b``, ``u16 field_c``."""

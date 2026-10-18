@@ -2072,3 +2072,41 @@ moves and health bar and everything."*
   framing (672 bytes = 168 f32s, opening `10.0`); a bounded slice should test
   whether it is 42 x `f32[4]`, 24 x 7, or a headerless list. F1/F4 remain
   blocked on the engine route and are not re-spun.
+
+---
+
+## 2026-10-18 — F3 bounded slice: `pl021.pac` slot 11 is a flat 168-f32 array; no record framing recovered (E-090)
+
+- Did: picked up the previous journal's own "Next" — F3 slot 11, the last
+  untagged `pl021.pac` slot without a decoded framing (the Phase-1 critical path
+  F1/F4 stays blocked on the engine route and is not re-spun). Read real bytes
+  (read-only) from `pl021.pac` (`G:\Games\Devil May Cry HD Collection\data\dmc3\
+  GData.afs\pl021.pac`, 548,768 B): entry table puts slot 11 at file offset
+  `0x0780B0`, span `0x2A0` = 672 bytes. Added `Slot11Table` /
+  `maybe_slot11_table` and `SLOT11_FLOAT_COUNT` to `tools/dmc3/raw.py`, exported
+  from `dmc3`, added the synthetic `raw_chunk_slot11()` fixture and
+  `TestSlot11Table` (6 tests) in `tests/test_raw.py`. Full suite: **587 tests,
+  all green** (581 baseline + 6). Nothing written to the game; no game data
+  committed.
+- Found (**E-090**): the whole span is **168 little-endian f32s**, no header, no
+  count field, no separator — the same shape as slot 9 (E-062). Head verbatim
+  `9, 9, 9, 9, 10, 270, 0, 5, 330, 0, 18, 10`. **142/168 non-zero**; interior
+  zeros exactly at indices `6`, `9`, `58`; the **last 23 values (145..167) are
+  zero**; 67 distinct values (most common `9.0` 26x and `0.0` 26x, max `2000.0`,
+  min `−45.0`); indices `104..114` are the period-3 rotation `400, 350, 1000`.
+  **The framing is not recovered:** for every candidate record size dividing 168
+  (`2, 3, 4, 6, 7, 8, 12, 14, 21, 24, 28, 42, 56`) no column is constant and no
+  non-zero record of size 2/3/4/6/7/8 repeats, so the `42 × f32[4]`, `24 × 7`
+  and `21 × 8` readings are neither confirmed nor refuted — recorded honestly as
+  **[UNKNOWN]** rather than asserted.
+- **Correction recorded:** the previous journal's forward note said slot 11 opens
+  with `10.0`; the real first value is `9.0` (`0x41100000`, not `0x41200000`).
+- Docs: E-090 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §1.3 slot-11 bullet
+  rewritten (and the "corrects 10.0" note) and the decoded-slot summary updated;
+  `docs/BACKLOG.md` F3 row evidence cell adds E-090 and drops slot 11 from the
+  undecoded list (framing/meaning remain [UNKNOWN]).
+- Next: all nine untagged `pl021.pac` slots now have a decoded framing (0, 5, 6,
+  7, 9, 10, 11, 21, 22); what remains everywhere is **meaning**, which needs
+  engine ground truth (`dmc3.exe`) or a decoded peer artifact. F1/F4 stay blocked
+  on the engine route and are not re-spun; the GoW3R clip leaf keyframe encoding
+  (F9) is available and decodable from the file.

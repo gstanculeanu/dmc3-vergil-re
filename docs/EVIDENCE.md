@@ -5020,3 +5020,59 @@ The parser reads exactly the observed layout and interprets nothing;
 `trailing_slots_zero` expose the observed relations. Validated read-only against
 the real `pl021.pac` (all counts reproduced), locked by the synthetic
 `raw_chunk_slot7` fixture and `TestSlot7Table` (9 tests). No game data committed.
+
+---
+
+## E-090 — `pl021.pac` slot 11 is a flat 168-f32 array with no recovered record framing (F3, bounded slice)
+
+**Observation (read-only from
+`G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\pl021.pac`, 548,768 B).**
+The PAC entry table places slot 11 at file offset `0x0780B0` with span `0x2A0`
+(672 bytes). The whole span parses cleanly as **168 little-endian f32s** with no
+header, no count field and no separator — the same shape as slot 9 (E-062).
+Raw head (48 bytes at `0x0780B0`) and its values:
+
+```
+00 00 10 41 00 00 10 41 00 00 10 41 00 00 10 41
+00 00 20 41 00 00 87 43 00 00 00 00 00 00 a0 40
+00 00 a5 43 00 00 00 00 00 00 90 41 00 00 20 41
+```
+
+`9, 9, 9, 9, 10, 270, 0, 5, 330, 0, 18, 10`.
+
+* **Zero census.** `142/168` values are non-zero. The interior zeros are exactly
+  indices `6`, `9` and `58`; the **last 23 values (indices `145`..`167`) are
+  zero**, and value 144 is `15.0`. 26 zero values total (`168 − 142`).
+* **Value distribution.** 67 distinct values; the most common are `9.0` (26x)
+  and `0.0` (26x), then `45.0` (6x), `1000.0` (6x), `10.0` (5x), `100.0` (5x).
+  146/168 values are integral; the 22 fractional values are small — the largest
+  magnitude is `2000.0` (index 86), the most negative is `−45.0` (index 33) and
+  the smallest non-zero magnitude is `−0.02` (index 73).
+* **One local arithmetic run.** Indices `104`..`114` are the period-3 rotation
+  `400, 350, 1000, 400, 350, 1000, 400, 350, 1000, 400, 350` (`1000` also at
+  `117` and `115`). No other period-3 run of that width occurs.
+
+**Framing: not recovered (the point of the slice).** 168 = 2³·3·7, so every
+divisor was tested as a candidate record size (`2, 3, 4, 6, 7, 8, 12, 14, 21, 24,
+28, 42, 56`). For **none** of them is any column constant, and no non-zero record
+of size 2/3/4/6/7/8 repeats (only the all-`9` and all-zero rows repeat). So the
+hypotheses floated for this slot — **42 x `f32[4]`**, **24 x 7** (tempting, as the
+MOT bone count is 24) and **21 x 8** — are **neither confirmed nor refuted** from
+the bytes: the array may be headerless, or its records may be framed by a field
+whose meaning is not visible here. The record boundary (if any) is **[UNKNOWN]**.
+
+**Correction (this slice).** The journal's forward note described slot 11 as
+"672 bytes = 168 f32s, opening `10.0`"; the real first value is **`9.0`**
+(`0x41100000`, not `0x41200000`). Recorded so the earlier note is not reused.
+
+**Unknown.** What the array indexes (the F3 hypothesis is transforms, UV tables or
+primitive groups); whether the count is stored elsewhere; the meaning of `9.0`,
+`0.0`, `1000.0` and the period-3 run; and the framing itself. Engine ground truth
+(`dmc3.exe`) or a decoded peer artifact is needed.
+
+**Tooling.** `Slot11Table` / `maybe_slot11_table` in `tools/dmc3/raw.py` (plus
+`SLOT11_FLOAT_COUNT`), exported from `dmc3`. The parser reads exactly the observed
+layout and interprets nothing; `nonzero_count` and `trailing_zero_count` expose
+the observed census. Validated read-only against the real `pl021.pac` (all counts
+reproduced), locked by the synthetic `raw_chunk_slot11` fixture and
+`TestSlot11Table` (6 tests). No game data committed.

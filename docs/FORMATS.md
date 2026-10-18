@@ -81,8 +81,9 @@ its layout is undecoded.
 The other eight untagged slots (5, 6, 7, 9, 10, 11, 21, 22) have different
 leading bytes (E-008) — so no single header shape is shared across them.
 Slot 0's header (E-033), slot 5's segment stream (E-052), slot 6's record table
-(E-086), slot 7's vector-record table (E-089), slot 10's pair table (E-037) and
-slot 21's segment table (E-043) are decoded structurally; every field meaning
+(E-086), slot 7's vector-record table (E-089), slot 9's flat f32 array (E-062),
+slot 10's pair table (E-037), slot 11's flat f32 array (E-090) and slot 21's
+segment table (E-043) are decoded structurally; every field meaning
 remains [UNKNOWN]:
 
 * **slot 5** [PARTIAL structure / [UNKNOWN] semantics] — at file offset
@@ -138,9 +139,20 @@ remains [UNKNOWN]:
   `152–161`, each with a non-zero first component in vector slot 2.
   `field_00` behaving as a slot count and the slots as `(x, y, z, w)` are
   [INFERRED], not proven; every component meaning is [UNKNOWN].
-* **slot 11** — opens with the f32 `10.0` (`00 00 20 41`) and spans 672 bytes
-  = 168 f32s; it does not share slot 6's or slot 7's record framing. Layout
-  [UNKNOWN].
+* **slot 11** [structural / [UNKNOWN] semantics] — at file offset `0x0780B0`,
+  span `0x2A0` (672 bytes = **168 little-endian f32s**), no header, no count
+  field, no separator (evidence E-090) — the same shape as slot 9 (E-062). The
+  first twelve values read `9, 9, 9, 9, 10, 270, 0, 5, 330, 0, 18, 10`. **142**
+  values are non-zero; the interior zeros are exactly indices `6`, `9`, `58` and
+  the **last 23 values (indices `145`–`167`) are zero**; 67 distinct values, most
+  common `9.0` (26×) and `0.0` (26×), max `2000.0`, min `−45.0`. Indices
+  `104`–`114` are a period-3 rotation of `400, 350, 1000`. **No record framing is
+  recovered:** of every candidate size dividing 168 (`2, 3, 4, 6, 7, 8, 12, 14,
+  21, 24, 28, 42, 56`) none has a constant column and no non-zero record of size
+  2/3/4/6/7/8 repeats, so the `42 × f32[4]` / `24 × 7` / `21 × 8` readings are
+  neither confirmed nor refuted. **Corrects the earlier note** that the array
+  opens with `10.0`; the real first value is `9.0`. Layout beyond the flat f32
+  reading and every field meaning are [UNKNOWN].
 * **slot 22** [PARTIAL] — a **texture slot**: the shared descriptor of §1.4 at
   body+0x808 followed by an embedded `DXT1` DDS at body+0x870 (32×32, 1 mip,
   512-byte payload); the descriptor's relations to the DDS header are

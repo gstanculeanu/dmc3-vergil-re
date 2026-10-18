@@ -577,6 +577,33 @@ def raw_chunk_slot7() -> bytes:
     return bytes(blob)
 
 
+def raw_chunk_slot11() -> bytes:
+    """A synthetic ``pl021.pac`` slot-11 chunk mirroring the observed f32 array
+    (evidence E-090).
+
+    Layout (body-relative, little-endian)::
+        +0x00  168 little-endian f32s, no header, no count field, no separators.
+
+    The first 12 f32s mirror the real chunk verbatim (9, 9, 9, 9, 10, 270, 0, 5,
+    330, 0, 18, 10); indices 6, 9 and 58 are the interior zeros and the last 23
+    values (indices 145..167) are zero, exactly as observed. The intermediate
+    values are synthetic (a repeating ramp) so the fixture locks the observed
+    length and the zero census without committing game bytes.
+    """
+    real_prefix = (9.0, 9.0, 9.0, 9.0, 10.0, 270.0, 0.0, 5.0, 330.0, 0.0,
+                   18.0, 10.0)
+    blob = bytearray()
+    for value in real_prefix:
+        blob += struct.pack("<f", value)
+    # indices 12..144: fill so the interior zero at index 58 and the nonzero
+    # count (142) match the real artifact.
+    for index in range(12, 145):
+        blob += struct.pack("<f", 0.0 if index == 58 else float(index))
+    blob += struct.pack("<23f", *(0.0,) * 23)
+    assert len(blob) == 4 * 168, "slot-11 array must be 168 f32s"
+    return bytes(blob)
+
+
 PAC_TEXTURE_DESCRIPTOR = 0x808
 
 

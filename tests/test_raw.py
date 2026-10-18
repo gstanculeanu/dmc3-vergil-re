@@ -8,6 +8,7 @@ from dmc3.raw import (
     PAC_TEXTURE_DESCRIPTOR_OFFSET,
     SLOT0_HEADER_SIZE,
     SLOT10_PAIR_COUNT,
+    SLOT11_FLOAT_COUNT,
     SLOT21_SEPARATOR,
     SLOT5_SEGMENT_COUNT,
     SLOT6_RECORD_COUNT,
@@ -23,6 +24,7 @@ from dmc3.raw import (
     TM2_TEXTURE_DESCRIPTOR_OFFSET,
     maybe_raw_header,
     maybe_slot10_table,
+    maybe_slot11_table,
     maybe_slot21_table,
     maybe_slot5_table,
     maybe_slot6_table,
@@ -31,6 +33,7 @@ from dmc3.raw import (
     maybe_texture_chunk,
     RawHeader,
     Slot10Table,
+    Slot11Table,
     Slot21Table,
     Slot5Table,
     Slot6Record,
@@ -59,6 +62,10 @@ def slot5_data() -> bytes:
 
 def slot9_data() -> bytes:
     return fixtures.raw_chunk_slot9()
+
+
+def slot11_data() -> bytes:
+    return fixtures.raw_chunk_slot11()
 
 
 def slot6_data() -> bytes:
@@ -258,6 +265,69 @@ class TestSlot9Table(unittest.TestCase):
         with self.assertRaises(ValueError):
             Slot9Table.parse(slot9_data() + b"\x00\x00\x00\x00")
         self.assertIsNone(maybe_slot9_table(b"\x00" * 8))
+
+
+class TestSlot11Table(unittest.TestCase):
+    """Decoded slot-11 flat f32 array (E-090). All values are verbatim
+    observations from pl021.pac slot 11; every field meaning is [UNKNOWN] and is
+    only asserted, never interpreted."""
+
+    REAL_HEAD_HEX = (
+        "00001041000010410000104100001041"
+        "0000204100008743000000000000a040"
+        "0000a543000000000000904100002041"
+    )
+    """The first 12 f32s (48 bytes) at pl021.pac file offset 0x0780B0 (E-090)."""
+
+    REAL_TAIL_HEX = "00" * 24
+    """The last 6 f32s — the array's trailing 23 values are all zero (E-090)."""
+
+    def expected_head(self) -> tuple[float, ...]:
+        return struct.unpack("<12f", bytes.fromhex(self.REAL_HEAD_HEX))
+
+    def test_parses_slot_11_array(self):
+        table = Slot11Table.parse(slot11_data())
+        self.assertEqual(len(table.floats), SLOT11_FLOAT_COUNT)
+
+    def test_float_count_constant(self):
+        # The real chunk's span is 672 bytes = 168 f32s (E-090); the constant
+        # locks that observation without requiring every chunk to match it.
+        self.assertEqual(SLOT11_FLOAT_COUNT, 168)
+
+    def test_head_matches_real_bytes(self):
+        table = Slot11Table.parse(slot11_data())
+        for observed, want in zip(table.floats, self.expected_head()):
+            self.assertAlmostEqual(observed, want, places=6)
+
+    def test_zero_census_matches_real_bytes(self):
+        # 142 non-zero values; interior zeros at 6, 9 and 58; last 23 zero.
+        table = Slot11Table.parse(slot11_data())
+        self.assertEqual(table.nonzero_count, 142)
+        self.assertEqual(table.trailing_zero_count, 23)
+        zero_indices = [
+            index for index, value in enumerate(table.floats) if value == 0.0
+        ]
+        self.assertEqual(zero_indices, [6, 9, 58, *range(145, 168)])
+
+    def test_no_candidate_framing_has_a_constant_column(self):
+        # 168 factors checked in E-090; none gives a constant column, so no
+        # record boundary is established. This documents the negative.
+        table = Slot11Table.parse(slot11_data())
+        for size in (2, 3, 4, 6, 7, 8, 12, 14, 21, 24, 28, 42, 56):
+            self.assertEqual(len(table.floats) % size, 0)
+            columns = [table.floats[i::size] for i in range(size)]
+            self.assertFalse(
+                any(len(set(column)) == 1 for column in columns),
+                f"size {size} unexpectedly has a constant column",
+            )
+
+    def test_rejects_wrong_length(self):
+        # The parser requires exactly 4 * SLOT11_FLOAT_COUNT bytes.
+        with self.assertRaises(ValueError):
+            Slot11Table.parse(slot11_data()[:-4])
+        with self.assertRaises(ValueError):
+            Slot11Table.parse(slot11_data() + b"\x00\x00\x00\x00")
+        self.assertIsNone(maybe_slot11_table(b"\x00" * 8))
 
 
 class TestSlot6Table(unittest.TestCase):
