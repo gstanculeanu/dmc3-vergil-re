@@ -53,6 +53,14 @@ violating any of them can destroy the owner's data.
   directory outside the tree.
 * **No destructive git.** Never `push --force`, `reset --hard`, `clean -fdx`,
   `checkout`/`restore` files you did not change, or rewrite pushed history.
+* **Stage explicit paths. Never `git add -A` / `git add .`.** A second writer (the
+  owner) works in this tree at the same time, so a blanket add can sweep their
+  half-finished edits into your commit -- which is exactly how a red suite got
+  pushed on 2026-10-18 (commit `4ad9d2a`, corrected forward in `00e1a24`). Add only
+  the files you changed, by path.
+* **Run the suite before you commit, and confirm it is green at `HEAD` after
+  pushing.** If a test you did not write is failing, that is someone else's work in
+  progress: leave those files alone and say so, do not "fix" or revert them.
 * **Never delete or weaken a test to make it pass.** A failing test is a finding.
 * **Do not rewrite the whole project.** Small, reviewable commits.
 * **Do not invent format fields.** If unsure, mark `[UNKNOWN]` and file/refresh an
