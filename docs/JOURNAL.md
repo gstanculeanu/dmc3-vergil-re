@@ -1379,4 +1379,50 @@ moves and health bar and everything."*
   6/7/11/22 and the G9/G10 directory binding. F1/F4 remain blocked on DMC3-side
   engine ground truth and are not re-spun.
 
+---
+
+## 2026-10-18 — F9/G9 bounded slice: the record offsets name typed sub-blocks, one nesting a preamble (E-066)
+
+- Did: followed E-065's open question ("sub-block contents [UNKNOWN]") and read
+  the sub-blocks the preamble names, on all 123 clips of `R_HADES.WAD` (77) and
+  `R_HERCULES.WAD` (46), read-only from
+  `C:\Users\GigelCastel\Desktop\gow3\CUSA01715\EXEC\WAD\PS4_LE\`. Censused each
+  sub-block's 8-byte head by tag and scanned the tag-`0x10` block for a nested
+  E-064 preamble. Added `tag16_prefix_length()`, `find_nested_preamble()`,
+  `ClipSubBlock`, `ClipSubBlocks` and `parse_clip_sub_blocks()` plus the
+  `CLIP_DATA_TAG16` / `CLIP_DATA_TAG16_PREFIX_WORDS` / `CLIP_DATA_TAG16_STEP` /
+  `CLIP_DATA_TAG10` / `CLIP_DATA_NESTED_MIN_RECORDS` constants to
+  `tools/gow3/anim.py`; a purpose-built synthetic fixture and 10 tests
+  (`TestClipSubBlocks`) in `tests/test_gow3_anim.py`. Full suite: **389 tests,
+  all green** (379 baseline + 10).
+- Found (**E-066**):
+  - Each sub-block is addressed by exactly one preamble record, so the record's
+    **tag types the block**. The tag census separates them cleanly; the
+    tag-`0x16` sub-block has a **single** 8-byte head `00 00 30 00 60 00 90 00`
+    on 123/123 clips (every other tag has 8..130 distinct heads).
+  - The tag-`0x16` sub-block opens with exactly **128 u16 `0x30 * k`**
+    (`k = 0..127`, a 256-byte table spanning `0x1800`) on 123/123, the run
+    stopping at index 128 every time.
+  - The tag-`0x10` sub-block (the last, running to the clip's `end`, and the
+    largest at 4,676..244,068 B) contains a **nested data-section preamble** of
+    E-064's shape at a 16-byte-aligned offset 64..208 B in, on **122/123** clips.
+    Nested shapes observed: (5,5)×73, (5,7)×15, (4,5)×15, (6,5)×7, (5,4)×5,
+    (4,4)×5, (6,7), (4,7). Worked example `angryKratosWalk` nested at `+0x90`.
+  - **Exception recorded:** `attCestusCrush` (`R_HERCULES.WAD`, offset `0x76C34`)
+    has no qualifying nested preamble — an observation, not explained.
+- **Inference (marked):** the clip data section is **recursive** — E-065's offsets
+  are a directory of typed sub-blocks and the tag-`0x10` block nests the same
+  structure, so the leaf keyframe/curve encoding is reached by recursing into
+  these blocks rather than read off an opaque stream. Tag *meaning* stays
+  [UNKNOWN]; the tag→block typing is structural.
+- Validated read-only against both real archives: **123/123** `tag16_prefix_ok`,
+  **122/123** `nested_ok`. No game data committed (all fixtures synthetic).
+- Docs: E-066 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §7.7 gains a "typed
+  sub-blocks — [PARTIAL] (E-066)" subsection; `docs/BACKLOG.md` F9/G9 rows
+  updated. Committed and pushed; commented issues #24 and #36.
+- Next: recurse into the sub-blocks — the tag-`0x16` table's continuation past
+  index 128 and the nested preamble's own sub-blocks are the remaining F9 gap;
+  otherwise F3 slots 6/7/11/22 and the G9/G10 directory binding. F1/F4 remain
+  blocked on DMC3-side engine ground truth and are not re-spun.
+
 

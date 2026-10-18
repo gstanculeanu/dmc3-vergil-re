@@ -24,8 +24,11 @@ section beginning at +0x15C; E-064: the data section opens with a typed record
 preamble whose first record's tag and constant discriminator are E-061's two
 "markers"; E-065: each preamble record's last u16 is a 16-byte-aligned,
 strictly increasing **offset** into the clip's data section, and the first one
-is the preamble's own length rounded up). The *internal* clip encoding (bone
-channels, keyframes) is [UNKNOWN] and is not interpreted here.
+is the preamble's own length rounded up; E-066: those offsets name **typed
+sub-blocks** -- the sub-block a record points at is typed by that record's tag,
+the tag-0x16 sub-block always opens with 128 u16 ``0x30 * k``, and the tag-0x10
+sub-block contains a *nested* preamble of the same shape). The *internal* clip
+encoding (bone channels, keyframes) is [UNKNOWN] and is not interpreted here.
 """
 
 from __future__ import annotations
@@ -484,6 +487,158 @@ def maybe_clip_data_preamble(data: bytes,
         return parse_clip_data_preamble(data, offset)
     except (struct.error, ValueError):
         return None
+
+
+# The sub-blocks a preamble record points at are **typed by the record's tag**
+# (E-066). Two relations are verified on the 123 clips of R_HADES.WAD and
+# R_HERCULES.WAD (read-only):
+#   * the sub-block named by a tag-0x16 record always opens with exactly 128 u16
+#     `0x30 * k` (k = 0..127) -- a 256-byte table spanning 0x1800 (123/123);
+#   * the sub-block named by the last tail record (tag 0x10) contains a *nested*
+#     data-section preamble of E-064/E-065's shape, at a 16-byte-aligned offset
+#     64..208 bytes in (122/123; the exception is `attCestusCrush` in
+#     R_HERCULES.WAD).
+# Only those observed relations are exposed; the meaning of every tag and every
+# sub-block payload stays [UNKNOWN].
+CLIP_DATA_TAG16 = 0x16              # tag whose sub-block opens with the 128-entry table
+CLIP_DATA_TAG16_PREFIX_WORDS = 128  # u16 entries in that table, 123/123 clips
+CLIP_DATA_TAG16_STEP = 0x30         # the table's value at index k is step * k
+CLIP_DATA_TAG10 = 0x10              # tag whose sub-block holds the nested preamble
+CLIP_DATA_NESTED_MIN_RECORDS = 3    # min lead/tail for a nested parse (E-066)
+
+
+def tag16_prefix_length(payload: bytes) -> int:
+    """Count leading u16 where ``payload`` equals ``0x30 * k`` (E-066).
+
+    Scans from the sub-block's first byte and stops at the first u16 that differs
+    from ``CLIP_DATA_TAG16_STEP * k`` (or at a trailing odd byte). On all 123 real
+    clips the tag-0x16 sub-block yields exactly ``CLIP_DATA_TAG16_PREFIX_WORDS``.
+    """
+    length = 0
+    while 2 * (length + 1) <= len(payload):
+        value = struct.unpack_from("<H", payload, 2 * length)[0]
+        if value != CLIP_DATA_TAG16_STEP * length:
+            break
+        length += 1
+    return length
+
+
+def find_nested_preamble(payload: bytes,
+                         min_records: int = CLIP_DATA_NESTED_MIN_RECORDS
+                         ) -> Optional[tuple]:
+    """First nested data-section preamble in ``payload`` as ``(offset, preamble)``.
+
+    A candidate counts only when it parses strictly under E-064's rules *and* holds
+    at least ``min_records`` lead and tail records; the degenerate all-zero start
+    of a sub-block therefore cannot match. Returns ``None`` when nothing qualifies
+    (E-066: the tag-0x10 sub-block qualifies on 122/123 clips).
+    """
+    span = 2 * (CLIP_DATA_LEAD_WORDS * min_records + 3)
+    for offset in range(0, max(0, len(payload) - span), 2):
+        preamble = parse_clip_data_preamble(payload, offset)
+        if preamble is None:
+            continue
+        if (len(preamble.lead) >= min_records
+                and len(preamble.tail) >= min_records):
+            return offset, preamble
+    return None
+
+
+@dataclass(frozen=True)
+class ClipSubBlock:
+    """One sub-block named by a preamble record (E-065), typed by its tag (E-066).
+
+    ``payload`` holds the sub-block's bytes; ``size`` is its length in the file.
+    The tag/content relations are exposed as helpers, not as semantics: no field
+    of any sub-block is assigned a meaning.
+    """
+
+    tag: int        # the preamble record's tag that names this sub-block
+    offset: int     # absolute file offset of the sub-block
+    size: int       # bytes to the next sub-block, or to the clip end for the last
+    payload: bytes  # the sub-block's bytes
+
+    @property
+    def tag16_prefix_length(self) -> int:
+        """Leading ``0x30 * k`` run length (E-066)."""
+        return tag16_prefix_length(self.payload)
+
+    def nested_preamble(self, min_records: int = CLIP_DATA_NESTED_MIN_RECORDS):
+        """The nested preamble inside this sub-block, or ``None`` (E-066)."""
+        return find_nested_preamble(self.payload, min_records)
+
+
+@dataclass(frozen=True)
+class ClipSubBlocks:
+    """A clip's data section split into the sub-blocks its preamble names (E-066).
+
+    ``blocks`` is in file order and one entry per preamble record, so its tags
+    match ``ClipDataPreamble``'s records. The two verified relations are reported
+    as evidence: ``tag16_prefix_ok`` and ``nested_ok``.
+    """
+
+    offset: int      # the clip's data-section start
+    blocks: tuple    # ClipSubBlock, in file order
+
+    @property
+    def tags(self) -> tuple:
+        return tuple(block.tag for block in self.blocks)
+
+    def of_tag(self, tag: int) -> tuple:
+        """Every sub-block named by a record carrying ``tag`` (E-066)."""
+        return tuple(block for block in self.blocks if block.tag == tag)
+
+    @property
+    def tag16_prefix_ok(self) -> bool:
+        """The tag-0x16 sub-block opens with the 128-entry table (E-066, 123/123)."""
+        return any(block.tag == CLIP_DATA_TAG16
+                   and block.tag16_prefix_length >= CLIP_DATA_TAG16_PREFIX_WORDS
+                   for block in self.blocks)
+
+    def nested_preamble(self, min_records: int = CLIP_DATA_NESTED_MIN_RECORDS):
+        """The nested preamble inside the tag-0x10 sub-block, or ``None`` (E-066)."""
+        for block in self.of_tag(CLIP_DATA_TAG10):
+            found = block.nested_preamble(min_records)
+            if found is not None:
+                return found
+        return None
+
+    @property
+    def nested_ok(self) -> bool:
+        """A nested preamble sits in the tag-0x10 sub-block (E-066, 122/123)."""
+        return self.nested_preamble() is not None
+
+    def invariants(self) -> dict:
+        """The E-066 relations, each as a name -> bool. Evidence, not a verdict."""
+        return {"tag16_prefix": self.tag16_prefix_ok,
+                "nested_preamble": self.nested_ok}
+
+
+def parse_clip_sub_blocks(data: bytes, clip) -> Optional[ClipSubBlocks]:
+    """Split a clip's data section into the sub-blocks its preamble names (E-066).
+
+    Reads the preamble at ``clip.offset + CLIP_TAIL_END`` (E-064/E-065) and returns
+    one :class:`ClipSubBlock` per record, in file order. A block runs to the next
+    record's target, or to the clip's end (``clip.end``) for the last one. Returns
+    ``None`` when the preamble cannot be parsed or names no records; a target
+    outside the buffer yields an empty payload rather than raising.
+    """
+    data_offset = clip.offset + CLIP_TAIL_END
+    preamble = parse_clip_data_preamble(data, data_offset)
+    if preamble is None or not (preamble.lead or preamble.tail):
+        return None
+    records = tuple(preamble.lead) + tuple(preamble.tail)
+    targets = preamble.data_targets(data_offset)
+    end = clip.end
+
+    blocks = []
+    for index, (record, start) in enumerate(zip(records, targets)):
+        stop = targets[index + 1] if index + 1 < len(targets) else end
+        stop = min(stop, len(data))
+        payload = data[start:stop] if 0 <= start <= stop else b""
+        blocks.append(ClipSubBlock(tag=record.tag, offset=start,
+                                   size=max(0, stop - start), payload=payload))
+    return ClipSubBlocks(offset=data_offset, blocks=tuple(blocks))
 
 
 def _read_u32(data: bytes, offset: int) -> int:

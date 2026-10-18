@@ -911,3 +911,28 @@ The reader is `ClipDataRecord` / `ClipDataPreamble` /
 `increasing_ok`, `aligned_ok`, `first_offset_ok`, `data_targets()` and
 `invariants()`; it is strict (returns `None` on a wrong discriminator, a missing
 terminator or a truncated buffer) and asserts no field meaning.
+
+##### The offsets name **typed sub-blocks** — [PARTIAL] (E-066)
+
+Each offset names a sub-block, and the record's **tag types it**. Censused on all
+123 clips (read-only), two relations hold:
+
+| relation | result | note |
+|---|---|---|
+| tag-`0x16` sub-block opens with 128 u16 `0x30 * k` (`k = 0..127`, span `0x1800`) | **123/123** | the run stops exactly at index 128 every time |
+| tag-`0x10` sub-block contains a *nested* preamble of the E-064 shape | **122/123** | exception `attCestusCrush` (`R_HERCULES.WAD`); nested offset 64..208 B, 16-byte aligned |
+
+The tag-`0x16` sub-block is the only tag with a single 8-byte head across all clips
+(`00 00 30 00 60 00 90 00`). The tag-`0x10` block is the last one (it runs to the
+clip's `end`) and the largest; its nested preamble parses under E-064's strict
+rules with at least 3 lead *and* 3 tail records. Worked example `angryKratosWalk`,
+nested at `+0x90`: lead `(0x15,0x10,0x70) (0x16,0xD8,0x130) (0x18,0x78,0x7D0)
+(0x19,0x08,0xB70) (0x0B,0x8022,0xB90)`, `count` `0x75`, five tail records.
+
+**Meaning of every tag, and everything inside a sub-block, is [UNKNOWN]**, as is
+why `attCestusCrush` differs. The reader is `ClipSubBlock` / `ClipSubBlocks` /
+`parse_clip_sub_blocks()`, `tag16_prefix_length()`, `find_nested_preamble()` and
+the `CLIP_DATA_TAG16` / `CLIP_DATA_TAG16_PREFIX_WORDS` (128) /
+`CLIP_DATA_TAG16_STEP` (0x30) / `CLIP_DATA_TAG10` / `CLIP_DATA_NESTED_MIN_RECORDS`
+(3) constants; `ClipSubBlocks` reports `tag16_prefix_ok` / `nested_ok` as evidence
+only. The leaf keyframe/curve encoding is still the F9 gap.

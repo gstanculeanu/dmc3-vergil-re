@@ -466,5 +466,150 @@ class TestClipDataOffsets(unittest.TestCase):
         self.assertFalse(parsed.aligned_ok)
 
 
+SUB_CLIP_OFFSET = 0x40
+SUB_CLIP_SIZE = 0x600
+SUB_NESTED_REL = 0x40          # nested preamble offset inside the tag-0x10 block
+SUB_TAG16_REL = 0x70           # tag-0x16 sub-block offset from the data section
+SUB_TAG10_REL = 0x210          # tag-0x10 sub-block offset from the data section
+
+
+def sub_block_preamble_bytes() -> bytes:
+    """A padded preamble naming nine typed sub-blocks (E-066).
+
+    Values are strictly increasing multiples of 16 whose first entry is the
+    preamble's own length rounded up, as on the real clips (E-065).
+    """
+    disc = anim.CLIP_DATA_RECORD_DISCRIMINATOR
+    lead = [(0x15, 0x08, 0x60), (0x16, 0x100, SUB_TAG16_REL),
+            (0x18, 0x50, 0x180), (0x0B, 0x8039, 0x1A0)]
+    tail = [(0x1B, 0x8039, 0x1B0, 0x0), (0x1D, 0x31, 0x1D0, 0xC0),
+            (0x1E, 0x01, 0x1F0, 0x700), (0x0F, 0x05, 0x200, 0x0),
+            (0x10, 0x33, SUB_TAG10_REL, 0xC0)]
+    out = bytearray()
+    for tag, arg, value in lead:
+        out += struct.pack("<4H", tag, arg, disc, value)
+    out += struct.pack("<3H", 0, 0, 41)
+    for tag, arg, value, extra in tail:
+        out += struct.pack("<5H", tag, arg, disc, value, extra)
+    out += struct.pack("<H", 0)
+    return bytes(out)
+
+
+def sub_block_clip(name="subBlockClip") -> tuple:
+    """A synthetic clip whose sub-blocks carry the E-066 shapes.
+
+    The tag-0x16 sub-block opens with the 128-entry ``0x30 * k`` table and the
+    tag-0x10 sub-block holds a nested preamble at ``+0x40``.
+    """
+    data = bytearray(SUB_CLIP_OFFSET + SUB_CLIP_SIZE)
+    raw = name.encode("latin-1")
+    data[SUB_CLIP_OFFSET:SUB_CLIP_OFFSET + len(raw)] = raw
+    data_offset = SUB_CLIP_OFFSET + anim.CLIP_TAIL_END
+    preamble = sub_block_preamble_bytes()
+    data[data_offset:data_offset + len(preamble)] = preamble
+    # tag-0x16: exactly the 128 u16 the real clips carry (span 0x1800)
+    tag16 = data_offset + SUB_TAG16_REL
+    for k in range(anim.CLIP_DATA_TAG16_PREFIX_WORDS):
+        struct.pack_into("<H", data, tag16 + 2 * k, anim.CLIP_DATA_TAG16_STEP * k)
+    # tag-0x10: a nested preamble of the E-064 shape at +0x40
+    nested = clip_data_preamble_bytes(count=33)
+    tag10 = data_offset + SUB_TAG10_REL
+    data[tag10 + SUB_NESTED_REL:tag10 + SUB_NESTED_REL + len(nested)] = nested
+    clip = anim.Clip(index=0, name=name, offset=SUB_CLIP_OFFSET,
+                     span=SUB_CLIP_SIZE, size=SUB_CLIP_SIZE)
+    return bytes(data), clip
+
+
+class TestClipSubBlocks(unittest.TestCase):
+    """E-066: the preamble names typed sub-blocks with two verified relations."""
+
+    def setUp(self):
+        self.data, self.clip = sub_block_clip()
+        self.blocks = anim.parse_clip_sub_blocks(self.data, self.clip)
+        self.preamble = anim.parse_clip_data_preamble(
+            self.data, self.clip.offset + anim.CLIP_TAIL_END)
+
+    def test_blocks_match_the_preamble_records(self):
+        self.assertIsNotNone(self.blocks)
+        self.assertEqual(self.blocks.tags, self.preamble.lead_tags
+                         + self.preamble.tail_tags)
+        self.assertEqual(tuple(b.offset for b in self.blocks.blocks),
+                         self.preamble.data_targets(self.blocks.offset))
+        self.assertEqual(anim.CLIP_DATA_TAG16, 0x16)
+        self.assertEqual(anim.CLIP_DATA_TAG10, 0x10)
+
+    def test_sizes_reach_the_next_target_and_the_clip_end(self):
+        for first, second in zip(self.blocks.blocks, self.blocks.blocks[1:]):
+            self.assertEqual(first.offset + first.size, second.offset)
+        last = self.blocks.blocks[-1]
+        self.assertEqual(last.offset + last.size, self.clip.end)
+
+    def test_tag16_sub_block_opens_with_the_128_entry_table(self):
+        self.assertEqual(anim.CLIP_DATA_TAG16_PREFIX_WORDS, 128)
+        self.assertEqual(anim.CLIP_DATA_TAG16_STEP, 0x30)
+        block = self.blocks.of_tag(anim.CLIP_DATA_TAG16)[0]
+        self.assertEqual(block.tag16_prefix_length, 128)
+        self.assertTrue(self.blocks.tag16_prefix_ok)
+        # the table spans 0x30 * 128 == 0x1800
+        self.assertEqual(anim.CLIP_DATA_TAG16_STEP
+                         * anim.CLIP_DATA_TAG16_PREFIX_WORDS, 0x1800)
+
+    def test_tag10_sub_block_holds_a_nested_preamble(self):
+        self.assertEqual(anim.CLIP_DATA_NESTED_MIN_RECORDS, 3)
+        found = self.blocks.nested_preamble()
+        self.assertIsNotNone(found)
+        offset, nested = found
+        self.assertEqual(offset, SUB_NESTED_REL)
+        self.assertEqual(nested.count, 33)
+        self.assertTrue(self.blocks.nested_ok)
+        self.assertEqual(anim.CLIP_DATA_TAG10, 0x10)
+
+    def test_invariants_report_both_relations(self):
+        self.assertEqual(self.blocks.invariants(),
+                         {"tag16_prefix": True, "nested_preamble": True})
+
+    def test_tag16_prefix_length_stops_at_a_deviation(self):
+        table = b"".join(struct.pack("<H", 0x30 * k) for k in range(5))
+        self.assertEqual(anim.tag16_prefix_length(table), 5)
+        self.assertEqual(anim.tag16_prefix_length(table + struct.pack("<H", 1)), 5)
+
+    def test_nested_search_skips_a_degenerate_zero_start(self):
+        self.assertIsNone(anim.find_nested_preamble(b"\x00" * 64))
+        self.assertIsNone(anim.find_nested_preamble(b""))
+        # a real nested preamble is still found behind zero fill (the strict
+        # parser needs a few bytes of lookahead past the terminator)
+        nested = clip_data_preamble_bytes(count=41)
+        payload = b"\x00" * 32 + nested + b"\x00" * 16
+        found = anim.find_nested_preamble(payload)
+        self.assertIsNotNone(found)
+        self.assertEqual(found[0], 32)
+
+    def test_a_broken_relation_is_reported_not_raised(self):
+        blob = bytearray(self.data)
+        tag16 = self.blocks.offset + SUB_TAG16_REL
+        struct.pack_into("<H", blob, tag16 + 2, 0x1234)   # break the table
+        tag10 = self.blocks.offset + SUB_TAG10_REL
+        blob[tag10 + SUB_NESTED_REL:] = b"\x00" * (len(blob) - tag10 - SUB_NESTED_REL)
+        blocks = anim.parse_clip_sub_blocks(bytes(blob), self.clip)
+        self.assertFalse(blocks.tag16_prefix_ok)
+        self.assertFalse(blocks.nested_ok)
+        self.assertEqual(blocks.invariants(),
+                         {"tag16_prefix": False, "nested_preamble": False})
+
+    def test_no_preamble_returns_none(self):
+        blob = b"\x00" * (SUB_CLIP_OFFSET + SUB_CLIP_SIZE)
+        self.assertIsNone(anim.parse_clip_sub_blocks(blob, self.clip))
+
+    def test_a_target_beyond_the_buffer_yields_an_empty_payload(self):
+        data, _ = sub_block_clip()
+        truncated = data[:SUB_CLIP_OFFSET + 0x200]
+        blocks = anim.parse_clip_sub_blocks(truncated, self.clip)
+        self.assertIsNotNone(blocks)
+        last = blocks.blocks[-1]
+        self.assertEqual(last.tag, anim.CLIP_DATA_TAG10)
+        self.assertEqual(last.size, 0)
+        self.assertEqual(last.payload, b"")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3176,3 +3176,89 @@ the full suite is **379 tests, all green**. `docs/FORMATS.md` §7.7 and
 `docs/BACKLOG.md` F9/G9 are updated.
 
 
+## E-066 — GoW3R clip data section: the record offsets name **typed sub-blocks**, one of which nests a preamble (G9/F9, bounded slice)
+
+**Observation.** E-065 proved each preamble record's last u16 is a 16-byte-aligned
+offset into the clip's data section, but left the sub-block *contents* unknown.
+This slice reads those sub-blocks on **all 123 clips** (77 `R_HADES.WAD` + 46
+`R_HERCULES.WAD`, read-only from
+`C:\Users\GigelCastel\Desktop\gow3\CUSA01715\EXEC\WAD\PS4_LE\`) and censuses them.
+
+**A. The tag names the sub-block's kind.** Each sub-block is addressed by exactly
+one preamble record, so the record's tag types the block. The tag census (first
+eight bytes of every sub-block) separates the tags cleanly:
+
+| tag | n | distinct 8-byte heads | head (most common) |
+|---|---|---|---|
+| `0x15` | 123 | 8 | `10 01 c0 11 80 12 00 18` |
+| `0x16` | 123 | **1** | `00 00 30 00 60 00 90 00` |
+| `0x18` | 123 | 9 | `10 00 60 01 c0 01 f0 01` |
+| `0x0F` | 123 | 13 | `50 00 a0 01 20 03 50 03` |
+| `0x10` | 123 | 82 | `c0 0a 00 0a 10 09 b0 08` |
+| `0x0B` | 123 | 95 | `28 00 00 00 00 00 00 00` |
+
+The tag-`0x16` sub-block has a **single** head on 123/123 clips.
+
+**B. The tag-`0x16` sub-block opens with a fixed 128-entry table.** Its first
+128 u16 are exactly `0x30 * k` for `k = 0..127` — a 256-byte table spanning
+`0x1800` — on **123/123 clips**, with the run stopping at index 128 on every one
+of them. Raw head, `angryKratosWalk` (`R_HADES.WAD`, sub-block at `0x5C60`):
+
+```
+00 00 30 00 60 00 90 00 c0 00 f0 00 20 01 50 01   k=0..3
+...
+80 17 b0 17 e0 17 00 18 ...                        k=126,127 (0x17A0, 0x17D0)
+```
+
+(`0x1800 = 0x30 * 128` is the span the `00 18` fill values seen elsewhere carry.)
+
+**C. The tag-`0x10` sub-block contains a *nested* data-section preamble.** The
+tag-`0x10` block is the last one (it runs to the clip's `end`) and is the largest
+(4,676..244,068 bytes). Searching it with E-064's **strict** parser, requiring at
+least 3 lead *and* 3 tail records so a degenerate all-zero start cannot match,
+finds exactly one nested preamble at a **16-byte-aligned offset 64..208 bytes in,
+on 122/123 clips**. Worked example, `angryKratosWalk` (block at `0x6D30`, nested
+at `+0x90`):
+
+```
+file +0x6DC0: 15 00 10 00 0c 00 70 00 16 00 d8 00 0c 00 30 01
+             18 00 78 00 0c 00 d0 07 19 00 08 00 0c 00 70 0b
+             0b 00 22 80 0c 00 90 0b 00 00 00 00 75 00 1b 00
+             22 80 0c 00 c0 0b 00 00 1d 00 04 00 0c 00 70 0e ...
+```
+
+lead `(0x15,0x10,0x70) (0x16,0xD8,0x130) (0x18,0x78,0x7D0) (0x19,0x08,0xB70)
+(0x0B,0x8022,0xB90)` (`0x19` is a lead tag not seen at the outer level), terminator,
+`count = 0x75 = 117`, then five tail records — the same E-064 shape. The nested
+shapes observed are `(5,5)` (73), `(5,7)` (15), `(4,5)` (15), `(6,5)` (7),
+`(5,4)` (5), `(4,4)` (5), `(6,7)` (1), `(4,7)` (1).
+
+**The single exception:** `attCestusCrush` (`R_HERCULES.WAD`, offset `0x76C34`)
+has no qualifying nested preamble in its tag-`0x10` sub-block. Recorded as an
+observation, not explained.
+
+**Inference.** The clip data section is **recursive**: E-065's offsets are a
+directory of typed sub-blocks, and the tag-`0x10` sub-block is (or contains) a
+nested data section of the same kind. That makes the keyframe/curve encoding a
+matter of recursing into these sub-blocks rather than an opaque byte stream. The
+tag→block typing is structural (tag `0x16`'s one head on 123/123 is the strong
+form) but the *meaning* of every tag is still unproven.
+
+**Unknown.** What any sub-block holds; what the tags, `arg`, `extra` and `count`
+mean; why `attCestusCrush` differs; and the leaf keyframe/curve encoding, which is
+still the F9 gap. No pointer or type semantics beyond "offset" (E-065) and "typed
+by tag" (this entry) are claimed.
+
+**Consequence.** `tools/gow3/anim.py` gains `tag16_prefix_length()`,
+`find_nested_preamble()`, `ClipSubBlock`, `ClipSubBlocks` and
+`parse_clip_sub_blocks()`, plus `CLIP_DATA_TAG16` / `CLIP_DATA_TAG16_PREFIX_WORDS`
+= 128 / `CLIP_DATA_TAG16_STEP` = 0x30 / `CLIP_DATA_TAG10` /
+`CLIP_DATA_NESTED_MIN_RECORDS` = 3. `ClipSubBlocks` reports the two relations as
+`tag16_prefix_ok` / `nested_ok` (evidence, not a verdict). 10 new unit tests
+(`TestClipSubBlocks`) run on a synthetic clip whose sub-blocks carry the observed
+shapes; no game data is committed. The reader exercised read-only against both
+real archives gives **123/123** `tag16_prefix_ok` and **122/123** `nested_ok`.
+The full suite is **389 tests, all green**. `docs/FORMATS.md` §7.7 and
+`docs/BACKLOG.md` F9/G9 are updated.
+
+
