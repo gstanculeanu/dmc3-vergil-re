@@ -234,3 +234,14 @@ Do not guess. When Phase 3 starts, apply the same loop used for DMC3: locate the
 container, record bytes, decode the header, validate against multiple files, then
 write the spec before writing the exporter. See `FORMATS.md` for the template and
 `EVIDENCE.md` for the ledger format.
+
+### Engine ground truth (E-053, E-056)
+
+The WAD **record opcodes are numeric constants in code** (E-053), so the container
+loader cannot be found by searching the executable for opcode names. The route is
+the reverse: the prepared image `out/eboot.elf` carries program headers that map
+file offsets to virtual addresses (`vaddr = file_offset − 0x4000` in the
+executable segment), and `tools/gow3/eboot.py` lists the code that references a
+named loader string (`WAD_`, `hfsm`, `DEPENDENCY`, `.wad`). That code is where the
+numeric opcodes and the directory→bulk binding live — the remaining [UNKNOWN] for
+G9/G10.

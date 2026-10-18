@@ -1092,7 +1092,7 @@ byte-level work (E-050/E-051) was blocked on.
 **Note.** The `.wad`/`WAD_` string references are a promising entry point for
 finding the file loader, hence the container format.
 
-**Correction (E-055).** The scan pattern is `(modrm & 0xC7) == 0x05`
+**Correction (E-056).** The scan pattern is `(modrm & 0xC7) == 0x05`
 (any RIP-relative `lea`/`mov`), not `modrm == 0x05`; and inside the executable
 segment `vaddr = file_offset - 0x4000`. `tools/gow3/eboot.py` implements the
 corrected scan and reproduces the 94 references above.
@@ -1201,7 +1201,7 @@ verifies texture hashes.
 
 ---
 
-## E-055 — `eboot.elf`: file↔vaddr mapping and a reusable RIP-relative reference scanner
+## E-056 — `eboot.elf`: file↔vaddr mapping and a reusable RIP-relative reference scanner
 
 **Observation.** `C:\Users\GigelCastel\Desktop\gow3\gow3-windows\out\eboot.elf`
 (4,597,471 bytes) is a 64-bit little-endian ELF: `e_entry = 0x144070`, program

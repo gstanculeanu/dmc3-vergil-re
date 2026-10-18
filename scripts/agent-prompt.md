@@ -106,14 +106,16 @@ The **GoW3 executable is the ground truth** for the container side, and it is
 available locally:
 
 * `...\gow3\CUSA01715\eboot.bin` — the game's own x86-64 code.
-* `...\gow3-windows\out\eboot.elf` — the same image with program headers, so file
-  offsets map to virtual addresses (entry `0x144070`, executable load at
-  `vaddr=0`, `filesz=0x3BD518`).
+* `...\gow3\gow3-windows\out\eboot.elf` — the same image with program headers, so
+  file offsets map to virtual addresses (entry `0x144070`; the executable load is
+  `p_offset=0x4000`, `vaddr=0`, `filesz=0x3BD518`, so `vaddr = file_offset-0x4000`).
 
-Approach that already worked (E-053): find a string, map its file offset to a
-vaddr, then scan for x86-64 RIP-relative references
-(`REX.W 8D/8B modrm=0x05 disp32`, target = `insn_va + 7 + disp32`) to locate the
-code that consumes it. 94 references were found this way.
+Approach that already worked (E-053, corrected in E-056): find a string, map its
+file offset to a vaddr, then scan for x86-64 RIP-relative references
+(`[REX 0x40..0x4F] 8D/8B`, ModRM `(modrm & 0xC7) == 0x05`, `disp32`; target =
+`insn_va + insn_len + disp32`, `insn_len` 7 with REX, 6 without) to locate the code
+that consumes it. 94 references were found this way; `tools/gow3/eboot.py` performs
+the mapping and scan.
 
 Note: the WAD **record opcodes are numeric**, so `GroupStart`/`PopHeap`/`DC_` do
 **not** appear as strings. Find the loader via the `.wad` / `WAD_` / `DEPENDENCY`

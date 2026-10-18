@@ -1076,3 +1076,33 @@ moves and health bar and everything."*
 - Next: F3 slots 6/7/9/11/22 remain undecoded; every Phase 1 format
   critical-path item (F1/F4/F2/F5/F6/F8) stays blocked on engine ground
   truth and is deliberately not re-spun.
+
+---
+
+## 2026-10-18 — G9/G10: eboot ground-truth scanner shipped (E-056)
+
+- Did: codified E-053's ad-hoc method as `tools/gow3/eboot.py` — 64-bit ELF
+  program-header parsing, file↔vaddr mapping, string lookup, and a RIP-relative
+  `lea`/`mov` reference scanner — with `tests/test_gow3_eboot.py` (17 tests on a
+  synthetic ELF, no game data committed). Validated read-only against
+  `C:\Users\GigelCastel\Desktop\gow3\gow3-windows\out\eboot.elf` (4,597,471 B).
+  Full suite: **295 tests, all green**.
+- Found (**E-056**): exactly one executable `PT_LOAD` (`p_offset 0x4000`,
+  `p_vaddr 0`, `p_filesz 0x3BD518`, `R|X`), so inside the code segment
+  `vaddr = file_offset − 0x4000` — *not* `vaddr == file_offset`; the string
+  tables sit in a read-only load at `p_offset 0x3C4000` / `vaddr 0x3C0000`.
+  Scanning with the correct RIP-relative form (`(modrm & 0xC7) == 0x05`) finds
+  26,706 references and reproduces E-053 exactly: **94** refs to the 49
+  loader-string vaddrs — 9 `hfsm` (same cluster `0x10BB24…0x10D2B4`),
+  `ms::tMove` at `0xED578`, 3 `attachment::`.
+- **Correction to E-053:** the operand pattern is not `modrm == 0x05`. The first
+  `WAD_` reference E-053 listed, `0x100D49`, is `48 8d 3d 06 04 25 00` =
+  `lea rdi, [rip + 0x250406]` (ModRM `0x3D`), targeting the `WAD_` string at
+  `0x351156`; a literal `modrm == 0x05` scan misses it. Also corrected the
+  `eboot.elf` path and the pattern in `scripts/agent-prompt.md`.
+- Docs: E-056 in `docs/EVIDENCE.md` plus a correction note at the end of E-053;
+  `docs/FORMATS.md` §7.6; `docs/GOW3.md` Method → "Engine ground truth";
+  `docs/BACKLOG.md` G9/G10 rows; `scripts/agent-prompt.md`.
+- Next: read the code the `WAD_` / `hfsm` references point at to recover the
+  **numeric record opcodes** and the directory→bulk binding (G9/G10) — the loader
+  is now locatable. F1/F4 stay blocked on DMC3-side engine ground truth.

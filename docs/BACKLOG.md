@@ -50,7 +50,7 @@ Labels used: `re`, `tooling`, `format`, `phase-1`, `phase-2`, `phase-3`, `blocke
 | # | Title | Status |
 |---|---|---|
 | G1 | Locate GoW3R character asset containers in `CUSA01715` | **answered** (E-016): per-entity `R_*.WAD` in `EXEC/WAD/PS4_LE/` |
-| G9 | Decode the `R_*.WAD` container and the `WadGraph` manifest | E-016, E-022–E-025, E-044 | open — directory structure decoded (record stream; 16 typed resource groups in fixed order; `DC_` footer chunks 0 or 6; marker length resolved via `round_up(resource size, 16)`, E-025); **bulk header at `0xD80` decoded on 2 files**; **`DC_` id `0x10` table structure decoded** (header u32s + `(flag, offset, value)` triplets + NUL string pool of script/FX object names — E-044 on `R_SWORD00.WAD`); entry→resource/object binding, `flag`/`offset`/`value` semantics, and the `WadGraph` name→WAD binding [UNKNOWN]; no writer yet — **critical path** |
+| G9 | Decode the `R_*.WAD` container and the `WadGraph` manifest | E-016, E-022–E-025, E-044, E-056 | open — directory structure decoded (record stream; 16 typed resource groups in fixed order; `DC_` footer chunks 0 or 6; marker length resolved via `round_up(resource size, 16)`, E-025); **bulk header at `0xD80` decoded**; **`DC_` id `0x10` table structure decoded** (header u32s + `(flag, offset, value)` triplets + NUL string pool of script/FX object names — E-044 on `R_SWORD00.WAD`); **named-blob descriptors** now decoded on `R_LANG_EN.WAD` (E-054); entry→resource/object binding, `flag`/`offset`/`value` semantics, and the `WadGraph` name→WAD binding [UNKNOWN]; **eboot ground-truth scanner available** (`tools/gow3/eboot.py`, E-056) to locate the numeric record opcodes / loader — no writer yet — **critical path** |
 | G8 | Can a **new** entity be added, or must Vergil replace a boss? | open — **critical path** |
 | G2 | Reverse GoW3R's model/material container | blocked by G9 |
 | G3 | Decide retarget vs standalone mesh for the replaced boss's rig | open |
@@ -58,7 +58,7 @@ Labels used: `re`, `tooling`, `format`, `phase-1`, `phase-2`, `phase-3`, `blocke
 | G5 | Package as a `gow3_pc` mod and verify the encounter in the port | blocked by G4 |
 | G6 | Choose the sword-wielding **boss** Vergil replaces (inherits the health bar) | **ANSWERED: Hades** — save `SD-261017161301` (`Hades' Palace`, 1:43:35) sits immediately before the fight. `R_HADES.WAD` (85,727,632 B) + AI `HDS675AI1HADES.WAD` (47,136 B) |
 | G7 | Confirm the boss health bar, and try to rename it to "Vergil" | **mechanism confirmed** (E-020): the name is the string `Hades` in `R_LANG_EN.WAD`; needs one in-game check at the locked save |
-| G10 | Decode the `WadGraph` registry: bind names to WADs; test a `Stub_` slot | open — **critical path for a *new* boss** (E-021, E-045: registry structure decoded — 2,617 name records, header, constant sentinel/trailer; `name_offset`→string relation [UNKNOWN]; name→WAD binding still [UNKNOWN]) |
+| G10 | Decode the `WadGraph` registry: bind names to WADs; test a `Stub_` slot | E-021, E-045, E-056 | open — **critical path for a *new* boss** (E-021, E-045: registry structure decoded — 2,617 name records, header, constant sentinel/trailer; `name_offset`→string relation [UNKNOWN]; name→WAD binding still [UNKNOWN]); the eboot reference scanner (`tools/gow3/eboot.py`, E-056) is the ground-truth route to the loader that consumes the registry |
 
 ## Research / hygiene
 

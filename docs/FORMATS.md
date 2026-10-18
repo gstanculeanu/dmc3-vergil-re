@@ -728,3 +728,19 @@ needed; issue G10 stays open.
 `record_name()`, decoding exactly the observed layout from real bytes and
 claiming no semantics (unit-tested on synthetic fixtures, no game data
 committed).
+
+### 7.6 The `eboot.elf` image: file↔vaddr mapping and reference scanning (E-056)
+
+`out/eboot.elf` (4,597,471 B) is a 64-bit little-endian ELF with `e_entry
+0x144070` and one executable `PT_LOAD`: `p_offset 0x4000`, `p_vaddr 0`,
+`p_filesz 0x3BD518`, flags `R|X`. Inside that segment `vaddr = file_offset −
+0x4000`; the string tables sit in a read-only `PT_LOAD` at `p_offset 0x3C4000` /
+`p_vaddr 0x3C0000`. A RIP-relative `lea`/`mov` operand is `[REX 0x40..0x4F]`
+`8D|8B`, then a ModRM with `(modrm & 0xC7) == 0x05`, then `disp32`, and targets
+`insn_va + insn_len + disp32` (`insn_len` 7 with a REX prefix, 6 without).
+
+The WAD **record opcodes are numeric** (E-053), so the loader is not findable by
+opcode name. `tools/gow3/eboot.py` maps addresses and lists the code that
+references a named string (`WAD_`, `hfsm`, `DEPENDENCY`, `.wad`), which is the
+route to the numeric constants. `[UNKNOWN]`: the loader logic and the
+directory→bulk binding (G9/G10).

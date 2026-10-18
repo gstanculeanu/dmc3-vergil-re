@@ -52,9 +52,11 @@ from .wadgraph import (
     parse_records as parse_wadgraph_records,
     record_name,
 )
+from . import eboot
 from . import lang
 
 __all__ = [
+    "eboot",
     "FIELD_OFFSETS",
     "FIELD_SIZE",
     "PARAM_SIZE",
