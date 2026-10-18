@@ -4128,3 +4128,108 @@ MOD/MOT decoders (F1/F4) are unchanged.
 **Consequence.** `tools/dmc3/pe.py` gains `PeImage.absolute_pointers_to` and
 `PeImage.pointer_array` (plus `POINTER_SIZE`), with 9 tests in
 `tests/test_dmc3_pe.py`. No game data committed.
+
+
+## E-078 - DMC3 `dmc3.exe`: the asset-name table is four categories indexed by a u16 pair from a data-driven record (F1/F4 route, bounded slice)
+
+**Observation (read-only from `G:\Games\Devil May Cry HD Collection\dmc3.exe`,
+6,356,432 B).** This slice followed E-077's stated next step: find the caller of
+the accessor at `.text` `0x334E1` and what supplies its index register `edx`.
+
+**1. The accessor is one arm of a four-way category dispatcher.** The bytes at
+`.text` `0x33480` are a small switch on `ecx`; each arm indexes a different
+`char*` table with `edx` and jumps to the common tail `.text` `0x333F0`:
+
+```
+0x33480  85 C9                    test ecx, ecx
+0x33482  74 5D                    je   0x334E1        ; ecx == 0
+0x33484  83 E9 01                 sub  ecx, 1
+0x33487  74 3F                    je   0x334C8        ; ecx == 1
+0x33489  83 E9 01                 sub  ecx, 1
+0x3348C  74 21                    je   0x334AF        ; ecx == 2
+0x3348E  83 F9 01                 cmp  ecx, 1
+0x33491  75 19                    jne  0x334AC        ; else -> xor eax,eax ; ret
+0x33493  48 63 CA                 movsxd rcx, edx     ; ecx == 3
+0x33496  48 8D 05 63 CB FC FF     lea  rax, [rip-0x3349D]   ; -> RVA 0 (module base)
+0x3349D  33 D2                    xor  edx, edx
+0x3349F  48 8B 8C C8 90 AE 55 00  mov  rcx, [rax + rcx*8 + 0x55AE90]
+0x334A7  E9 44 FF FF FF           jmp  0x333F0
+```
+
+The four arms load ``[module_base + 8*edx + base]`` with the bases
+
+| `ecx` | base | head of the table |
+|---|---|---|
+| 0 | `0x553050` | `pl000.pac`, `pl011.pac`, … (`pl021.pac` is index 8) |
+| 1 | `0x55A920` | `Battle_00.adx`, `Boss_01.adx`, … (`Versil_01..03.adx`) |
+| 2 | `0x55ADF0` | `Title.sfd`, `GameOver*.sfd`, `Omake*.sfd`, `ZZZ.sfd` |
+| 3 | `0x55AE90` | `m99_s00.sfd`, …, `GDataX360.afs/`, `GData.afs/`, `Video/`, `afs/sound/`, `SAVEDATA/` |
+
+So E-077's "asset-name table indexed by an integer id" is refined: the
+reference is a **pair** `(category, index)` and the id is a **u16**.
+
+**2. The tables are sub-ranges of two contiguous pointer runs.** The bases are
+`0x78D0`, `0x4D0`, `0xA0` and (after a NUL) `0x98` apart, giving the counts
+below; the third run is terminated by the NULL at `0x55AE88` that
+`pointer_array(0x553050)` already stopped at in E-077, and the whole block ends
+at `.data` `0x55AF28`:
+
+| category | base | next base / terminator | count |
+|---|---|---|---|
+| 0 | `0x553050` | `0x55A920` | **3866** |
+| 1 | `0x55A920` | `0x55ADF0` | **154** |
+| 2 | `0x55ADF0` | `0x55AE88` (NULL) | **19** |
+| 3 | `0x55AE90` | `0x55AF28` | **19** |
+
+The head/tail of each run was read back through the new resolver (below): the
+first run is `pl000.pac` … `endof.afs`, the second `Battle_00.adx` …
+`Versil_01.adx`, `Versil_02.adx`, `Versil_03.adx`, `ZZZ.adx`, the third
+`Title.sfd` … `ZZZ.sfd`, the fourth `m99_s00.sfd` … `SAVEDATA/` (its last slot
+resolves to the E-077 padding target `0x36C355`, i.e. no name).
+
+**3. The index pair comes from a 0x88-byte data-driven record.** The dispatcher
+has exactly **one** direct `call` site: `.text` `0x2EF7F7`, inside
+`0x2EF790`. That function walks an array of **0x88-byte** records
+(`imul rbx, [rdx+4], 0x88` + `add rbx, [rdx+0x10]`) and, when the record's dword
+type is `1`:
+
+```
+0x2EF7E8  mov  eax, [rbx]        ; record type
+0x2EF7EA  cmp  eax, 1
+0x2EF7ED  jne  ...
+0x2EF7EF  movzx edx, word [rbx+6]   ; index
+0x2EF7F3  movzx ecx, word [rbx+4]   ; category
+0x2EF7F7  call 0x33480
+0x2EF7FC  mov  [rsi], rax           ; resolved char* stored to the output
+```
+
+Other record types branch elsewhere: type `2` passes `rbx + 0x10` (an inline
+name) to `0x333F0`; type `3` dispatches a function pointer at `rbx + 8` with
+arguments at `rbx + 0x10/+0x14/+0x18/+0x1C`. The resolved colour/asset name is
+then handed to `0x333C0` (size) and `0x33500` (load), i.e. this cluster is the
+engine's **resource loader**, not the MOD/MOT byte decoder.
+
+**4. Read-only validation.** Through the new `dmc3.assets.resolve_name`, the real
+image resolves category 0 index 0 → `pl000.pac`, index 8 → `pl021.pac`,
+index 3865 → `endof.afs`; category 1 index 150/151/152 →
+`Versil_01.adx`/`Versil_02.adx`/`Versil_03.adx`; category 2 index 0 →
+`Title.sfd`, index 18 → `ZZZ.sfd`; category 3 index 14 → `GData.afs/`.
+
+**Inference (marked, unproven).** The `(category, index)` scheme is the engine's
+**asset-id dispatch** (E-001's PAC slot idea, in numeric form): a name is not
+found by scanning for a `.pac` literal (E-076) but by a `(category, index)`
+reference in a data-driven record. Category 0 index = the character/archive id
+(`pl021` = Vergil at index 8). The record's type-2/type-3 fields are read from
+one caller only and are [INFERRED].
+
+**Unknown.** Where the 0x88-byte record array lives and who builds it; whether
+category 0's index is exactly the PAC/`plNNN` id or a separate asset id; the
+meaning of the other record types; and the byte-level MOD/MOT decoders (F1/F4),
+which this route still does not reach. The 3,866-entry category 0 mixes `.pac`
+archives and `.sfd` movies, so the ordering is not the on-disk `plNNN` numbering.
+
+**Consequence.** New `tools/dmc3/assets.py` (`AssetCategory`, `AssetEntry`,
+`asset_categories`, `resolve_name`, `parse_asset_entry`, the `CATEGORY_*`/`ASSET_*`
+constants), exported from `dmc3`; `PeImage.pointer_at` added to `tools/dmc3/pe.py`;
+`tests/test_dmc3_assets.py` (13 tests) and `TestPointerAt` (4 tests) on synthetic
+fixtures. No game data committed.

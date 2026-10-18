@@ -88,6 +88,18 @@ from .tm2 import (
 )
 from .dds import DdsError, dds_to_png
 from .entities import DEFAULT_PLAYER_IDS, Entity, KNOWN_PLAYER_IDS, label_for, lookup
+from .assets import (
+    ASSET_DISPATCH_RVA,
+    ASSET_ENTRY_SIZE,
+    ASSET_POINTER_SIZE,
+    CATEGORY_BASES,
+    CATEGORY_ENDS,
+    AssetCategory,
+    AssetEntry,
+    asset_categories,
+    parse_asset_entry,
+    resolve_name,
+)
 from .pe import (
     MACHINE_AMD64,
     PE32_PLUS_MAGIC,
@@ -176,6 +188,16 @@ __all__ = [
     "KNOWN_PLAYER_IDS",
     "label_for",
     "lookup",
+    "ASSET_DISPATCH_RVA",
+    "ASSET_ENTRY_SIZE",
+    "ASSET_POINTER_SIZE",
+    "CATEGORY_BASES",
+    "CATEGORY_ENDS",
+    "AssetCategory",
+    "AssetEntry",
+    "asset_categories",
+    "parse_asset_entry",
+    "resolve_name",
     "MACHINE_AMD64",
     "PE32_PLUS_MAGIC",
     "DecodedInstruction",

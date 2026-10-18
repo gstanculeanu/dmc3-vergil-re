@@ -25,8 +25,10 @@ This module is the DMC3 analogue of :mod:`gow3.eboot`:
   names (``pl021.pac``, ``pl021_00_0.pac``, …).
 * :meth:`PeImage.absolute_pointers_to` and :meth:`PeImage.pointer_array` find
   stored **8-byte absolute pointers** (``image_base + rva``) and walk a
-  contiguous array of them. Such pointers are invisible to the RIP-relative
-  scanner; the engine's asset-name table is one of them (E-077).
+  contiguous array of them; :meth:`PeImage.pointer_at` reads a single one. Such
+  pointers are invisible to the RIP-relative scanner; the engine's asset-name
+  table is one of them (E-077), and its accessor indexes the table with an
+  addressing displacement (E-078).
 
 Like the ELF scanner this is a **byte-pattern scan, not a disassembler**; a hit is
 meaningful when its target is a known string RVA, which is how the tool is used.
@@ -299,6 +301,23 @@ class PeImage:
                 found.append(section.virtual_address + at)
                 start = at + 1
         return sorted(found)
+
+    def pointer_at(self, rva: int) -> Optional[int]:
+        """The target RVA of the 8-byte absolute pointer stored at ``rva``.
+
+        Returns ``None`` when ``rva`` is not stored or the word is not an
+        in-image absolute pointer. This is the single-word form of
+        :meth:`pointer_array`; the engine's asset-name dispatcher indexes such a
+        table with an addressing displacement (``[base + 8*index]``, E-078), so
+        a single lookup is the useful primitive there.
+        """
+        if self.section_of_rva(rva) is None:
+            return None
+        value = struct.unpack("<Q", self.read(rva, POINTER_SIZE))[0]
+        target = value - self.image_base
+        if self.section_of_rva(target) is None:
+            return None
+        return target
 
     def pointer_array(self, rva: int, limit: int = STRING_POOL_LIMIT,
                       stride: int = POINTER_SIZE) -> Tuple[int, ...]:

@@ -1195,4 +1195,40 @@ targets and of `0x55AF28` (→ `0x1405D9DC0`); whether the block is one array or
 several concatenated (NULL at `0x55AE88`, 19-entry run at `0x55AE90`). The
 byte-level MOD/MOT decoders (F1/F4) are unchanged.
 
+### 8.5 The table is four categories indexed by a u16 pair (E-078)
+
+**Supersedes part of §8.4.** E-077's "index semantics … [UNKNOWN]" is resolved:
+the accessor is one arm of a **four-way category dispatcher** and the reference is
+a `(category, index)` pair, not a single id.
+
+**The dispatcher [VERIFIED] (E-078).** `.text` RVA `0x33480` switches on `ecx`
+(0 → `0x553050`, 1 → `0x55A920`, 2 → `0x55ADF0`, 3 → `0x55AE90`; anything else
+returns 0) and every arm loads `[module_base + 8*edx + base]`, i.e.
+`name = table[ecx][edx]` with `edx` (u16) the index.
+
+**The categories [VERIFIED] (E-078).** The bases divide the pointer runs as
+
+| category | base | count | names (head → tail) |
+|---|---|---|---|
+| 0 | `0x553050` | 3866 | `pl000.pac`, …, `pl021.pac` (index 8), …, `endof.afs` |
+| 1 | `0x55A920` | 154 | `Battle_00.adx`, …, `Versil_01..03.adx`, `ZZZ.adx` |
+| 2 | `0x55ADF0` | 19 | `Title.sfd`, …, `ZZZ.sfd` |
+| 3 | `0x55AE90` | 19 | `m99_s00.sfd`, …, `GData.afs/`, `Video/`, `afs/sound/`, `SAVEDATA/` |
+
+Category 2 ends at the NULL at `0x55AE88`; category 3 is the 19-entry run after it
+and ends at `0x55AF28`. Reader: `dmc3.assets.resolve_name(image, category, index)`.
+
+**The index source [VERIFIED for one caller] (E-078).** The dispatcher's single
+direct caller is `.text` `0x2EF7F7` in `0x2EF790`, which indexes an array of
+**0x88-byte records** and, for a record with dword type `1`, passes
+`[record+4]` (u16 category) and `[record+6]` (u16 index). Types `2`/`3` branch to
+an inline name (`record+0x10`) and a function-pointer dispatch (`record+8`),
+[INFERRED] — read from that one caller only.
+
+**Unknown.** Where the 0x88-byte record array is and who builds it; whether
+category 0's index is the PAC/`plNNN` id or a separate asset id; and the
+byte-level MOD/MOT decoders (F1/F4), which this resource-loader route does not
+itself reach.
+
+
 

@@ -380,5 +380,32 @@ class TestPointerArray(unittest.TestCase):
             image.pointer_array(DATA_RVA, stride=0)
 
 
+class TestPointerAt(unittest.TestCase):
+    """E-078: a single absolute pointer, as the asset dispatcher reads it."""
+
+    @staticmethod
+    def _ptr(target_rva: int) -> bytes:
+        return struct.pack("<Q", IMAGE_BASE + target_rva)
+
+    def test_reads_a_single_pointer(self):
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8, self._ptr(DATA_RVA)))
+        self.assertEqual(image.pointer_at(DATA_RVA), DATA_RVA)
+
+    def test_reads_at_a_stride(self):
+        payload = b"".join(
+            self._ptr(DATA_RVA + 0x18 + 8 * i) for i in range(3)
+        ) + b"\x00" * 0x40
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8, payload))
+        self.assertEqual(image.pointer_at(DATA_RVA + 16), DATA_RVA + 0x28)
+
+    def test_zero_word_is_not_a_pointer(self):
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8, b"\x00" * 8))
+        self.assertIsNone(image.pointer_at(DATA_RVA))
+
+    def test_unmapped_rva_is_none(self):
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8))
+        self.assertIsNone(image.pointer_at(0x10))
+
+
 if __name__ == "__main__":
     unittest.main()

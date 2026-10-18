@@ -1682,7 +1682,7 @@ moves and health bar and everything."*
 
 ---
 
-## 2026-10-18 — F1/F4 bounded slice: the asset-name pool has an indexed `.data` consumer (E-077)
+## 2026-10-18 ï¿½ F1/F4 bounded slice: the asset-name pool has an indexed `.data` consumer (E-077)
 
 - Did: followed E-076's stated next step ("the pool base is an indirect pointer, so
   the next lead is a `.data` absolute pointer / the code that indexes the pool")
@@ -1694,7 +1694,7 @@ moves and health bar and everything."*
   committed.
 - Found (**E-077**):
   - **No dedicated pool-base global.** `absolute_pointers_to(0x35D640)` returns
-    exactly one RVA, `.data` `0x55A570` — and that word is a **member of the table
+    exactly one RVA, `.data` `0x55A570` ï¿½ and that word is a **member of the table
     below**, not a `g_pool` variable. E-076's "indirect base" framing is refined:
     the pool is reached by *indexing a table*.
   - **The table.** `.data` `0x553050` is a contiguous run of 8-byte absolute
@@ -1703,27 +1703,76 @@ moves and health bar and everything."*
     of 19 resumes at `0x55AE90`, and the block ends at `0x55AF28`. Of the 4,059
     non-null slots, **4,055 are pool entry starts**; the four exceptions are
     `at.ptx` (0x3679E4), `Video/` (0x3631DC), a `.data` pointer (0x5D9DC0) and
-    0x36C355. Head: `[0] pl000.pac`, `[1] pl011.pac`, …, `[8] pl021.pac`,
+    0x36C355. Head: `[0] pl000.pac`, `[1] pl011.pac`, ï¿½, `[8] pl021.pac`,
     `[9] pl023.pac`. The block is a near-permutation of the 4,056-string pool, in
     an order that is neither pool order nor sorted.
   - **The single consumer.** The literal `0x553050` occurs **exactly once** in the
-    whole image — as the `disp32` at `.text` `0x334F1` — inside a tail-callable
+    whole image ï¿½ as the `disp32` at `.text` `0x334F1` ï¿½ inside a tail-callable
     accessor: `0x334E1 48 63 CA` (`movsxd rcx, edx`), `0x334E4 48 8D 05 15 CB FC
     FF` (`lea rax,[rip-0x334EB]` ? RVA 0 = module base), `0x334EB 33 D2`
     (`xor edx, edx`), `0x334ED 48 8B 8C C8 50 30 55 00`
     (`mov rcx,[rax + rcx*8 + 0x553050]`). So the engine resolves a name as
-    `[image_base + 0x553050 + 8*index]` — a **displacement**, which is why the
+    `[image_base + 0x553050 + 8*index]` ï¿½ a **displacement**, which is why the
     RIP-relative scanner missed it.
   - **Correction recorded:** the adjacent `.data` globals `0x553000..0x55304F` are
     an unrelated u32 state block (read at `0x2AC78`/`0x2ACA9`), **not** the table's
-    struct base — a working hypothesis of this slice that the bytes refute.
+    struct base ï¿½ a working hypothesis of this slice that the bytes refute.
 - **Inference (marked, unproven):** the block is an **asset-name table indexed by
   an integer id**; whether that id is the PAC slot id (E-001) or a separate asset
   id, and who calls `0x334E1`, are [UNKNOWN]. The byte-level MOD/MOT decoders
   (F1/F4) are unchanged.
-- Docs: E-077 in `docs/EVIDENCE.md`; `docs/FORMATS.md` gains §8.4; `docs/BACKLOG.md`
+- Docs: E-077 in `docs/EVIDENCE.md`; `docs/FORMATS.md` gains ï¿½8.4; `docs/BACKLOG.md`
   F1/F4/T10 rows updated. Committed and pushed; commented issues #1 and #2.
 - Next: find the caller of the accessor `0x334E1` and what supplies `edx` (the
-  index) — that is the "PAC slot id dispatch" the engine route needs; then follow
+  index) ï¿½ that is the "PAC slot id dispatch" the engine route needs; then follow
   the indexed asset into its loader. F3 slots 6/7/11/22 and the GoW3R clip
   keyframe encoding remain available.
+
+---
+
+## 2026-10-18 - F1/F4 bounded slice: the asset-name table is four categories indexed by a u16 pair (E-078)
+
+- Did: followed E-077's stated next step (find the caller of the accessor
+  `0x334E1` and what supplies `edx`) read-only through
+  `G:\Games\Devil May Cry HD Collection\dmc3.exe` (6,356,432 B). Used the
+  `.pdata` exception directory to locate the functions, disassembled the region
+  with a local recon tool (capstone, not a repo dependency), and validated the
+  result read-only through the new resolver. Added `tools/dmc3/assets.py`
+  (`AssetCategory`, `AssetEntry`, `asset_categories`, `resolve_name`,
+  `parse_asset_entry`, `CATEGORY_*`/`ASSET_*` constants), exported from `dmc3`;
+  added `PeImage.pointer_at` to `tools/dmc3/pe.py`; new
+  `tests/test_dmc3_assets.py` (13 tests) and `TestPointerAt` (4 tests) on
+  synthetic fixtures. Full suite: **511 tests, all green** (494 baseline + 17).
+  Nothing written to the game; no game data committed.
+- Found (**E-078**):
+  - The accessor is **one arm of a four-way category dispatcher** at `.text`
+    `0x33480`: `ecx` 0/1/2/3 select bases `0x553050` / `0x55A920` / `0x55ADF0` /
+    `0x55AE90`, each indexing `[module_base + 8*edx + base]`. So the asset
+    reference is a `(category, index)` pair with a u16 index, not a single id.
+  - The bases split the E-077 pointer runs into **3866 / 154 / 19 / 19** names.
+    Category 0 is the archive/movie list (`pl000.pac` .. `endof.afs`,
+    **`pl021.pac` at index 8**); category 1 is audio (`Battle_*.adx` ..
+    **`Versil_01/02/03.adx` at indices 150-152**, `ZZZ.adx`); category 2 is
+    `Title.sfd` .. `ZZZ.sfd`; category 3 is `m99_s00.sfd` .. `SAVEDATA/`.
+  - The dispatcher's **single direct caller** is `.text` `0x2EF7F7` in
+    `0x2EF790`, which walks an array of **0x88-byte records** and, for a
+    type-`1` record, takes `[record+4]` as the category and `[record+6]` as the
+    index. Types `2`/`3` use an inline name (`record+0x10`) and a
+    function-pointer dispatch (`record+8`) respectively (read from that one
+    caller, [INFERRED]).
+  - Read-only validation through `dmc3.assets.resolve_name` reproduced every
+    anchor above on the real image; category 3's last slot is the E-077 padding
+    target `0x36C355` (no name), as expected.
+- **Correction recorded:** E-077's "the index semantics and its caller remain
+  [UNKNOWN]" is resolved for the caller and refined for the index (a u16 within a
+  category). E-077's "near-permutation of the pool" is now understood as four
+  sub-ranges of two contiguous pointer runs.
+- Unknown (recorded, not guessed): where the 0x88-byte record array lives and who
+  builds it; whether category 0's index is the PAC/`plNNN` id or a separate asset
+  id; the byte-level MOD/MOT decoders (F1/F4), which this resource-loader route
+  does not reach.
+- Docs: E-078 in `docs/EVIDENCE.md`; `docs/FORMATS.md` gains section 8.5;
+  `docs/BACKLOG.md` F1/F4/T10 rows updated. No game data committed.
+- Next: follow the record array to its builder (find who writes the 0x88-byte
+  entries) or follow `0x333F0`/`0x33500` (the load path) to the container reader;
+  F3 slots 6/7/11/22 and the GoW3R clip keyframe encoding remain available.
