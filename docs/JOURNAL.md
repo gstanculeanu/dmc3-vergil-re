@@ -684,3 +684,24 @@ moves and health bar and everything."*
   offsets.
 - Next: F1/F4 remain blocked on engine ground truth; pick another
   resolved-dependency slice (H1/H2/H3 research, or similar).
+
+---
+
+## 2026-10-18 — F3 bounded slice: pl021.pac slot 10 u16 pair table decoded from real bytes
+
+- Did: read real bytes from pl021.pac slot 10 (file offset 0x077ED0, span
+  0x1E0) on the installed GData.afs tree; added Slot10Table / SLOT10_PAIR_COUNT
+  to tools/dmc3/raw.py, a synthetic raw_chunk_slot10() fixture, and 3 unit
+  tests asserting verbatim observations; updated EVIDENCE.md (E-037),
+  FORMATS.md §1.3 and BACKLOG.md F3 row. Committed as d34b0ef, pushed to
+  origin main; commented issue #4 (left open). Full suite: 160 tests, all
+  green.
+- Found (E-037): slot 10 is an untagged raw chunk with a two-part structure:
+  +0x00..+0x5B holds 23 u16 pairs at stride 4 (pairs 0-14 are (92,
+  132+20*i); pairs 15-22 are (112,432), (92,432), (92,132)x6); +0x5C..end is
+  a little-endian f32 stream opening 0.3, -0.01, -0.1, 0.0, 0.7. All field
+  meanings are [UNKNOWN]; the pair count's source, what the pairs index, and
+  the f32 stream's meaning are not established from bytes alone.
+- Next: F1/F4 remain blocked on engine ground truth and are not retried;
+  pick another resolved-dependency slice (H1/H2/H3 research, F2 sub-tables,
+  or similar).
