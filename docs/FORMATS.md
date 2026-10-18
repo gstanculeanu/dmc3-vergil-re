@@ -511,7 +511,7 @@ files**; evidence E-030), all little-endian:
 +0x24  ...     payload body (vertices, indices, normals, UVs, skin weights)  [UNKNOWN layout]
 ```
 
-### 5.1 `MOD ` payload body prefix — first decoded fields [E-031, E-091, E-092, E-093]
+### 5.1 `MOD ` payload body prefix — first decoded fields [E-031, E-091, E-092, E-093, E-094]
 
 **Status: [PARTIAL]** — evidence E-031 (pl021.pac), E-091 (all 286 install
 `MOD ` chunks). The body begins at `+0x24` (immediately after the header). Its
@@ -642,9 +642,37 @@ block +0x2C       payload                                            [layout UNK
   `[+0x2C, offset_a)`, `[offset_a, offset_b)`, `[offset_b, end)`; their contents
   look different (f32, then mostly `0x1F`/`0x801F` words) but **no region is
   assigned a format or meaning**.
+  **E-094 correction:** the offsets are **not** boundaries between arrays — in
+  `em013.pac` slot 2 a uniform run of 230 u32 `0x400` straddles `offset_a`. The
+  `regions` property is arithmetic on the two offsets, not a content claim.
 * `offset_c` leaves the block in 708/1,561 — [UNKNOWN].
 * `tools/dmc3/mod.py` exposes `ModBodyBlock`, `body_blocks`, the `blocks` field
   on `ModBodyDirectory` and the `BODY_BLOCK_*` constants.
+
+#### E-094 update: the payload opens with `count` positions then `count` normals — structure [PARTIAL]
+
+Reading a block's payload (`+0x2C`) as little-endian `f32[3]` triples, with
+`count` taken from the descriptor (E-091/E-092), shows a leading vertex array:
+
+```
+payload + 0x00            count x f32[3]   coordinates        [INFERRED: positions]
+payload + 0x0C*count      count x f32[3]   unit length        [INFERRED: normals]
+```
+
+* `em013.pac` slot 8 (block `@body+0x80`, descriptor `count = 36`): the first 36
+  triples are arbitrary (`2.3638, -0.0, 0.0454`; `0.0, -1.7709, -0.7894`), the
+  next 36 are unit length (`0.2224, 0.0, 0.9750`; `0.0, 0.7315-, 0.6818-`), and a
+  run of 36 u32 `0x400` begins at `payload + 1008 = 28 * count` bytes.
+* Census over **1,535** `ordered and in_block` record descriptors: 502 contain a
+  run of >= 8 consecutive unit triples; 305 have it start at exactly `count`, 431
+  within `count` ± 1, 418 with run length equal to `count`. The **689** blocks
+  whose descriptor `count == 4` contain **no** such run — a different shape.
+* The reading of the triples as *positions*/*normals* and the `0x400` run
+  (a likely Q10 `1.0`, unproven) are **[INFERRED]**; the array lengths are exact
+  on only 418/1,535 blocks, so the framing is [PARTIAL].
+* `tools/dmc3/mod.py` exposes `unit_triple`, `block_positions`, `block_normals`,
+  `normal_run`, `ModBodyBlock.normal_offset` and the `BODY_BLOCK_TUPLE_SIZE` /
+  `BODY_BLOCK_NORMAL_*` constants. See **E-094**.
 
 
 `SHW ` chunk header (verified bytes across all four `pl021.pac` `SHW `

@@ -514,12 +514,21 @@ class ModBodyBlock:
 
         Only meaningful when :attr:`ordered` and :attr:`in_block` hold; nothing
         is asserted about what each region holds.
+
+        **E-094 correction:** the payload is *not* actually laid out as three
+        arrays at these points — in ``em013.pac`` slot 2 a uniform data run
+        straddles ``offset_a``.  This property is pure ``offset_a``/``offset_b``
+        arithmetic, not a claim about content.
         """
         return (
             (self.payload_offset, self.offset_a),
             (self.offset_a, self.offset_b),
             (self.offset_b, self.end),
         )
+
+    def normal_offset(self, count: int) -> int:
+        """Body offset of the normal array for a ``count``-vertex block (E-094)."""
+        return self.payload_offset + count * BODY_BLOCK_TUPLE_SIZE
 
     @classmethod
     def parse(
@@ -545,6 +554,109 @@ class ModBodyBlock:
                 for offset in BODY_BLOCK_ZERO_OFFSETS
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# Payload body: the vertex arrays inside a data block (E-094)
+# ---------------------------------------------------------------------------
+#
+# E-093 read a block's payload as three consecutive regions split by
+# ``offset_a``/``offset_b``.  Reading the payload as ``f32[3]`` triples does not
+# support that: in ``em013.pac`` slot 2 the interior offsets fall *inside* a
+# uniform data run (the ``0x400`` run below), so the offsets are not array
+# boundaries.  What *is* consistent is the leading array: with ``count`` taken
+# from the descriptor, the first ``count`` triples read as coordinates and the
+# next ``count`` triples are unit length (normals).
+
+BODY_BLOCK_TUPLE_SIZE = 0x0C
+"""Byte size of one ``f32[3]`` vertex/normal triple (E-094)."""
+
+BODY_BLOCK_NORMAL_TOLERANCE = 2e-3
+"""Maximum deviation from 1.0 of a triple's length to count as a normal (E-094)."""
+
+BODY_BLOCK_NORMAL_MIN_RUN = 8
+"""Shortest run of consecutive unit triples treated as the normal array (E-094)."""
+
+
+def unit_triple(
+    body: bytes, offset: int, tolerance: float = BODY_BLOCK_NORMAL_TOLERANCE
+) -> bool:
+    """True when the ``f32[3]`` triple at ``offset`` has unit length (E-094).
+
+    Used as the *test* that separates the position array from the normal array:
+    positions are arbitrary, normals are unit length.
+    """
+    if offset < 0 or offset + BODY_BLOCK_TUPLE_SIZE > len(body):
+        return False
+    x, y, z = f32(body, offset), f32(body, offset + 4), f32(body, offset + 8)
+    length_sq = x * x + y * y + z * z
+    if length_sq != length_sq or length_sq in (float("inf"), float("-inf")):
+        return False  # NaN / inf never counts
+    length = length_sq ** 0.5
+    return abs(length - 1.0) < tolerance
+
+
+def block_positions(
+    body: bytes, block: ModBodyBlock, count: int
+) -> tuple[tuple[float, float, float], ...]:
+    """The ``count`` ``f32[3]`` triples at a block's payload start (E-094).
+
+    Each triple is an observation; the reading that they are *vertex positions*
+    is [INFERRED].  ``count`` is the descriptor's own count field.
+    """
+    return _block_triples(body, block.payload_offset, count)
+
+
+def block_normals(
+    body: bytes, block: ModBodyBlock, count: int
+) -> tuple[tuple[float, float, float], ...]:
+    """The ``count`` ``f32[3]`` triples following the positions (E-094).
+
+    The reading that these are *normals* is supported by their unit length
+    (E-094) and remains [INFERRED] as to meaning.
+    """
+    start = block.payload_offset + count * BODY_BLOCK_TUPLE_SIZE
+    return _block_triples(body, start, count)
+
+
+def _block_triples(
+    body: bytes, start: int, count: int
+) -> tuple[tuple[float, float, float], ...]:
+    triples = []
+    for k in range(count):
+        offset = start + k * BODY_BLOCK_TUPLE_SIZE
+        if offset + BODY_BLOCK_TUPLE_SIZE > len(body):
+            break
+        triples.append((f32(body, offset), f32(body, offset + 4), f32(body, offset + 8)))
+    return tuple(triples)
+
+
+def normal_run(
+    body: bytes, block: ModBodyBlock, min_run: int = BODY_BLOCK_NORMAL_MIN_RUN
+) -> Optional[tuple[int, int]]:
+    """Locate the first run of unit-length triples in a block (E-094).
+
+    Returns ``(start_index, length)`` — the triple index (from the payload start)
+    and the number of consecutive unit triples — or ``None`` when no run of at
+    least ``min_run`` exists.  The run is *evidence*, not an assertion: its start
+    index is ``count`` or ``count ± 1`` on most blocks where it exists, and 689
+    blocks (mostly ``count == 4``) have no run at all.
+    """
+    body_end = min(block.end, len(body))
+    start = block.payload_offset
+    maximum = (body_end - start) // BODY_BLOCK_TUPLE_SIZE
+    index = 0
+    while index < maximum:
+        if not unit_triple(body, start + index * BODY_BLOCK_TUPLE_SIZE):
+            index += 1
+            continue
+        end = index
+        while end < maximum and unit_triple(body, start + end * BODY_BLOCK_TUPLE_SIZE):
+            end += 1
+        if end - index >= min_run:
+            return index, end - index
+        index = end
+    return None
 
 
 def body_blocks(

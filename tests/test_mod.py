@@ -5,10 +5,13 @@ import unittest
 import fixtures
 from dmc3 import Chunk, ModBodyBlock, ModBodyDirectory, ModBodyPrefix, ModHeader
 from dmc3.mod import (
+    BODY_BLOCK_NORMAL_MIN_RUN,
+    BODY_BLOCK_NORMAL_TOLERANCE,
     BODY_BLOCK_OFFSET_A,
     BODY_BLOCK_OFFSET_B,
     BODY_BLOCK_OFFSET_C,
     BODY_BLOCK_PREFIX_SIZE,
+    BODY_BLOCK_TUPLE_SIZE,
     BODY_BLOCK_ZERO_OFFSETS,
     BODY_DESCRIPTOR_ARRAY_OFFSET,
     BODY_DESCRIPTOR_AUX_OFFSET,
@@ -21,10 +24,14 @@ from dmc3.mod import (
     BODY_TAG_NAMESPACE,
     BODY_TAG_OFFSET,
     HEADER_SIZE,
+    block_normals,
+    block_positions,
     descriptor_count,
     maybe_mod_body_directory,
     maybe_mod_body_prefix,
     maybe_mod_header,
+    normal_run,
+    unit_triple,
 )
 
 
@@ -315,6 +322,88 @@ class TestModBodyBlocks(unittest.TestCase):
         truncated = body[: directory.blocks[0].data_offset + 8]
         directory = ModBodyDirectory.parse(truncated)
         self.assertEqual(directory.blocks, ())
+
+
+class TestModBodyVertices(unittest.TestCase):
+    """E-094: a data block's payload opens with `count` f32[3] triples reading as
+    positions, then `count` unit-length triples (normals). Position/normal
+    *meaning* is [INFERRED]; only the byte reading is asserted."""
+
+    def test_layout_constants(self):
+        self.assertEqual(BODY_BLOCK_TUPLE_SIZE, 0x0C)
+        self.assertEqual(BODY_BLOCK_NORMAL_MIN_RUN, 8)
+        self.assertAlmostEqual(BODY_BLOCK_NORMAL_TOLERANCE, 2e-3)
+
+    def test_positions_are_read_back(self):
+        body = fixtures.mod_vertex_directory_body(count=5)
+        block = ModBodyDirectory.parse(body).blocks[0]
+        positions = block_positions(body, block, 5)
+        self.assertEqual(len(positions), 5)
+        self.assertEqual(positions[0], (0.5, -0.25, 0.0))
+        self.assertEqual(positions[4], (4.5, -4.25, 0.5))
+
+    def test_normals_follow_the_positions(self):
+        body = fixtures.mod_vertex_directory_body(count=5)
+        block = ModBodyDirectory.parse(body).blocks[0]
+        normals = block_normals(body, block, 5)
+        self.assertEqual(normals, ((0.0, 0.0, 1.0),) * 5)
+        self.assertEqual(block.normal_offset(5), block.payload_offset + 5 * 12)
+
+    def test_unit_triple_separates_normals_from_positions(self):
+        body = fixtures.mod_vertex_directory_body(count=4)
+        block = ModBodyDirectory.parse(body).blocks[0]
+        for k in range(4):
+            # positions are arbitrary, normals are unit length
+            self.assertFalse(unit_triple(body, block.payload_offset + 12 * k))
+            self.assertTrue(unit_triple(body, block.normal_offset(4) + 12 * k))
+        # a zero triple and an arbitrary triple are not unit length
+        self.assertFalse(unit_triple(b"\x00" * 12, 0))
+        self.assertFalse(unit_triple(struct.pack("<3f", 9.0, 3.0, -2.0), 0))
+        # a u32 0x400 run (E-093's fill) is not a normal triple
+        self.assertFalse(unit_triple(struct.pack("<3I", 0x400, 0x400, 0x400), 0))
+        self.assertFalse(unit_triple(b"\x00" * 12, 4))  # out of range
+
+    def test_normal_run_locates_the_unit_array(self):
+        body = fixtures.mod_vertex_directory_body(count=9)
+        block = ModBodyDirectory.parse(body).blocks[0]
+        # positions (0.5, ...) are not unit length, so the run starts at index 9
+        start, length = normal_run(body, block)
+        self.assertEqual((start, length), (9, 9))
+
+    def test_normal_run_absent_without_unit_triples(self):
+        body = fixtures.mod_vertex_directory_body(
+            count=9, normals=[(9.0, 0.0, 0.0)] * 9
+        )
+        block = ModBodyDirectory.parse(body).blocks[0]
+        self.assertIsNone(normal_run(body, block))
+
+    def test_normal_run_needs_min_length(self):
+        # a run of 7 unit triples is below the documented minimum of 8
+        count = 7
+        body = fixtures.mod_vertex_directory_body(count=count)
+        block = ModBodyDirectory.parse(body).blocks[0]
+        self.assertIsNone(normal_run(body, block))
+        self.assertEqual(normal_run(body, block, min_run=count)[1], count)
+
+    def test_triples_stop_at_the_body_end(self):
+        body = fixtures.mod_vertex_directory_body(count=4)
+        block = ModBodyDirectory.parse(body).blocks[0]
+        # asking for more triples than the body holds yields only what fits
+        self.assertLessEqual(len(block_positions(body, block, 10_000)), len(body) // 12)
+
+    def test_regions_are_not_content_boundaries(self):
+        # E-094 correction: the E-093 "three regions" split is pure arithmetic and
+        # does not separate the vertex arrays.  In this fixture `offset_a` == the
+        # end of the positions, so the first region already contains all of them.
+        body = fixtures.mod_vertex_directory_body(count=9)
+        block = ModBodyDirectory.parse(body).blocks[0]
+        regions = block.regions
+        self.assertEqual(regions[0][0], block.payload_offset)
+        self.assertEqual(regions[0][1], block.offset_a)
+        self.assertEqual(block.offset_a, block.payload_offset + 12 * 9)
+        # the normal array starts exactly at offset_a here, but nothing in the
+        # offsets tells the reader so -- normal_run finds it from the bytes.
+        self.assertEqual(normal_run(body, block), (9, 9))
 
 
 if __name__ == "__main__":

@@ -5298,3 +5298,76 @@ block-laying `mod_directory_body()`; `tests/test_mod.py` gains `TestModBodyBlock
 **286/286** parse, 1,556 blocks read. Full suite: **607 tests, all green**.
 No game data committed.
 
+
+## E-094 — `MOD ` data-block payloads open with `count` `f32[3]` positions then `count` unit-length (normal) triples (F1, bounded slice)
+
+**Observation (read-only from
+`G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\`, all `*.pac` files).**
+E-093 recorded a data block whose payload (block `+0x2C`) is "three consecutive
+regions" split by `offset_a`/`offset_b`, with every region's contents [UNKNOWN].
+Reading the payload as little-endian `f32[3]` triples shows a leading array whose
+length is the **descriptor's own count** (the high u16 of the descriptor's
+`+0x1C` tag word, E-091/E-092): `count` triples that read as coordinates,
+followed by `count` triples of **unit length**.
+
+Worked example — `em013.pac` slot 8, `MOD ` chunk at **file offset 0xFB6E0**
+(data span 0x6E0), body = `data[0x24:]`; descriptor 0 `count = 36`, array size
+`0x80`, block `@body+0x80` (span `0x63C`, `offset_a=0x4C0`, `offset_b=0x550`,
+`offset_c=0x590`), **payload at body +0xAC = file +0xFB7B0**:
+
+```
+k= 0  body+0x0AC: e2 48 17 40 62 95 b4 a6 ca 11 3a 3d   (  2.3638, -0.0000,  0.0454)
+k= 1  body+0x0B8: fd cf 1d 26 e2 48 17 40 ca 11 3a 3d   (  0.0000,  2.3638,  0.0454)
+k=35  body+0x250: 92 67 2b 24 c3 ac e2 bf 7b 14 4a bf   (  0.0000, -1.7709, -0.7894)
+k=36  body+0x25C: 5a b5 63 3e 00 00 00 00 1c 97 79 3f   (  0.2224,  0.0000,  0.9750)  |v| = 1.0000
+k=37  body+0x268: 00 00 00 00 5a b5 63 3e 1c 97 79 3f   (  0.0000,  0.2224,  0.9750)  |v| = 1.0000
+k=71  body+0x400: 00 00 00 00 47 44 3b bf 6b 8c 2e bf   (  0.0000, -0.7315, -0.6818)  |v| = 0.9999
+```
+
+The first 36 triples (k = 0..35) are arbitrary coordinates; the next 36
+(k = 36..71) all have unit length. A run of **36 u32 `0x400`** begins at
+body +0x49C = payload + 1008 = **28 bytes per vertex** — i.e. 12 (position) + 12
+(normal) + 4.
+
+**Census of the install (1,535 `ordered and in_block` record descriptors across
+the 286 `MOD ` chunks):**
+
+| observation | result |
+|---|---|
+| descriptor `count == 4` | 689 blocks — **none** has an 8-long unit-triple run |
+| contains a run of >= 8 consecutive unit-length triples | 502 |
+| that run starts at exactly `count` | 305 |
+| starts within `count` ± 1 | 431 |
+| run length equals `count` | 418 |
+
+So on the subset that is not the `count == 4` shape the payload reads as
+`count` positions followed by `count` normals; the reading is [INFERRED] as to
+*meaning* (positions/normals) and exact even in the array lengths only on 418 of
+the 1,535 blocks.
+
+**Correction to E-093.** `offset_a`/`offset_b` are **not** boundaries between
+different arrays. In `em013.pac` slot 2 (`MOD ` chunk at **file offset 0x78550**,
+body span 0x2550, descriptor 0 `count = 230`, block `@body+0x80`, `offset_a=0x1A10`,
+`offset_b=0x1DB0`, `offset_c=0x1F70`, payload body+0xAC) a uniform run of **230
+u32 `0x400`** starts at body +0x19EC and ends at body +0x1D84 — it **straddles
+`offset_a = 0x1A10`**. E-093's [INFERRED] "the two interior offsets split the
+payload into three consecutive regions" is therefore not supported by the bytes,
+and its `ModBodyBlock.regions` is pure arithmetic on the two offsets rather than
+a content claim. What the offsets name stays **[UNKNOWN]**.
+
+Also recorded, not explained: the normal run does **not** start at exactly
+`count` in every block (e.g. `em013.pac` slot 2: the triple at k = 230 is
+`00 00 00 00 00 00 00 00 24 9d 60 bf` = `(0, 0, -0.8774)`, not unit), so the
+position array's length is not always exactly `count`.
+
+**Unknown (recorded, not inferred).** The meaning of the `0x400` run (1024, a
+likely Q10 `1.0` weight, unproven), of the 4-byte field between the normals and
+that run, and of the descriptor's tag (`0x8001`/`0x8002`/…) all remain
+**[UNKNOWN]**; the `u16 0x1F`/`0x12` fills beyond them are unassigned.
+
+**Tooling.** `tools/dmc3/mod.py`: `unit_triple`, `block_positions`,
+`block_normals`, `normal_run`, `ModBodyBlock.normal_offset`, and the constants
+`BODY_BLOCK_TUPLE_SIZE = 0x0C`, `BODY_BLOCK_NORMAL_TOLERANCE = 2e-3`,
+`BODY_BLOCK_NORMAL_MIN_RUN = 8`; all exported from `dmc3`. `tests/fixtures.py`
+gains `mod_vertex_block()` / `mod_vertex_directory_body()`; `tests/test_mod.py`
+gains `TestModBodyVertices` (9 tests). No game data committed.

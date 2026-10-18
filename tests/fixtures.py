@@ -239,6 +239,51 @@ def mod_block(
     return bytes(blob) + b"\x2c" * payload_size
 
 
+def mod_vertex_block(
+    count: int = 4,
+    start: int = 0x80,
+    normals: tuple = None,
+    filler: int = 0x40,
+) -> bytes:
+    """A synthetic ``MOD `` data block whose payload is vertices (E-094).
+
+    The payload opens with ``count`` ``f32[3]`` position triples followed by
+    ``count`` ``f32[3]`` normal triples (unit length by default), then
+    ``filler`` bytes of ``0x40``.  ``start`` is the block's body-relative offset
+    so the prefix offsets point where the real reader expects them.
+
+    Positions are ``(k + 0.5, -(k + 0.25), k * 0.125)``; normals default to
+    ``(0, 0, 1)``.  Pass ``normals=()`` (or a list of non-unit triples) to build
+    a block with no usable normal run.
+    """
+    blob = bytearray(0x2C)
+    payload = bytearray()
+    for k in range(count):
+        payload += struct.pack("<3f", k + 0.5, -(k + 0.25), k * 0.125)
+    if normals is None:
+        normals = [(0.0, 0.0, 1.0)] * count
+    for n in normals:
+        payload += struct.pack("<3f", *n)
+    payload += b"\x40" * filler
+    payload_offset = start + 0x2C
+    struct.pack_into("<I", blob, 0x04, payload_offset + 12 * count)
+    struct.pack_into("<I", blob, 0x0C, payload_offset + 24 * count)
+    struct.pack_into("<I", blob, 0x1C, payload_offset + 24 * count + filler)
+    return bytes(blob) + bytes(payload)
+
+
+def mod_vertex_directory_body(count: int = 4, normals: tuple = None) -> bytes:
+    """A synthetic one-record ``MOD `` body carrying a vertex block (E-094)."""
+    array_size = 2 * 0x40
+    record = mod_descriptor(tag=0x8001, count=count, data_offset=array_size)
+    footer = mod_descriptor(tag_word=(0 << 16) | 0x2C, data_offset=0, aux=4)
+    return (
+        record
+        + footer
+        + mod_vertex_block(count=count, start=array_size, normals=normals)
+    )
+
+
 def shw_chunk(
     alpha: float = 0.5,
     field_08: int = 0,

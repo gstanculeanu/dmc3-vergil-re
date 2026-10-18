@@ -2240,3 +2240,45 @@ moves and health bar and everything."*
   `u16` index buffer, using a chunk where `count` is small. F4 stays blocked on
   the engine route and is not re-spun; F2/F3/F5/F6/F8 and the GoW3R clip leaf
   encoding (F9) remain available.
+
+## 2026-10-18 — F1 bounded slice: a `MOD ` data block's payload opens with `count` positions then `count` normals (E-094)
+
+- Did: picked the critical path **F1** (issue #1) and followed E-093's own stated
+  next step — "within each block, the three regions are the next lead". Read the
+  block payloads read-only across all `*.pac` files under
+  `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\` (1,535
+  ordered+in_block record descriptors). Added `unit_triple`, `block_positions`,
+  `block_normals`, `normal_run`, `ModBodyBlock.normal_offset` and the
+  `BODY_BLOCK_TUPLE_SIZE` / `BODY_BLOCK_NORMAL_TOLERANCE` /
+  `BODY_BLOCK_NORMAL_MIN_RUN` constants to `tools/dmc3/mod.py`, exported from
+  `dmc3`; added `mod_vertex_block()` / `mod_vertex_directory_body()` fixtures and
+  `TestModBodyVertices` (9 tests). Full suite: **616 tests, all green**
+  (607 baseline + 9). Nothing written to the game; no game data committed.
+- Found (**E-094**), read-only on the install:
+  - **The payload opens with a vertex array.** Reading `f32[3]` triples from the
+    block payload (`+0x2C`) shows the first `count` triples (the descriptor's own
+    count field) read as coordinates and the next `count` triples are
+    **unit length**. Worked example `em013.pac` slot 8 (`count = 36`): positions
+    `(2.3638, -0.0, 0.0454)` … `(0.0, -1.7709, -0.7894)` at payload+0x00, unit
+    triples `(0.2224, 0.0, 0.9750)` … `(0.0, -0.7315, -0.6818)` at payload+0x1B0,
+    then a run of 36 u32 `0x400` at payload+0x3F0 = **28 bytes per vertex**.
+  - **Census (1,535 blocks):** 502 contain a run of >= 8 unit triples; 305 start
+    at exactly `count`, 431 within `count` ± 1, 418 have run length == `count`.
+    The **689** blocks with `count == 4` (all tag `0x8001`) contain **none** — a
+    different shape, recorded not explained.
+  - **Correction to E-093:** the interior offsets are **not** array boundaries.
+    In `em013.pac` slot 2 (`count = 230`) a uniform run of 230 u32 `0x400`
+    (body+0x19EC..0x1D84) **straddles `offset_a = 0x1A10`**, so E-093's
+    [INFERRED] "three consecutive regions" split is not supported by the bytes;
+    `ModBodyBlock.regions` is now documented as arithmetic, not a content claim.
+  - **[INFERRED]/[UNKNOWN]:** positions/normals *meaning* and the `0x400` run
+    (a likely Q10 `1.0`, unproven) stay marked; the position array's length is
+    not always exactly `count` (slot 2's triple at k=230 is `(0,0,-0.8774)`).
+- Docs: E-094 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §5.1 gains the
+  "E-094 update" subsection and the E-093 correction; `docs/BACKLOG.md` F1 row
+  updated (evidence cell adds E-094, status rewritten).
+- Next: the block's **residual arrays** — the 4-byte field between the normals
+  and the `0x400` run, and the `0x1F`/`0x12` words after it — are the fresh lead,
+  alongside the descriptor tag (`0x8001`/`0x8002`/`0x8008`…). F4 stays blocked on
+  the engine route and is not re-spun; F2/F3/F5/F6/F8 and the GoW3R clip leaf
+  encoding (F9) remain available.
