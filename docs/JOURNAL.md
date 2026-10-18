@@ -1052,3 +1052,27 @@ moves and health bar and everything."*
 - Next: nothing available from bytes alone. When engine ground truth becomes
   available, F1 and F4 are the unblocked critical-path items. Otherwise, pick
   any resolved-dependency research item (H1/H2/H3) or document a new dead end.
+
+---
+
+## 2026-10-18 — F3 bounded slice: pl021.pac slot 5 segment stream decoded from real bytes
+
+- Did: bounded slice on F3 (issue #4). Read real bytes from pl021.pac slot 5
+  (`G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\pl021.pac`) at
+  file offset 0x06B6E0, span 0x4B30; generalized the u16 segment splitter in
+  `tools/dmc3/raw.py` (`_split_u16_segments`, now shared by `Slot21Table`
+  and the new `Slot5Table`); added `raw_chunk_slot5()` fixture and
+  `TestSlot5Table` (4 tests) in `tests/test_raw.py`; exported
+  `SLOT5_SEGMENT_COUNT`/`Slot5Table`/`maybe_slot5_table` from `dmc3/__init__`.
+  Full suite: **258 tests, all green**. Committed as a99504d, pushed to
+  origin main; commented issue #4 (left open).
+- Found (E-052): slot 5 is a little-endian u16 stream split into 215
+  segments by 214 `0xFFFF` separators; segment 0 verbatim `(6, 0x37D0)`;
+  segment sizes open `2, 1, 34, 60, 5, 13…`; tail segments up to 378 u16s;
+  `0x7FFF` occurs inside segments as data (not a delimiter), exactly as in
+  slot 21 (E-043). Segment semantics [UNKNOWN].
+- Docs: E-052 in docs/EVIDENCE.md; docs/FORMATS.md §1.3 and docs/BACKLOG.md
+  F3 row updated (evidence E-008/E-033/E-037/E-043/E-052).
+- Next: F3 slots 6/7/9/11/22 remain undecoded; every Phase 1 format
+  critical-path item (F1/F4/F2/F5/F6/F8) stays blocked on engine ground
+  truth and is deliberately not re-spun.
