@@ -1587,3 +1587,49 @@ moves and health bar and everything."*
   directory binding remain open too.
 
 
+
+## 2026-10-18 -- F4 bounded slice: the engine's 16-bit angle unit (E-075)
+
+- Did: followed E-070's stated next step (follow the registry's `.mot` type id
+  into its consumer) read-only through `dmc3.exe`. The registry route did not
+  reach the MOT loader, but it led through the engine's motion/animation cluster
+  and yielded a hard engine constant. Added `ANGLE_UNITS_PER_TURN`,
+  `RADIANS_PER_ANGLE_UNIT`, `ANGLE_UNIT_COS_ZERO`, `ANGLE_UNIT_SIN_ZERO`,
+  `angle_units_to_radians` / `angle_units_to_degrees` to `tools/dmc3/mot.py`
+  (exported from `dmc3`) and 5 tests (`TestMotKeyframeAngleUnit`) to
+  `tests/test_mot_records.py`. Full suite: **475 tests, all green**. Nothing
+  written to the game; no game data committed.
+- Found (**E-075**, read-only from `dmc3.exe`):
+  - The two helpers at RVA `0x32D9C0`/`0x32D9F0` convert a **16-bit value to
+    cos/sin** and tail-call the CRT: IAT slots `0x551DDA`/`0x551DE2` hold
+    `"cosf"`/`"sinf"`. Both multiply by the **same `f32` at `.rdata` RVA
+    `0x508834`** = `9.587379463482648e-05` = `float32(2*pi/0x10000)`, so **one
+    full turn = `0x10000`, `0x4000` = 90 deg, `0x8000` = 180 deg**.
+  - The helpers special-case the quarter/half turns (`0x4000`/`0xC000` for
+    cosine, `0x8000` for sine) to return exact `0.0` -- hence those literals.
+  - The animation evaluator (function containing `0x68200`) reads a runtime
+    u16 (`[struct+0x60]`), calls these helpers and accumulates into
+    `f32 [struct+0x20/0x24/0x28]` -- runtime pose angles are 16-bit in this unit.
+  - **[INFERRED]** E-028's modal MOT channel `±0x3FFF` is `±89.99 deg`, i.e. a
+    bone at 90 deg; the three keyframe channels are *candidates* for this unit.
+    **Not proven** -- no MOT byte has been traced into the helpers.
+  - **Negative (recorded):** the motion-cluster string table at `0x506808`..
+    `0x506B80` (`Gravity`, `Bone`, `Motion`, `Clip`, `SetFrame`, `LMotorSt`,
+    `SpTrackNo`, `RefMotion`, ...) is the **`/demo/%s` text event-script command
+    vocabulary** (parser at `0x2D9F60`/`0x2DA0C0` is a chain of `strcmp`), not
+    the MOT decoder. So neither the E-070 registry nor this table is the loader.
+- Docs: **E-075** in `docs/EVIDENCE.md`; `docs/FORMATS.md` section 3.1 gains the
+  engine cross-check note; `docs/BACKLOG.md` F4 row updated. No game data.
+- **Coordination:** the ID range E-071..E-074 was taken by a parallel GoW3 writer
+  *while this slice was in progress*; that writer's commit also swept the
+  in-progress `dmc3/mot.py`/`__init__.py`/test edits into its own commit, leaving
+  the intermediate version in HEAD (and a failing 2-pi assertion). This iteration
+  takes **E-075** and commits the corrected constant + docs. All edits were
+  re-verified against the working tree before committing.
+- Next: F4's real gap is still the **MOT byte-level loader**. The registry
+  (E-070) and the demo-script table (E-075) are both excluded; the remaining
+  ground-truth route is to find the code that reads the MOT header/records
+  (e.g. the `u16 groups`/`field_a == 3` record loop) directly in the motion
+  cluster, or to find the animation *builder* that turns MOT bytes into the
+  runtime struct with the 16-bit angles at `+0x60`. F1 and F3 slots 6/7/11/22
+  stay available and are not blocked.

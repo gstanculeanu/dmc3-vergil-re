@@ -266,6 +266,14 @@ fixed point), but channel assignment, scale and zero point are not established
 from bytes alone.  A bit-packed stream rather than plain channels remains
 possible.
 
+> **Engine cross-check (E-075).** `dmc3.exe` has a 16-bit angle unit: one full
+> turn is `0x10000`, `0x4000` is a quarter turn and `0x8000` a half turn, via the
+> `cosf`/`sinf` wrappers at RVA `0x32D9C0`/`0x32D9F0` and the `f32` constant
+> `2*pi/0x10000` at RVA `0x508834`. The modal channel value `0x3FFF` is
+> `89.9945 deg` — "a bone at 90 deg". **[INFERRED]** the three channels may use
+> this unit, but no MOT byte has been traced into the helpers, so their meaning
+> is still **[UNKNOWN]**.
+
 **[DISPROVEN]** `record_count == 3 × bone_count` (suggested by 69 = 3 × 23 in
 `pl021_00_9.pac`). Across the install the ratio is 3.0 in only 193/840 chunks.
 

@@ -3894,3 +3894,79 @@ layout (E-072) are what that work will need; neither had been available before.
 **Tooling.** No new module: both scans were one-off measurements. The negative,
 the samples and the exact thresholds are recorded here so the experiment is
 reproducible.
+
+## E-075 - DMC3 `dmc3.exe`: the engine's 16-bit angle unit is 1/0x10000 turn, via cosf/sinf wrappers (F4/F1 route, bounded slice)
+
+**Observation (read-only from `G:\Games\Devil May Cry HD Collection\dmc3.exe`,
+6,356,432 B).** Following E-070's stated route (the `.mot`/registry cluster) did
+not reach the MOT loader, but it led through the engine's animation/motion code
+and produced a hard, quotable engine constant. Two tiny helpers convert a
+**16-bit value to a trigonometric result** and tail-call the CRT:
+
+```
+0x32D9C0  0f bf c1              movsx  eax, cx          ; cx = u16 angle
+          2d 00 40 00 00        sub    eax, 0x4000
+          a9 ff 7f ff ff        test   eax, 0xFFFF7FFF  ; only 0 or 0x8000 left
+          74 17                 je     0x32D9EF         ; -> exact 0.0
+          0f b7 c1              movzx  eax, cx
+          66 0f 6e c0           movd   xmm0, eax
+          0f 5b c0              cvtdq2ps xmm0, xmm0
+          f3 0f 59 05 53 ae 1d 00  mulss xmm0, [rip+0x1DAE53]  ; -> RVA 0x508834
+          e9 3a 92 01 00        jmp    0x346C20         ; tail-call cosf
+
+0x32D9F0  0f bf c1              movsx  eax, cx
+          3d 00 80 00 00        cmp    eax, 0x8000
+          75 04                 jne    +4
+          0f 57 c0              xorps  xmm0, xmm0      ; exact 0.0
+          c3                    ret
+          0f b7 c1 ... f3 0f 59 05 24 ae 1d 00  mulss xmm0, [rip+0x1DAE24]
+          e9 11 92 01 00        jmp    0x346C26         ; tail-call sinf
+```
+
+The two tails are IAT thunks (`ff 25 8a 88 00 00` / `ff 25 7c 88 00 00`) whose
+slots hold RVAs `0x551DDA` / `0x551DE2`; the `IMAGE_IMPORT_BY_NAME` there is
+hint `0x0091` + `"cosf"` and hint `0x0113` + `"sinf"`. Both helpers multiply by
+the **same** `f32` at `.rdata` RVA **`0x508834`** = raw bytes `DA 0F C9 38` =
+`9.587379463482648e-05` — i.e. `float32(2*pi / 0x10000)` (one ULP below the
+double round-to-nearest). So **one full turn is `0x10000` units; `0x4000` is a
+quarter turn (90 deg) and `0x8000` a half turn**. The helpers special-case the
+quarter/half turns (`0x4000`/`0xC000` for cosine, `0x8000` for sine) to return
+**exactly** `0.0`, which is why those literals appear as code constants.
+
+The animation *evaluator* uses the same unit at runtime. In the function
+containing `0x68200` it reads a u16 from a runtime struct
+(`0x68232 movzx eax, word ptr [r9+0x60]`), calls `0x32D9F0`/`0x32D9C0`
+(`0x68277`, `0x6828C`, `0x682C5`, `0x682DA`), multiplies the results by per-axis
+constants and accumulates into `f32 [struct+0x20]`/`+0x24`/`+0x28` — i.e. the
+runtime pose angles are stored as 16-bit values in this unit.
+
+**Negative (recorded, corrects the E-070 route).** The motion-cluster string
+table at `.rdata` `0x506808`..`0x506B80` (`Gravity`, `SpringForce`, `Bone`,
+`Model`, `Motion`, `Clip`, `SetFrame`/`SkipFrame`/`CutFrame`, `LMotorSt`/`Ed`,
+`SMotorSt`/`Ed`, `SpTrackNo`, `SpBoneNo`, `RefMotion`, `CnsTrack`, `CnsBone`, …)
+is the **`/demo/%s` text event-script command vocabulary**, not the MOT decoder:
+the parser at `0x2D9F60`/`0x2DA0C0` is a chain of `strcmp` calls
+(`0x346C38` -> IAT slot `0x551E54` = `"strcmp"`) over the demo line buffer. So
+neither the extension registry (E-070) nor this string table is the binary MOT
+loader.
+
+**Inference (marked, unproven).** The MOT keyframe group's `u16[1..3]` (E-028)
+are *candidates* for this unit: their modal values are `+-0x3FFF`
+(`0x3FFF` = `89.9945 deg`) and `0x0000`, exactly a bone resting at `+-90 deg`,
+and `0x4000`/`0x8000` are the values the engine special-cases. This is **not
+proven**: no MOT byte has been traced into these helpers. The arithmetic helpers
+below are pure unit conversion and assert nothing about any MOT field.
+
+**Unknown.** The real MOT byte-level loader; whether MOT channels use this unit;
+every other F1/F4 field meaning.
+
+**Consequence.** `tools/dmc3/mot.py` gains `ANGLE_UNITS_PER_TURN`,
+`RADIANS_PER_ANGLE_UNIT` (the engine's own f32 value), `ANGLE_UNIT_COS_ZERO`,
+`ANGLE_UNIT_SIN_ZERO`, `angle_units_to_radians`, `angle_units_to_degrees`
+(exported from `dmc3`); 5 tests in `tests/test_mot_records.py`
+(`TestMotKeyframeAngleUnit`). No game data committed.
+
+**Coordination note.** The previous checkpoint on this route is E-070, whose
+`.mot` registry was confirmed not to be the decoder; the ID range E-071..E-074
+was taken concurrently by a parallel GoW3 writer while this slice was in
+progress, so this entry is numbered **E-075** to avoid a collision.
