@@ -846,3 +846,25 @@ moves and health bar and everything."*
   pre-header, so no field can be cross-decoded from local bytes.
 - Next: T6 (CI workflow, issue #12) is the next available tooling item; the
   format critical path stays idle until engine ground truth is available.
+
+## 2026-10-18 — F3 bounded slice: pl021.pac slot 21 u16 segment table decoded from real bytes
+
+- Did: bounded slice on F3 (issue #4). Read real bytes from pl021.pac slot 21
+  (G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\pl021.pac) at file
+  offset 0x07FF00, span 0x2E0 (368 u16s). Added Slot21Table /
+  SLOT21_SEPARATOR (0xFFFF) to tools/dmc3/raw.py, a synthetic
+  raw_chunk_slot21() fixture in tests/fixtures.py, and TestSlot21Table (4
+  tests) in tests/test_raw.py. Exported from dmc3/__init__.py. Committed as
+  5684450, pushed to origin main; commented issue #4.
+- Found (E-043): slot 21 is 14 little-endian u16 segments delimited by 0xFFFF
+  separators (13 separators at u16 indices 2, 9, 11, 20, 31, 63, 175, 210,
+  212, 219, 228, 256, 341); segment sizes 2/6/1/8/10/31/111/34/1/6/8/27/84/26;
+  segment 0 verbatim (6, 408). Two internal regularities recorded as
+  observations only: segment index 5 ends in arithmetic run 36,50,64,...,232
+  stepping by 14; segment index 6 repeats a 7-u16 sub-record
+  32767,0,32767,1,1,0,VALUE with VALUE stepping by 256 from 771 to 4099.
+  0x7FFF occurs inside segments and is not a delimiter.
+- Next: F3 remains open — segment-internal layout and all field meanings are
+  [UNKNOWN] and need engine ground truth; slot 10's f32 stream and untagged
+  slots 5/6/7/9/11/22 are still undecoded. F1/F4/F2/F5/F8 remain blocked on
+  engine ground truth and are not re-spun.
