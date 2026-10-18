@@ -803,3 +803,28 @@ moves and health bar and everything."*
   +0x24) and the "GX**" block semantics are open — engine ground truth or a
   FLVER spec needed, same as F1/F4. GX block internals are the natural next
   T7b slice.
+
+## 2026-10-18 — T7b: FLVER GX block structure decoded from real bytes
+
+- Did: decoded the GX block groups referenced by each FLVER section's u32_14
+  in ``BD_M_10100.flver`` (Vergil's body, prior-art package). Added
+  ``FlverGxBlock``/``FlverGxGroup`` and ``parse_flver_gx_block()``/
+  ``parse_flver_gx_group()``/``parse_flver_gx_groups()`` to
+  ``tools/priorart/flver.py``, exported them, added synthetic fixtures and 12
+  unit tests. Full suite: **207 tests, all green**. Committed as fa349fb,
+  pushed to origin main; commented issue #34.
+- Found (**E-041**): each section's u32_14 (48160 + 240*i for i in 0..5)
+  points exactly at a 240-byte group: GX00(44), GX04(64),
+  GX20/GX22/GX24/GX26/GX30 (24 each), sentinel u32 0x7FFFFFFF(12); every
+  block = u32 tag, u32 constant 100, u32 size, size-12 payload; all six
+  groups byte-identical; last GX magic at 0xC19C, then UTF-16 name strings.
+- Correction: E-040's "+4/+16 off" claim for sections 1/3 was imprecise — all
+  six sections point exactly at GX00; E-040 carries a correction note to E-041.
+- Remaining [UNKNOWN]: meaning of every tag, the constant 100, every size
+  field, every payload; body mesh layout beyond the GX groups (vertex/index
+  buffers, declaration). Engine ground truth or FLVER spec needed; not
+  decodable from bytes alone. F1/F4 remain blocked on engine ground truth and
+  are not re-spun.
+- Next: pick another resolved-dependency slice (F2 sub-tables / F3 slot-10 f32
+  stream / F8 pending more TM2 samples) or record F1/F4 as dead ends needing
+  engine ground truth.
