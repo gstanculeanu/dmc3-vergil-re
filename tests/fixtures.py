@@ -225,6 +225,58 @@ def shw_chunk(
     return bytes(blob)
 
 
+def shw_chunk_with_tables(
+    field_38: int = 0x50,
+    field_40: Optional[int] = None,
+    field_48: Optional[int] = None,
+    indices: tuple[tuple[int, int, int], ...] = (
+        (1, 2, 3),
+        (4, 5, 6),
+        (7, 8, 9),
+        (0, 9, 2),
+    ),
+    positions: tuple[tuple[float, float, float, float], ...] = (
+        (1.0, 2.0, 3.0, 1.0),
+        (-4.0, 5.0, -6.0, 1.0),
+        (7.5, -8.5, 9.5, 1.0),
+    ),
+) -> bytes:
+    """A synthetic ``SHW `` chunk whose +0x38/+0x40/+0x48 point at contiguous
+    index and position sub-tables (evidence E-038).
+
+    Layout (chunk-relative, little-endian)::
+
+        +0x38 u32 field_38   offset of the index table
+        +0x40 u32 field_40   offset of the position table
+        +0x48 u32 field_48   offset of the next (undecoded) table
+        [field_38]  [u16 i0, u16 i1, u16 i2, u16 0] x len(indices)
+        [field_40]  [f32 x, f32 y, f32 z, f32 1.0] x len(positions)
+
+    If ``field_40``/``field_48`` are not given they are derived from the table
+    sizes so the pointer-difference invariant (index bytes = field_40 - field_38,
+    position bytes = field_48 - field_40) holds exactly.  All data values are
+    synthetic; no game bytes are committed.
+    """
+    INDEX_STRIDE = 8
+    POSITION_STRIDE = 16
+    if field_40 is None:
+        field_40 = field_38 + INDEX_STRIDE * len(indices)
+    if field_48 is None:
+        field_48 = field_40 + POSITION_STRIDE * len(positions)
+    size = field_48 + POSITION_STRIDE
+    blob = bytearray(b"\x00" * size)
+    blob[0:4] = b"SHW "
+    struct.pack_into("<f", blob, 0x04, 0.5)
+    struct.pack_into("<I", blob, 0x38, field_38)
+    struct.pack_into("<I", blob, 0x40, field_40)
+    struct.pack_into("<I", blob, 0x48, field_48)
+    for i, (i0, i1, i2) in enumerate(indices):
+        struct.pack_into("<HHHH", blob, field_38 + INDEX_STRIDE * i, i0, i1, i2, 0)
+    for i, (x, y, z, w) in enumerate(positions):
+        struct.pack_into("<4f", blob, field_40 + POSITION_STRIDE * i, x, y, z, w)
+    return bytes(blob)
+
+
 def raw_chunk_slot0() -> bytes:
     """A synthetic raw chunk mirroring pl021.pac slot 0's header (E-033).
 

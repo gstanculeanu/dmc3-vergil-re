@@ -1629,3 +1629,68 @@ decodable from bytes alone; engine ground truth needed.
 tests on a synthetic fixture. F3 remains open: this slice decodes slot 10's
 leading table only; slot 10's f32 stream and all other untagged slots are still
 [UNKNOWN].
+
+
+---
+## E-038 — `SHW ` sub-tables: +0x38 index buffer, +0x40 position buffer (F2, bounded slice)
+
+**Observation.** Read the four `SHW ` chunks of `pl021.pac` (slots 8/14/24/26;
+slots 24/26 byte-identical) from the real artifact
+(`G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\pl021.pac`).
+The header fields `field_38` (+0x38) and `field_40` (+0x40) are chunk-relative
+offsets, and `field_48` (+0x48) is the offset of the next table. For every
+chunk the pointer differences exactly equal the sub-table byte sizes:
+
+| Slot | file base | field_38 -> index table | field_40 -> position table | field_48 -> next table | pointer math |
+|------|-----------|-------------------------|----------------------------|------------------------|--------------|
+| 8 | 0x75470 | 0x560 -> file 0x759d0, 16 tris | 0x5E0 -> file 0x75a50, 10 positions | 0x680 -> file 0x75af0 | `0x5E0-0x560=0x80=16*8`; `0x680-0x5E0=0xA0=10*16` |
+| 14 | 0x7EB80 | 0x460 -> 40 tris | 0x5A0 -> 22 positions | 0x700 | `0x5A0-0x460=0x140=40*8`; `0x700-0x5A0=0x160=22*16` |
+| 24 | 0x82F90 | 0x480 -> 66 tris | 0x690 -> 39 positions | 0x900 | `0x690-0x480=0x210=66*8`; `0x900-0x690=0x270=39*16` |
+| 26 | 0x85670 | 0x480 -> 66 tris | 0x690 -> 39 positions | 0x900 | identical to slot 24 (byte-identical chunks) |
+
+The index table occupies `[field_38, field_40)` and the position table
+`[field_40, field_48)` — the two tables are contiguous in all four chunks.
+
+Worked example — slot 8 raw bytes (little-endian):
+
+```
+file 0x759d0 (+0x38 table, [u16 i0,i1,i2,u16 0]):
+  06 00 0e 00 07 00 00 00   -> (6, 14, 7, 0)
+  06 00 05 00 0a 00 00 00   -> (6, 5, 10, 0)
+  ...
+file 0x75a50 (+0x40 table, [f32 x,y,z,f32 1.0]):
+  ce c4 8a c1 9d f7 08 43 a7 36 12 c1 00 00 80 3f   -> (-17.3461, +136.9672, -9.1383, +1.0)
+  f2 ec d3 3d 10 5c 0a 43 05 01 6d c1 00 00 80 3f   -> (+0.1035, +138.3596, -14.8127, +1.0)
+```
+
+The position values show left/right symmetry across entries (e.g. slot 14:
+`(-14.87, +4.02, +7.75, 1.0)` / `(+15.30, +4.02, +7.75, 1.0)`), consistent
+with vertex coordinates. The w component is exactly 1.0 in every entry of all
+four chunks. The fourth u16 of every index entry is 0 in all four chunks.
+
+The table at `field_48` (+0x48) begins with a run of a constant byte
+(slot 8: ten `0x03` bytes; slots 24/26: ten `0x01` bytes; slot 14: zeros)
+followed by a u32 stream; its layout is not decoded.
+
+**Inference.** `field_38` points at an index (triangle) buffer of
+`[u16 i0, u16 i1, u16 i2, u16 0]` entries; `field_40` points at a vertex
+position buffer of `[f32 x, f32 y, f32 z, f32 1.0]` entries. Buffer counts are
+derived from consecutive-pointer differences (index count = `(field_40 -
+field_38) / 8`, position count = `(field_48 - field_40) / 16`), a verified
+invariant across all four chunks. Structure is [PARTIAL]; semantics are
+[UNKNOWN].
+
+**Unknown.** Whether the index buffer references the position buffer: the
+cross-reference does *not* hold for slots 8/14 (slot 8 max index 15 exceeds its
+10 positions; slot 14 max index 30 exceeds its 22 positions), so additional
+vertex buffers or separate sub-meshes may be involved — it holds only for slots
+24/26 (max index 28 < 39 positions). The layout and meaning of the +0x48 table
+are [UNKNOWN]. The texture binding that issue F2 asks for remains [UNKNOWN];
+this slice decodes the sub-table structure, not the binding.
+
+**Consequence.** `tools/dmc3/shw.py` gains `ShwIndexTable`, `ShwPositionTable`,
+`ShwSubTables` and `parse_shw_sub_tables` / `maybe_shw_sub_tables`, decoding
+exactly the observed sub-table structure from real bytes, exercised by 9 new
+unit tests on synthetic fixtures (no game data committed). `docs/FORMATS.md`
+§5 and `docs/BACKLOG.md` F2 are updated below. F2 stays open: texture binding
+and field semantics need engine ground truth.

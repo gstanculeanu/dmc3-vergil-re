@@ -15,7 +15,12 @@ from .raw import (
 from .shw import (
     HEADER_SIZE as SHW_HEADER_SIZE,
     ShwHeader,
+    ShwIndexTable,
+    ShwPositionTable,
+    ShwSubTables,
     maybe_shw_header,
+    maybe_shw_sub_tables,
+    parse_shw_sub_tables,
 )
 from .pac import (
     ALIGNMENT,
@@ -64,7 +69,12 @@ __all__ = [
     "TAG_SHADER",
     "SHW_HEADER_SIZE",
     "ShwHeader",
+    "ShwIndexTable",
+    "ShwPositionTable",
+    "ShwSubTables",
     "maybe_shw_header",
+    "maybe_shw_sub_tables",
+    "parse_shw_sub_tables",
     "Chunk",
     "PacArchive",
     "align_up",

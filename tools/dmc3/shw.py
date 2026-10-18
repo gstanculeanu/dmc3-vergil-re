@@ -2,8 +2,10 @@
 
 ``SHW `` chunks are the plain-tagged shader/material payloads inside a PAC
 container (evidence E-002).  Only the header fields that are **observed**
-across real archives are exposed here; the texture-binding table that starts
-at +0x60 and the payload semantics remain open (issue F2).
+across real archives are exposed here; the header at +0x30/+0x38/+0x40/+0x48
+points at sub-tables, of which the +0x38 index buffer and +0x40 position
+buffer are structurally decoded (evidence E-038).  The texture binding and the
+remaining payload semantics stay open (issue F2).
 
 Header layout as read from the four ``SHW `` chunks of ``pl021.pac``
 (slots 8, 14, 24, 26; slots 24 and 26 are byte-identical), all integers
@@ -44,6 +46,7 @@ See docs/EVIDENCE.md E-036 for the raw-byte observations and docs/FORMATS.md
 
 from __future__ import annotations
 
+import struct
 from dataclasses import dataclass
 from typing import Optional
 
@@ -112,19 +115,27 @@ class ShwHeader:
     """``+0x34`` — u32, 0 in every observed chunk."""
 
     field_38: int
-    """``+0x38`` — u32, varies per chunk.  Meaning [UNKNOWN]."""
+    """``+0x38`` — u32, varies per chunk.  Chunk-relative offset of a buffer of
+    ``[u16 i0, u16 i1, u16 i2, u16 0]`` index entries; decoded by
+    :func:`parse_shw_sub_tables` (structure [PARTIAL], semantics [UNKNOWN];
+    evidence E-038)."""
 
     field_3c: int
     """``+0x3C`` — u32, 0 in every observed chunk."""
 
     field_40: int
-    """``+0x40`` — u32, varies per chunk.  Meaning [UNKNOWN]."""
+    """``+0x40`` — u32, varies per chunk.  Chunk-relative offset of a buffer of
+    ``[f32 x, f32 y, f32 z, f32 1.0]`` position entries; decoded by
+    :func:`parse_shw_sub_tables` (structure [PARTIAL], semantics [UNKNOWN];
+    evidence E-038)."""
 
     field_44: int
     """``+0x44`` — u32, 0 in every observed chunk."""
 
     field_48: int
-    """``+0x48`` — u32, varies per chunk.  Meaning [UNKNOWN]."""
+    """``+0x48`` — u32, varies per chunk.  Chunk-relative offset of a further
+    sub-table (begins with a constant-byte run, then a u32 stream; layout and
+    meaning [UNKNOWN]; evidence E-038)."""
 
     field_4c: int
     """``+0x4C`` — u32, 0 in every observed chunk."""
@@ -170,4 +181,140 @@ def maybe_shw_header(chunk: Chunk) -> Optional[ShwHeader]:
     try:
         return ShwHeader.parse(chunk)
     except (ValueError, IndexError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Payload sub-tables (the part of issue F2 that is still [UNKNOWN] in meaning)
+# ---------------------------------------------------------------------------
+
+INDEX_STRIDE = 8
+"""Stride of the index table at ``SHW +0x38``: ``[u16 i0, u16 i1, u16 i2, u16 0]``."""
+
+POSITION_STRIDE = 16
+"""Stride of the position table at ``SHW +0x40``: ``[f32 x, f32 y, f32 z, f32 1.0]``."""
+
+
+@dataclass(frozen=True)
+class ShwIndexTable:
+    """Triangle index buffer pointed at by ``SHW +0x38`` (evidence E-038).
+
+    Layout: ``[u16 i0, u16 i1, u16 i2, u16 0]`` repeated ``count`` times.  The
+    fourth u16 of every entry is observed to be zero in all four real chunks.
+    The count is derived from the pointer difference ``field_40 - field_38``,
+    which is a verified invariant across all four ``SHW `` chunks.
+
+    What the indices reference is [UNKNOWN]: for slots 24/26 the indices fall
+    within the +0x40 position table, but for slots 8 and 14 the maximum index
+    exceeds that table's count, so additional vertex buffers or separate
+    sub-meshes may be involved.
+    """
+
+    count: int
+    """Number of index entries (triangles)."""
+
+    indices: tuple[tuple[int, int, int], ...]
+    """The ``(i0, i1, i2)`` triples; the trailing zero u16 of each entry is
+    stripped, as it is constantly zero and carries no information."""
+
+
+@dataclass(frozen=True)
+class ShwPositionTable:
+    """Vertex position buffer pointed at by ``SHW +0x40`` (evidence E-038).
+
+    Layout: ``[f32 x, f32 y, f32 z, f32 1.0]`` repeated ``count`` times.  The
+    w component is observed to be exactly 1.0 in every entry of all four real
+    chunks, and the values show left/right symmetry consistent with vertex
+    coordinates (e.g. slot 14: ``(-14.87, 4.02, 7.75)`` / ``(+15.30, 4.02, 7.75)``).
+    The count is derived from ``field_48 - field_40``, a verified invariant.
+
+    Object-space vs world-space, and which mesh the positions belong to, are
+    [UNKNOWN].
+    """
+
+    count: int
+    """Number of position entries (vertices)."""
+
+    positions: tuple[tuple[float, float, float, float], ...]
+    """The ``(x, y, z, w)`` vectors; ``w`` is constantly 1.0 and is retained for
+    byte-faithfulness."""
+
+
+@dataclass(frozen=True)
+class ShwSubTables:
+    """The two decoded ``SHW`` sub-tables (evidence E-038).
+
+    ``field_38``/``field_40``/``field_48`` are chunk-relative offsets into the
+    chunk's data.  Buffer sizes come from the consecutive-pointer differences:
+
+    * index bytes   = ``field_40 - field_38``   (stride 8)
+    * position bytes = ``field_48 - field_40``  (stride 16)
+
+    This held exactly for all four real chunks (slots 8, 14, 24, 26).
+    """
+
+    index_table: ShwIndexTable
+    position_table: ShwPositionTable
+
+
+def parse_shw_sub_tables(data: bytes, header: ShwHeader) -> ShwSubTables:
+    """Decode the index and position sub-tables of a ``SHW `` chunk.
+
+    ``data`` is the chunk's raw bytes (``chunk.data``); the ``field_38``,
+    ``field_40`` and ``field_48`` offsets are chunk-relative.  Raises
+    ``ValueError`` if a pointer difference is not divisible by the observed
+    stride, if a table runs past the end of the data, or if a table offset lies
+    inside the header.
+    """
+    if header.field_38 < HEADER_SIZE:
+        raise ValueError(
+            f"SHW +0x38 offset {header.field_38:#x} lies inside the 0x{HEADER_SIZE:X}-byte header"
+        )
+    if header.field_48 > len(data):
+        raise ValueError(
+            f"SHW +0x48 offset {header.field_48:#x} runs past {len(data)} bytes of chunk data"
+        )
+
+    index_bytes = header.field_40 - header.field_38
+    position_bytes = header.field_48 - header.field_40
+    if index_bytes % INDEX_STRIDE != 0:
+        raise ValueError(
+            f"SHW index size {index_bytes} is not a multiple of the {INDEX_STRIDE}-byte index stride"
+        )
+    if position_bytes % POSITION_STRIDE != 0:
+        raise ValueError(
+            f"SHW position size {position_bytes} is not a multiple of the {POSITION_STRIDE}-byte position stride"
+        )
+
+    index_count = index_bytes // INDEX_STRIDE
+    position_count = position_bytes // POSITION_STRIDE
+
+    indices: list[tuple[int, int, int]] = []
+    for i in range(index_count):
+        base = header.field_38 + INDEX_STRIDE * i
+        i0, i1, i2, pad = struct.unpack_from("<HHHH", data, base)
+        if pad != 0:
+            raise ValueError(
+                f"SHW index entry {i} has nonzero fourth u16 {pad:#x} (observed 0 in all real chunks)"
+            )
+        indices.append((i0, i1, i2))
+
+    positions: list[tuple[float, float, float, float]] = []
+    for i in range(position_count):
+        base = header.field_40 + POSITION_STRIDE * i
+        positions.append(struct.unpack_from("<4f", data, base))
+
+    return ShwSubTables(
+        index_table=ShwIndexTable(count=index_count, indices=tuple(indices)),
+        position_table=ShwPositionTable(count=position_count, positions=tuple(positions)),
+    )
+
+
+def maybe_shw_sub_tables(
+    data: bytes, header: ShwHeader
+) -> Optional[ShwSubTables]:
+    """Like :func:`parse_shw_sub_tables` but returns ``None`` on invalid input."""
+    try:
+        return parse_shw_sub_tables(data, header)
+    except ValueError:
         return None

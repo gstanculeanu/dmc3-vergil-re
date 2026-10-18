@@ -378,11 +378,17 @@ chunks; evidence E-036), all little-endian:
 +0x30  u32      varies   (0x460, 0x1E0, 0x60, 0x60) — offsets a 16-byte-block
                        index table in all four chunks   [table layout UNKNOWN]
 +0x34  u32      0 x4/4
-+0x38  u32      varies   (0x560, 0x460, 0x480, 0x480)   [UNKNOWN]
++0x38  u32      varies   (0x560, 0x460, 0x480, 0x480) — offsets an index
+                        buffer `[u16 i0,i1,i2,0] x count` (structure [PARTIAL];
+                        see §5.1.1, evidence E-038)
 +0x3C  u32      0 x4/4
-+0x40  u32      varies   (0x5E0, 0x5A0, 0x690, 0x690)   [UNKNOWN]
++0x40  u32      varies   (0x5E0, 0x5A0, 0x690, 0x690) — offsets a position
+                        buffer `[f32 x,y,z,1.0] x count` (structure [PARTIAL];
+                        see §5.1.1, evidence E-038)
 +0x44  u32      0 x4/4
-+0x48  u32      varies   (0x680, 0x700, 0x900, 0x900)   [UNKNOWN]
++0x48  u32      varies   (0x680, 0x700, 0x900, 0x900) — offsets a further
+                        sub-table (constant-byte run, then a u32 stream; layout
+                        [UNKNOWN]; see §5.1.1, evidence E-038)
 +0x4C  u32      0 x4/4
 +0x50  zero bytes x16
 ```
@@ -391,11 +397,54 @@ chunks; evidence E-036), all little-endian:
   like the MOD slots 23/25).
 * The four varying fields at +0x30/+0x38/+0x40/+0x48 each point at a sub-table
   inside the chunk; +0x30's table holds three small u32 indices plus a zero
-  per 16-byte entry in all four chunks (E-036). The sub-table layouts and all
-  field meanings are [UNKNOWN]; the texture binding that issue F2 asks for is
-  not yet decoded.
-* `tools/dmc3/shw.py` exposes `ShwHeader` decoding exactly this header from
-  real bytes, exercised by unit tests on synthetic fixtures.
+  per 16-byte entry in all four chunks (E-036). The +0x38 index buffer and
+  +0x40 position buffer are structurally decoded (§5.1.1, evidence E-038);
+  the +0x48 table's layout and all field meanings are [UNKNOWN]; the texture
+  binding that issue F2 asks for is not yet decoded.
+* `tools/dmc3/shw.py` exposes `ShwHeader`, `ShwIndexTable`, `ShwPositionTable`,
+  `ShwSubTables` and `parse_shw_sub_tables` / `maybe_shw_sub_tables`, decoding
+  exactly the observed sub-table structure from real bytes, exercised by unit
+  tests on synthetic fixtures.
+
+### 5.1.1 `SHW ` sub-tables — index buffer (+0x38) and position buffer (+0x40)
+
+**[PARTIAL structure / [UNKNOWN] semantics]** — evidence E-038. The `field_38`
+(+0x38) and `field_40` (+0x40) header fields are chunk-relative offsets, and
+`field_48` (+0x48) is the offset of the next table. Buffer sizes come from the
+consecutive-pointer differences, verified as an invariant across all four
+chunks:
+
+* index count   = `(field_40 - field_38) / 8`,  layout `[u16 i0, u16 i1, u16 i2, u16 0]`
+* position count = `(field_48 - field_40) / 16`, layout `[f32 x, f32 y, f32 z, f32 1.0]`
+
+The index table occupies `[field_38, field_40)` and the position table
+`[field_40, field_48)`; the two are contiguous in all four chunks:
+
+| Slot | field_38 | index count | field_40 | position count | field_48 |
+|------|----------|-------------|----------|----------------|----------|
+| 8 | 0x560 | 16 tris | 0x5E0 | 10 positions | 0x680 |
+| 14 | 0x460 | 40 tris | 0x5A0 | 22 positions | 0x700 |
+| 24/26 | 0x480 | 66 tris | 0x690 | 39 positions | 0x900 |
+
+Worked example — slot 8 (file base 0x75470), raw bytes little-endian:
+
+```
+file 0x759d0 (+0x38): 06 00 0e 00 07 00 00 00   -> index (6, 14, 7)
+                       06 00 05 00 0a 00 00 00   -> index (6, 5, 10)
+file 0x75a50 (+0x40): ce c4 8a c1 9d f7 08 43   -> position x=-17.3461
+                       a7 36 12 c1 00 00 80 3f   -> y=+136.9672 z=-9.1383 w=+1.0
+```
+
+Position values show left/right symmetry (e.g. slot 14 `(-14.87,+4.02,+7.75)`
+/ `(+15.30,+4.02,+7.75)`) and w is exactly 1.0 in every entry — consistent with
+vertex coordinates, but object-space vs world-space is [UNKNOWN].
+
+**Cross-reference [UNKNOWN]:** whether the index buffer references the position
+buffer is not established. It holds for slots 24/26 (max index 28 < 39
+positions) but not for slots 8/14 (slot 8 max index 15 > 10 positions; slot 14
+max index 30 > 22 positions), suggesting additional vertex buffers or separate
+sub-meshes. The +0x48 table's layout and all field meanings are [UNKNOWN];
+the texture binding issue F2 asks for remains [UNKNOWN].
 
 > **Correction.** An earlier revision of this section listed the varying values
 > `0x460, 0x1E0, 0x60` at `+0x28`. Real bytes show `+0x28` is `0` in all four
