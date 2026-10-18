@@ -1816,3 +1816,55 @@ moves and health bar and everything."*
   it indexes is the next target, and it is the same array the tag-`0x16` ramp and
   the tag-`0x10` residue point at; the leaf keyframe encoding follows from it.
   `F3` slots 6/7/11/22 remain the always-available DMC3 fallback.
+
+---
+
+## 2026-10-18 — F9/G9 bounded slice: a channel entry is `0x20 + 0x30*k`, and `0x1800` pads the tail (E-080); two DMC3 engine signatures disproved (E-081)
+
+- Did: picked F9/G9 (issues #24/#36) after first spending a bounded look at the
+  DMC3 engine route E-078 named (the F4 critical path) and **recording that look as
+  a dead end** rather than thrashing. Then re-censused the tag-`0x0F` channel list
+  — which E-079 had measured on `R_HADES.WAD` alone — over **123** clips
+  (77 `R_HADES.WAD` + 46 `R_HERCULES.WAD`), read-only. Added
+  `CLIP_DATA_CHANNEL_FIELD_OFFSET` / `CLIP_DATA_CHANNEL_LAST_INDEX` /
+  `CLIP_DATA_CHANNEL_CAPACITIES`, the functions `channel_index` /
+  `channel_live_values` / `channel_index_set`, the `ClipSubBlock` properties
+  `channel_live_values` / `channel_indices` and the `ClipSubBlocks` properties
+  `channel_live_count` / `channel_indices` to `tools/gow3/anim.py`; 7 tests
+  (`TestClipChannelIndices`) in `tests/test_gow3_anim.py`. Full suite:
+  **526 tests, all green**. Nothing written to any game install; no game data
+  committed.
+- Found:
+  - **E-080.** Every non-sentinel entry is exactly `0x20 + 0x30*k`, `k` in
+    1..126 (**123/123**, 0 violations), so the entry names the `+0x20` field of a
+    record in the shared 48-byte array. `0x1800` (= `0x30 * 128`, one past the
+    128-entry tag-`0x16` ramp, E-066) is a **tail sentinel**: 116/123 lists carry
+    it before their end, so E-079's "8..40 channels" is a **capacity** and the live
+    count is 1..36 (modes 27/26/34/28). Corrected three E-079 numbers on the larger
+    sample: non-decreasing is 120/123 (not 74/77) and list lengths include **16**
+    (2 clips). **Disproved my own "(start, end) pair" hypothesis** — 65/123 clips
+    have an odd live count — and "sorted" as a rule (3 clips begin out of order:
+    `csHadesIntroStruggle`, `csHadesIntroFail`, `csHadesKnifeKillTug2`). Over all
+    123 clips only **36 distinct `k`** occur (`{1, 8, 10..12, 16..30, 39..45, 52,
+    59..64, 89, 126}`), most used by ~100 clips, so a clip's channels are a subset
+    of a fixed 36-slot universe. Which record field a channel names, and the leaf
+    keyframe encoding, remain **[UNKNOWN]**.
+  - **E-081 (DMC3 engine, recorded dead ends).** Before the GoW3R slice I tried to
+    reach F4's MOT byte decoder by its two most distinctive signatures; both are
+    generic code. (a) `and eax, 0x7FFF` (the `u16 - 0x8000` frame bias) has 3 hits
+    in `.text`; the two in near-identical functions (`0x2F7A90`, `0x2FE3B0`) are a
+    **pointer-relocation walker** over 0x40/0x50-byte records (fields rebased with
+    `add rax, [rbp+0x90]`), not the keyframe decoder. (b) E-070's four registry
+    consumers all call `0x2E0060` with a name from the `0x506BC8` **`/demo/`
+    script vocabulary** E-075 excluded, so that route still does not reach the MOT
+    loader — consistent with the type array having no reader. Recorded so they are
+    not re-walked.
+- Docs: E-080/E-081 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §7.7 gains "A channel
+  entry is `0x20 + 0x30*k`, and `0x1800` pads the tail — [VERIFIED] (E-080)";
+  `docs/BACKLOG.md` F1/F4 (E-081) and F9/G9 (E-079/E-080) rows updated.
+- Next: the leaf keyframe encoding is still the F9 gap — the 36-slot channel array
+  the tag-`0x0F` list indexes (the same 0x30-strided array the tag-`0x16` ramp and
+  the tag-0x10 residue point at) is the next target; on the DMC3 side, reach F4/F1
+  via the load path (`0x333F0`/`0x33500`) or `.pdata`, not the two signatures now
+  disproved. `F3` slots 6/7/11/22 remain the always-available fallback.
+

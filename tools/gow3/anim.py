@@ -558,6 +558,21 @@ CLIP_DATA_CHANNEL_TAG = 0x0F
 CLIP_DATA_CHANNEL_RESIDUE = 0x20      # 0x30-residue of every non-sentinel entry
 CLIP_DATA_CHANNEL_LIMIT = 0x1800      # the sentinel == CLIP_DATA_STRIDE * 128
 
+# E-080 re-censused the tag-0x0F list over **123** clips (77 R_HADES.WAD + 46
+# R_HERCULES.WAD). Every non-sentinel entry is exactly `0x20 + 0x30 * k` with k in
+# 1..126; 0x1800 (= 0x30 * 128, one past the 128-entry tag-0x16 ramp) is a tail
+# *sentinel*, not a channel: 116/123 clips carry it before the list's end, so the
+# list length (8/16/24/32/40) is a per-clip **capacity** and the live entries are
+# the ones below the sentinel. k=0 and k=127 are never referenced. Only 36 distinct
+# k occur over all 123 clips (most used by ~100 clips), so the list names a
+# clip-specific subset of a shared channel array. The list is not a list of
+# (start, end) pairs -- 65/123 clips have an odd live count -- and not sorted:
+# 3 clips begin out of order (csHadesIntroStruggle, csHadesIntroFail,
+# csHadesKnifeKillTug2).
+CLIP_DATA_CHANNEL_FIELD_OFFSET = 0x20   # the record field a channel entry names
+CLIP_DATA_CHANNEL_LAST_INDEX = 126      # highest k observed (E-080)
+CLIP_DATA_CHANNEL_CAPACITIES = (8, 16, 24, 32, 40)  # observed list lengths
+
 # Sub-block payloads are **partially filled** (E-079). A run of >= 2 0xCC bytes
 # (the MSVC uninitialised fill) occurs in 227 of the 714 payloads, and in 148 of
 # those the run reaches the block's end -- every such block is a *leaf* (tags 0x0B
@@ -693,6 +708,47 @@ def channel_offset_ok(values) -> bool:
     )
 
 
+def channel_index(value: int) -> Optional[int]:
+    """The 48-byte-record index a live tag-0x0F entry names, or ``None`` (E-080).
+
+    A live entry is exactly ``0x20 + 0x30 * k`` (E-080), so ``k`` is the index of
+    the record the entry points at. Returns ``None`` for the 0x1800 sentinel and for
+    any value outside that arithmetic form, so a malformed entry never yields an
+    index.
+    """
+    if value == CLIP_DATA_CHANNEL_LIMIT:
+        return None
+    if not CLIP_DATA_CHANNEL_FIELD_OFFSET <= value < CLIP_DATA_CHANNEL_LIMIT:
+        return None
+    if (value - CLIP_DATA_CHANNEL_FIELD_OFFSET) % CLIP_DATA_STRIDE:
+        return None
+    return (value - CLIP_DATA_CHANNEL_FIELD_OFFSET) // CLIP_DATA_STRIDE
+
+
+def channel_live_values(values) -> tuple:
+    """The tag-0x0F entries below the 0x1800 sentinel, in file order (E-080).
+
+    The list is tail-padded with the sentinel (116/123 clips have one before the
+    end), so this is the clip's **live** channel set; its length is the channel
+    count and the raw list's length is only a capacity.
+    """
+    return tuple(value for value in values
+                 if value != CLIP_DATA_CHANNEL_LIMIT)
+
+
+def channel_index_set(values) -> frozenset:
+    """The set of record indices a tag-0x0F list names (E-080).
+
+    The result is a ``frozenset`` of ``k`` values from :func:`channel_index`;
+    sentinel and malformed entries contribute nothing. The clip's channel identity
+    is this set, not the list length or order.
+    """
+    return frozenset(
+        index for index in (channel_index(value) for value in values)
+        if index is not None
+    )
+
+
 def find_nested_preamble(payload: bytes,
                          min_records: int = CLIP_DATA_NESTED_MIN_RECORDS
                          ) -> Optional[tuple]:
@@ -799,6 +855,16 @@ class ClipSubBlock:
         return (self.tag == CLIP_DATA_CHANNEL_TAG
                 and channel_offset_ok(self.offset_list))
 
+    @property
+    def channel_live_values(self) -> tuple:
+        """The offset list's non-sentinel entries -- its live channels (E-080)."""
+        return channel_live_values(self.offset_list)
+
+    @property
+    def channel_indices(self) -> frozenset:
+        """The record indices this tag-0x0F list names (E-080)."""
+        return channel_index_set(self.offset_list)
+
     def nested_preamble(self, min_records: int = CLIP_DATA_NESTED_MIN_RECORDS):
         """The nested preamble inside this sub-block, or ``None`` (E-066)."""
         return find_nested_preamble(self.payload, min_records)
@@ -854,6 +920,23 @@ class ClipSubBlocks:
     def channel_count(self) -> int:
         """Entries in the clip's tag-0x0F offset list, 0 when there is none (E-079)."""
         return sum(len(block.offset_list) for block in self.channel_blocks)
+
+    @property
+    def channel_live_count(self) -> int:
+        """The clip's **live** channels -- offset entries below the sentinel (E-080).
+
+        This is the number the raw list length overstates: the tail is padded with
+        the 0x1800 sentinel (E-080), so ``channel_count`` is a capacity.
+        """
+        return sum(len(block.channel_live_values) for block in self.channel_blocks)
+
+    @property
+    def channel_indices(self) -> frozenset:
+        """The union of the record indices the clip's tag-0x0F lists name (E-080)."""
+        indices = frozenset()
+        for block in self.channel_blocks:
+            indices |= block.channel_indices
+        return indices
 
     @property
     def channel_offset_ok(self) -> bool:

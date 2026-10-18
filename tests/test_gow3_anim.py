@@ -919,5 +919,63 @@ class TestClipLeafBlocks(unittest.TestCase):
         self.assertFalse(without.channel_offset_ok)
 
 
+class TestClipChannelIndices(unittest.TestCase):
+    """E-080: a tag-0x0F entry is `0x20 + 0x30*k`; 0x1800 pads the tail."""
+
+    def test_channel_index_reads_the_record_index(self):
+        self.assertEqual(anim.CLIP_DATA_CHANNEL_FIELD_OFFSET, 0x20)
+        self.assertEqual(anim.channel_index(0x20), 0)
+        self.assertEqual(anim.channel_index(0x50), 1)
+        # 0x800 == 0x20 + 0x30 * 42
+        self.assertEqual(anim.channel_index(0x800), 42)
+        self.assertEqual(anim.channel_index(0x20 + 0x30 * 126), 126)
+
+    def test_channel_index_rejects_the_sentinel_and_bad_entries(self):
+        self.assertIsNone(anim.channel_index(anim.CLIP_DATA_CHANNEL_LIMIT))
+        self.assertIsNone(anim.channel_index(0x10))        # tag-0x10 residue
+        self.assertIsNone(anim.channel_index(0x1801))      # past the sentinel
+        self.assertIsNone(anim.channel_index(0x2000))      # far past it
+        self.assertIsNone(anim.channel_index(0x00))
+
+    def test_channel_live_values_drops_the_tail_sentinel(self):
+        # a real shape: one live channel then padding (E-079's example had 1 live)
+        self.assertEqual(
+            anim.channel_live_values((0x50, 0x1800, 0x1800, 0x1800)), (0x50,))
+        self.assertEqual(anim.channel_live_values((0x1800,)), ())
+        self.assertEqual(anim.channel_live_values((0x50, 0x800)), (0x50, 0x800))
+
+    def test_channel_index_set_is_the_channel_identity(self):
+        self.assertEqual(anim.channel_index_set((0x50, 0x800, 0x1800)),
+                         frozenset({1, 42}))
+        self.assertEqual(anim.channel_index_set((0x1800, 0x1800)), frozenset())
+        # order and padding do not change the identity
+        self.assertEqual(anim.channel_index_set((0x800, 0x50, 0x1800)),
+                         anim.channel_index_set((0x50, 0x800, 0x1800, 0x1800)))
+
+    def test_block_accessors(self):
+        payload = struct.pack("<4H", 0x50, 0x800, 0x1800, 0x1800)
+        block = anim.ClipSubBlock(tag=anim.CLIP_DATA_CHANNEL_TAG, offset=0,
+                                  size=len(payload), payload=payload)
+        self.assertEqual(block.channel_live_values, (0x50, 0x800))
+        self.assertEqual(block.channel_indices, frozenset({1, 42}))
+
+    def test_sub_blocks_report_the_live_count_and_union(self):
+        first = anim.ClipSubBlock(tag=anim.CLIP_DATA_CHANNEL_TAG, offset=0,
+                                  size=8,
+                                  payload=struct.pack("<4H", 0x50, 0x1800,
+                                                      0x1800, 0x1800))
+        second = anim.ClipSubBlock(tag=anim.CLIP_DATA_CHANNEL_TAG, offset=8,
+                                   size=4,
+                                   payload=struct.pack("<2H", 0x800, 0x1800))
+        blocks = anim.ClipSubBlocks(offset=0, blocks=(first, second), end=0x100)
+        self.assertEqual(blocks.channel_count, 6)         # capacity
+        self.assertEqual(blocks.channel_live_count, 2)    # live channels
+        self.assertEqual(blocks.channel_indices, frozenset({1, 42}))
+
+    def test_capacities_are_the_observed_list_lengths(self):
+        self.assertEqual(anim.CLIP_DATA_CHANNEL_CAPACITIES, (8, 16, 24, 32, 40))
+        self.assertEqual(anim.CLIP_DATA_CHANNEL_LAST_INDEX, 126)
+
+
 if __name__ == "__main__":
     unittest.main()

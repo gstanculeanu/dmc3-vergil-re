@@ -1049,6 +1049,36 @@ The helpers are `u16_values()` / `fill_run_start()` / `channel_offset_list()` /
 and `ClipSubBlocks.channel_blocks` / `channel_count` / `channel_offset_ok`. The leaf
 keyframe encoding is still the F9 gap.
 
+##### A channel entry is `0x20 + 0x30*k`, and `0x1800` pads the tail — [VERIFIED] (E-080)
+
+E-080 re-censused the same list over **123** clips (77 `R_HADES.WAD` + 46
+`R_HERCULES.WAD`), which corrects three E-079 numbers and fixes the arithmetic:
+
+| relation | result |
+|---|---|
+| every non-sentinel entry is exactly `0x20 + 0x30*k`, `k` in 1..126 | **123/123**, 0 violations |
+| list carries a non-terminal `0x1800` (tail padding) | 116/123 |
+| list length (capacity) is 8 / 16 / 24 / 32 / 40 | 18 / 2 / 8 / 71 / 24 clips |
+| *live* entry count (below the sentinel) | 1..36, modes 27 (28), 26 (19) |
+| list is non-decreasing | 120/123 |
+| live count is odd (so never a start/end pair table) | 65/123 |
+
+So E-079's "**8..40 channels per clip**" is the list's **capacity**; the live
+channel count is `channel_live_count`, and `k = 0` / `k = 127` are never
+referenced. Over all 123 clips only **36 distinct `k`** occur —
+`{1, 8, 10..12, 16..30, 39..45, 52, 59..64, 89, 126}` — most used by ~100 clips,
+so a clip's channels are a **subset of a fixed 36-slot universe** (the clusters
+`16..30` and `39..45` are [INFERRED] bone ranges). The `(start, end)` pair reading
+is **[DISPROVEN]** (odd live counts) and "non-decreasing" is **[DISPROVEN]** as a
+rule (three lists begin out of order: `csHadesIntroStruggle`, `csHadesIntroFail`,
+`csHadesKnifeKillTug2`).
+
+The helpers are `channel_index()` / `channel_live_values()` / `channel_index_set()`
+and the constants `CLIP_DATA_CHANNEL_FIELD_OFFSET` (0x20) /
+`CLIP_DATA_CHANNEL_LAST_INDEX` (126) / `CLIP_DATA_CHANNEL_CAPACITIES`
+(`(8, 16, 24, 32, 40)`), exposed through `ClipSubBlock.channel_live_values` /
+`channel_indices` and `ClipSubBlocks.channel_live_count` / `channel_indices`.
+
 ---
 
 ## 8. DMC3 HD `dmc3.exe` — PE file↔RVA mapping and reference scanning (E-069, E-070)

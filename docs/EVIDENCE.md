@@ -4298,3 +4298,92 @@ the leaf keyframe encoding, remain [UNKNOWN].
 `channel_offset_ok`, and the `ClipSubBlocks` properties `channel_blocks` /
 `channel_count` / `channel_offset_ok`. 8 new tests in `tests/test_gow3_anim.py`
 (`TestClipLeafBlocks`) run on synthetic payloads. No game data committed.
+
+## E-080 - GoW3R clip channel list: entries are `0x20 + 0x30*k`, and `0x1800` pads the tail (F9/G9, bounded slice)
+
+**Observation.** Read-only from `R_HADES.WAD` (77 clips) and `R_HERCULES.WAD`
+(46 clips) under `...\gow3\CUSA01715\EXEC\WAD\PS4_LE\`; the E-064..E-079 reader
+walks **123** clips and all 123 tag-`0x0F` channel lists. This censuses the E-079
+offset list over the *larger* 123-clip set and resolves its arithmetic exactly.
+
+**A. Every non-sentinel entry is exactly `0x20 + 0x30*k`, k in 1..126.** On all
+123 lists, every entry below the sentinel satisfies
+`0x20 <= value < 0x1800` and `(value - 0x20) % 0x30 == 0` — **0 violations**. So
+the list names positions in the shared 48-byte (0x30) record array (E-068) and the
+entry is a record's `+0x20` field. `k = 0` and `k = 127` are never referenced.
+
+**B. `0x1800` is a tail *sentinel*, and the list length is a capacity.** 116 of
+the 123 lists carry `0x1800` **before** their end (635 sentinel entries in total;
+117/123 end in it). Read literally the length is `8` (18 clips), `16` (2), `24`
+(8), `32` (71) or `40` (24) — a **per-clip capacity** — while the *live* entry
+count (entries below the sentinel) is 1..36 with modes `27` (28 clips), `26` (19),
+`34` (13), `28` (13). So E-079's "8..40 channels" is the capacity; a clip's real
+channel count is `channel_live_count`.
+
+**C. The list is neither a boundary-pair table nor sorted.**
+* **Disproved (my hypothesis):** a "(start, end) pair" reading would need an even
+  live count; **65/123** clips have an **odd** live count (e.g.
+  `csHadesIntro` has 29), so the list is a set of per-channel offsets, not pairs.
+* 3 lists begin out of order, refuting E-079's "non-decreasing" as a rule at the
+  larger sample: `csHadesIntroStruggle` `(0x410, 0x50, 0x320, …)`,
+  `csHadesIntroFail` `(0x7D0, 0x9E0, 0x50, …)`, `csHadesKnifeKillTug2`
+  `(0x410, 0x50, 0x1A0, …)`. The 123-clip count is **120/123** non-decreasing
+  (E-079 reported 74/77 on Hades alone).
+
+**D. Only 36 record indices are ever referenced, and they are clip-specific.**
+Over all 123 clips the live entries name **36 distinct `k`** — `{1, 8, 10, 11, 12,
+16..30, 39..45, 52, 59..64, 89, 126}` — and most are used by ~100 clips
+(`k=1` by 120, `k=16..28` by 100..105, `k=52` by 102). A clip's channel identity
+is therefore a **subset of a fixed 36-slot universe**, and the two clusters
+`16..30` / `39..45` look like contiguous bone ranges [INFERRED, unproven].
+
+**Inference (marked).** The tag-`0x0F` list is a **directory of channel record
+offsets** into a shared 128-slot, 48-byte-strided array: the entry is the record's
+`+0x20` field offset, the sentinel `0x1800` is the array end (`0x30 * 128`, one
+past the 128-entry tag-`0x16` ramp of E-066), and the list's fixed 8/16/24/32/40
+length is a capacity. Which record field a channel names, and the leaf keyframe
+encoding, remain **[UNKNOWN]**.
+
+**Consequence.** `tools/gow3/anim.py` gains `CLIP_DATA_CHANNEL_FIELD_OFFSET`
+(`0x20`), `CLIP_DATA_CHANNEL_LAST_INDEX` (`126`), `CLIP_DATA_CHANNEL_CAPACITIES`
+(`(8, 16, 24, 32, 40)`), `channel_index`, `channel_live_values`,
+`channel_index_set`, the `ClipSubBlock` properties `channel_live_values` /
+`channel_indices`, and the `ClipSubBlocks` properties `channel_live_count` /
+`channel_indices`. 7 new tests (`TestClipChannelIndices`) on synthetic payloads.
+No game data committed.
+
+## E-081 - DMC3 `dmc3.exe`: two candidate MOT-decoder signatures are generic code, not the keyframe decoder (F4/F1 route, bounded negative)
+
+**Observation (read-only from `G:\Games\Devil May Cry HD Collection\dmc3.exe`,
+6,356,432 B).** This slice tried to reach the MOT byte-level decoder (the F4 "gap",
+E-051/E-075) by its two most distinctive byte operations, and disproved both.
+
+**A. The `and 0x7FFF` sites are a pointer-fixup walker, not the frame decode.**
+E-026's frame field is `u16 - 0x8000`, equivalent to `& 0x7FFF` when bit 15 is set,
+so the multi-byte forms were scanned in `.text`. `25 FF 7F 00 00`
+(`and eax, 0x7FFF`) has exactly **3** hits; two (`0x2F7D0D`, `0x2FE652`) follow
+`movzx eax, word ptr [rcx + rax*2]` and sit in **near-identical 0x50-byte-record
+walker functions** (`0x2F7A90`, `0x2FE3B0`). Read with a local recon disassembler,
+those walk an outer array of 0x40-byte records and an inner array of **0x50-byte**
+records whose fields at `+0x10/+0x18/+0x20/+0x28/+0x30/+0x38` are all **rebased by
+adding the load base** (`add rax, [rbp+0x90]`). That is a **pointer relocation /
+file-load fixup**, and its `& 0x7FFF` strips a flag bit from a u16 index list — no
+keyframe constant and no `0x8000` bias appear. The third hit (`0x32E28`) follows
+`shr rdx, 0x3B` (a bitfield extract), also unrelated.
+
+**B. The registry consumers reach demo-script name lookups, not a `.mot` type
+dispatch.** E-070 listed four consumers of the extension registry
+(`0x2D6933`, `0x2DA173`, `0x2DA263`, `0x2DA336`). Disassembled, each calls the
+registry pair-lookup `0x2E0060` with `rcx = ctx+0xB4B0` and a name built by
+`0x2FF80` from a `lea rdx, [rip+…]` whose target is `0x506BC8` — inside the
+`0x506808..0x506B80` **`/demo/` event-script vocabulary** E-075 excluded. They then
+call `0x2DB340` / `0x2E0130` and store the resolved pointers. So these are
+script-command name resolutions, and consistent with E-079's note that the type
+array (`ctx+0x18408`) has **no reader**: the registry route still does **not**
+reach the MOT loader.
+
+**Consequence / recorded dead ends.** Neither `& 0x7FFF` on a u16 index list nor
+the registry's lookup consumers locate the MOT record/keyframe decoder. Do not
+re-walk them. The byte-level MOD/MOT decoders (F1/F4) remain **[UNKNOWN]**, and the
+remaining engine route is the load path (`0x333F0`/`0x33500`) or the `.pdata`
+function table, not these two signatures.
