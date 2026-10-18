@@ -27,7 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from .pac import Chunk, f32, u16, u32
+from .pac import ALIGNMENT, Chunk, align_up, f32, u16, u32
 
 TAG_MODEL = b"MOD "
 """The plain chunk tag that identifies a ``MOD `` chunk."""
@@ -877,6 +877,119 @@ def tail_next_ok(body: bytes, block: ModBodyBlock, count: int) -> bool:
     """
     entries = tail_forward_entries(body, block, count)
     return bool(entries) and entries[0] == block.tail_next_target
+
+
+BODY_BLOCK_TAIL_TAG_GAP = 0x10
+"""``16`` — bytes between the tail descriptor's tag word and its first offset (E-100).
+
+The descriptor's last 36 bytes read as ``[tag][0][0][0][v1][0][v2][0][v3]``, so the
+tag word sits three zero words before the first offset.
+"""
+
+BODY_BLOCK_TAIL_OFFSET_COUNT = 3
+"""Number of body offsets in a tail descriptor (E-100)."""
+
+BODY_BLOCK_TAIL_RECORD_UNIT = 0x0C
+"""``12`` — bytes per recorded element used to derive the descriptor's spacing (E-100).
+
+On the install the three offsets are equally spaced by
+``align_up(12 * n, 16)`` where ``n`` is the low u16 of the descriptor's tag word.
+"""
+
+
+@dataclass(frozen=True)
+class ModBodyTailDescriptor:
+    """The 36-byte descriptor at the very end of a ``MOD `` block's tail (E-100).
+
+    Layout, read from real bytes::
+
+        [tag u32][0][0][0][v1 u32][0][v2 u32][0][v3 u32]
+
+    ``v1`` equals :attr:`ModBodyBlock.tail_next_target` (``block.end + 0x50``) and
+    ``v2``/``v3`` are ``v1 + k * align_up(12 * n, 16)`` for ``k = 1, 2`` on
+    1,148/1,210 install blocks, where ``n`` is the low u16 of the tag word.  The
+    tag word's high u16 is a small class id (0..6).  What the three offsets name
+    and what ``n`` counts are **[UNKNOWN]**; only the arithmetic is claimed.
+
+    The offset count is fixed at :data:`BODY_BLOCK_TAIL_OFFSET_COUNT`.  ``v3`` is
+    always the block's final u32, so its trailing zero word is the *next* block's
+    first prefix word — which is why E-097 counted at most two entries inside a
+    tail even though the descriptor names three targets.
+    """
+
+    tag_word: int
+    """The u32 16 bytes before the first offset."""
+
+    offsets: tuple[int, ...]
+    """The ``BODY_BLOCK_TAIL_OFFSET_COUNT`` body offsets, in order."""
+
+    stride: int
+    """``align_up(12 * count, 16)`` — the spacing the offsets are expected to have."""
+
+    @property
+    def count(self) -> int:
+        """Low u16 of :attr:`tag_word` — the descriptor's own count field (E-100)."""
+        return self.tag_word & 0xFFFF
+
+    @property
+    def class_id(self) -> int:
+        """High u16 of :attr:`tag_word` — a small id (0..6 on the install) (E-100)."""
+        return (self.tag_word >> 16) & 0xFFFF
+
+    @property
+    def expected_offsets(self) -> tuple[int, ...]:
+        """The offsets implied by ``offsets[0]`` and :attr:`stride`."""
+        if not self.offsets:
+            return ()
+        base = self.offsets[0]
+        return tuple(base + k * self.stride for k in range(len(self.offsets)))
+
+    @property
+    def spacing_ok(self) -> bool:
+        """True when the offsets are equally spaced by :attr:`stride` (E-100)."""
+        return bool(self.offsets) and self.offsets == self.expected_offsets
+
+
+def tail_descriptor(
+    body: bytes, block: ModBodyBlock, count: int
+) -> Optional[ModBodyTailDescriptor]:
+    """Recover a block's tail descriptor, or ``None`` (E-100).
+
+    Requires the block's first forward tail entry to be the derived
+    :attr:`ModBodyBlock.tail_next_target` (E-098) and the three words between the
+    tag word and that offset to be zero.  This is a **face-value parse**: the
+    arithmetic is verified on the install, every field meaning stays [UNKNOWN].
+    """
+    entries = tail_forward_entries(body, block, count)
+    if not entries or entries[0] != block.tail_next_target:
+        return None
+    first = entries[0]
+    start = block.tail_offset(count)
+    end = min(block.end, len(body))
+    offset = None
+    scan = start
+    while scan + BODY_BLOCK_TAIL_ENTRY_SIZE <= end:
+        if u32(body, scan) == first and u32(body, scan + 4) == 0:
+            offset = scan
+            break
+        scan += BODY_BLOCK_TAIL_ENTRY_SIZE
+    if offset is None or offset - start < BODY_BLOCK_TAIL_TAG_GAP:
+        return None
+    tag_offset = offset - BODY_BLOCK_TAIL_TAG_GAP
+    tag_word = u32(body, tag_offset)
+    for k in range(1, 4):
+        if u32(body, tag_offset + 4 * k) != 0:
+            return None
+    offsets = []
+    for k in range(BODY_BLOCK_TAIL_OFFSET_COUNT):
+        word = offset + 8 * k
+        if word + 4 > len(body):
+            break
+        offsets.append(u32(body, word))
+    stride = align_up(BODY_BLOCK_TAIL_RECORD_UNIT * (tag_word & 0xFFFF), ALIGNMENT)
+    return ModBodyTailDescriptor(
+        tag_word=tag_word, offsets=tuple(offsets), stride=stride
+    )
 
 
 def normal_run(

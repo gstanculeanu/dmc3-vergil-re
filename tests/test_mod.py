@@ -19,6 +19,9 @@ from dmc3.mod import (
     BODY_BLOCK_TAIL_ENTRY_SIZE,
     BODY_BLOCK_TAIL_MIN_VALUES,
     BODY_BLOCK_TAIL_NEXT_DELTA,
+    BODY_BLOCK_TAIL_OFFSET_COUNT,
+    BODY_BLOCK_TAIL_RECORD_UNIT,
+    BODY_BLOCK_TAIL_TAG_GAP,
     BODY_BLOCK_TUPLE_SIZE,
     BODY_BLOCK_VALUE_SIZE,
     BODY_BLOCK_VALUE_UNIT,
@@ -48,6 +51,7 @@ from dmc3.mod import (
     tail_entries,
     tail_forward_entries,
     tail_next_ok,
+    tail_descriptor,
     unit_triple,
 )
 
@@ -652,6 +656,73 @@ class TestModBodyTailNext(unittest.TestCase):
         body = fixtures.mod_two_block_tail_body(count=3)
         directory = ModBodyDirectory.parse(body)
         self.assertFalse(tail_next_ok(body, directory.blocks[1], 3))
+
+
+class TestModBodyTailDescriptor(unittest.TestCase):
+    """E-100: the tail's last 36 bytes are `[tag][0][0][0][v1][0][v2][0][v3]`,
+    the three offsets equally spaced by `align_up(12 * n, 16)` where `n` is the
+    low u16 of the tag word (1,148/1,210 install blocks)."""
+
+    def test_layout_constants(self):
+        self.assertEqual(BODY_BLOCK_TAIL_TAG_GAP, 0x10)
+        self.assertEqual(BODY_BLOCK_TAIL_OFFSET_COUNT, 3)
+        self.assertEqual(BODY_BLOCK_TAIL_RECORD_UNIT, 0x0C)
+
+    def test_descriptor_reads_tag_count_class_and_offsets(self):
+        body = fixtures.mod_tail_descriptor_body(count=4, n=5, tag_class=2)
+        directory = ModBodyDirectory.parse(body)
+        block0 = directory.blocks[0]
+        descriptor = tail_descriptor(body, block0, 4)
+        self.assertIsNotNone(descriptor)
+        self.assertEqual(descriptor.count, 5)
+        self.assertEqual(descriptor.class_id, 2)
+        self.assertEqual(descriptor.tag_word, (2 << 16) | 5)
+        self.assertEqual(descriptor.offsets[0], block0.tail_next_target)
+        self.assertEqual(descriptor.stride, ((12 * 5 + 15) & ~15))
+
+    def test_offsets_are_equally_spaced_by_the_stride(self):
+        body = fixtures.mod_tail_descriptor_body(count=6, n=6)
+        directory = ModBodyDirectory.parse(body)
+        descriptor = tail_descriptor(body, directory.blocks[0], 6)
+        stride = ((12 * 6 + 15) & ~15)
+        self.assertEqual(len(descriptor.offsets), BODY_BLOCK_TAIL_OFFSET_COUNT)
+        self.assertEqual(descriptor.stride, stride)
+        self.assertEqual(
+            descriptor.offsets,
+            (descriptor.offsets[0], descriptor.offsets[0] + stride,
+             descriptor.offsets[0] + 2 * stride),
+        )
+        self.assertTrue(descriptor.spacing_ok)
+        self.assertEqual(descriptor.expected_offsets, descriptor.offsets)
+
+    def test_stride_rounds_up_to_sixteen(self):
+        # 12 * 5 = 60 -> 64; 12 * 4 = 48 (already a multiple of 16)
+        body = fixtures.mod_tail_descriptor_body(count=4, n=5)
+        directory = ModBodyDirectory.parse(body)
+        self.assertEqual(tail_descriptor(body, directory.blocks[0], 4).stride, 0x40)
+        body = fixtures.mod_tail_descriptor_body(count=4, n=4)
+        directory = ModBodyDirectory.parse(body)
+        self.assertEqual(tail_descriptor(body, directory.blocks[0], 4).stride, 0x30)
+
+    def test_third_offset_is_the_blocks_last_word(self):
+        body = fixtures.mod_tail_descriptor_body(count=4, n=5)
+        directory = ModBodyDirectory.parse(body)
+        block0 = directory.blocks[0]
+        descriptor = tail_descriptor(body, block0, 4)
+        # v3 occupies the final 4 bytes of the block; its zero word is the next
+        # block's first prefix word, so E-097 only ever sees two entries in-tail.
+        last_word = struct.unpack_from("<I", body, block0.end - 4)[0]
+        self.assertEqual(last_word, descriptor.offsets[2])
+
+    def test_descriptor_is_none_without_a_forward_entry(self):
+        body = fixtures.mod_tail_directory_body(count=4, tail_words=2, entries=())
+        block = ModBodyDirectory.parse(body).blocks[0]
+        self.assertIsNone(tail_descriptor(body, block, 4))
+
+    def test_descriptor_is_none_when_the_tag_gap_is_not_zero(self):
+        body = fixtures.mod_tail_descriptor_body(count=4, n=5, gap_zero=False)
+        block = ModBodyDirectory.parse(body).blocks[0]
+        self.assertIsNone(tail_descriptor(body, block, 4))
 
 
 if __name__ == "__main__":

@@ -2463,3 +2463,49 @@ moves and health bar and everything."*
   child/sibling/hierarchy pointer)? Otherwise F3 slots 6/7/11/22 and the GoW3R
   clip leaf keyframe encoding (F9) remain available; F4 stays blocked on the
   engine route and is not re-spun.
+
+---
+
+## 2026-10-18 — F1 bounded slice: the block tail's last 36 bytes are a 3-offset descriptor (E-100)
+
+- Did: picked the critical path **F1** (issue #1) and followed E-098's own stated
+  next step — "what does the second tail entry name?" — by reading the **last 36
+  bytes of each block**, read-only across all 194 `*.pac` files under
+  `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\` (286 `MOD ` chunks,
+  1,556 blocks). Added `BODY_BLOCK_TAIL_TAG_GAP` (0x10),
+  `BODY_BLOCK_TAIL_OFFSET_COUNT` (3), `BODY_BLOCK_TAIL_RECORD_UNIT` (0x0C),
+  `ModBodyTailDescriptor` and `tail_descriptor()` to `tools/dmc3/mod.py`, exported
+  from `dmc3`; added the `mod_tail_descriptor_body()` fixture and
+  `TestModBodyTailDescriptor` (7 tests). Full suite: **651 tests, all green**
+  (644 baseline + 7). Nothing written to the game; no game data committed.
+- Found (**E-100**):
+  - The tail ends with a fixed descriptor `[tag][0][0][0][v1][0][v2][0][v3]`.
+    On **1,210/1,210** blocks with a derived `v1` (`block.end + 0x50`, E-098) the
+    tag word sits exactly 16 bytes before `v1`, the three words after it are zero,
+    and `v3` is the block's **final u32** — so its trailing zero word is the
+    *next* block's first prefix word.
+  - `v2 == v1 + stride` and `v3 == v1 + 2*stride` where
+    `stride = align_up(12*n, 16)` and `n = tag & 0xFFFF`, on **1,131/1,210**
+    (93.5 %). The tag word's high u16 is a small class id (0..6). `n` equals the
+    next record descriptor's `count` on 1,142/1,210 (94.4 %).
+  - Worked example `em013.pac` slot 1 block 0 (`count = 44`, `end = 0x10B0`):
+    last 36 bytes `36 00 00 00 | 00 x12 | 00 11 00 00 | 00 00 00 00 |
+    90 13 00 00 | 00 00 00 00 | 20 16 00 00` = tag `0x36`, `v1=0x1100`,
+    `v2=0x1390`, `v3=0x1620`, `stride=0x290`.
+  - **So E-098's open question is answered structurally:** the "second entry" is
+    `v1 + align_up(12*n, 16)`, not a free cross-reference, and E-097 could only
+    ever see two in-tail entries because `v3` straddles the block boundary.
+  - **[UNKNOWN]:** the meaning of `n`, the class id and the three target regions.
+    The regions do **not** read consistently as positions/normals (region-1
+    unit-length fraction is bimodal 0.0/0.8), so no content semantics are claimed.
+- **ID collision handled:** the entry was drafted as E-099 but a parallel writer
+  committed E-099 (a GoW3 mesh-group finding, `c9d2af2`) mid-slice; this entry
+  takes the next free id, **E-100**, and all code/doc references were renumbered.
+- Docs: E-100 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §5.1 gains the "E-100
+  update" subsection and the title gains E-100; `docs/BACKLOG.md` F1 row updated
+  (evidence cell adds E-100, status rewritten). No game data committed.
+- Next: `n` and the class id are the fresh lead — correlate `n`/`class_id` with
+  the next block's descriptor (`count`, tag) to name the descriptor, and trace
+  the three targets. F4 stays blocked on the engine route and is not re-spun;
+  F3 slots 6/7/11/22 and the GoW3R clip leaf keyframe encoding (F9) remain
+  available.

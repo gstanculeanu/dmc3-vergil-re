@@ -5697,3 +5697,68 @@ record really is one vertex or a record covering more than one.
 reproducible from `tools/gow3/meshes.py` (`find_mesh_groups`, `MeshGroup.header`,
 `MeshGroup.descriptor`). Recorded as measurements with explicit thresholds rather
 than as a format claim.
+
+---
+
+## E-100 — `MOD ` block tails: the last 36 bytes are a 3-offset descriptor spaced by `align_up(12*n, 16)` (F1, bounded slice)
+
+**Observation (read-only from `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\`, all 194 `*.pac` files; 286 `MOD ` chunks).**
+E-098 asked what the *second* forward tail entry names. Reading the **last 36 bytes
+of each block** — not the tail from its start — shows the tail ends with a fixed
+descriptor, and the "second entry" is one of three equally spaced offsets:
+
+```
+[tag u32][0][0][0][v1 u32][0][v2 u32][0][v3 u32]     <- the block's last 36 bytes
+```
+
+Census on **1,556** blocks:
+
+| observation | result |
+|---|---|
+| first forward tail entry `== block.end + 0x50` (`v1`, E-098) | 1,210 |
+| of those: tag word 16 bytes before `v1`, three zero words after it | **1,210 / 1,210** |
+| `v3` is the block's final u32 (its trailing zero is the next block's first prefix word) | **1,210 / 1,210** |
+| `v2 == v1 + stride` and `v3 == v1 + 2 * stride` | 1,131 / 1,210 (93.5 %) |
+| `n` (`tag & 0xFFFF`) equals the next record descriptor's `count` | 1,142 / 1,210 (94.4 %) |
+
+where `stride = align_up(12 * n, 16)` and `n = tag & 0xFFFF`. The tag word's high
+u16 is a small id, **0..6**: `0`×940, `1`×161, `2`×70, `3`×27, `4`×9, `5`×2, `6`×1.
+
+Worked example — `em013.pac` slot 1, block 0 (`count = 44`, `@body+0xA80`,
+`end = 0x10B0`). The block's last 36 bytes, verbatim:
+
+```
+36 00 00 00  00 00 00 00  00 00 00 00  00 00 00 00
+00 11 00 00  00 00 00 00  90 13 00 00  00 00 00 00  20 16 00 00
+```
+
+= `tag 0x36` (`n = 54`, class 0), `v1 = 0x1100`, `v2 = 0x1390`, `v3 = 0x1620`,
+`stride = round_up(12*54, 16) = 0x290`. `v1 = end + 0x50` is the next block's
+`payload + 0x24` (E-098); `v3` is the block's final u32.
+
+**Inference (marked, unproven).** The three offsets plus the tag word form one
+**descriptor**: `n` sets the spacing `align_up(12*n, 16)` and the three targets sit
+at `v1 + k*stride`. E-098's open question is answered structurally — the "second
+entry" is *not* a free cross-reference, and a third target exists that E-097 could
+not see because it falls on the block boundary (only `v1`/`v2` are inside the
+tail, so E-097's max in-tail count of 2 on 1,204 blocks is an artifact).
+
+**Unknown (recorded, not guessed).** The meaning of `n`, of the tag word's high
+u16 class id, and of the three target regions. The regions do **not** read
+consistently as positions/normals: reading each region as `n` `f32[3]` triples
+gives a region-1 unit-length fraction that is bimodal (0.0 in 356 blocks, 0.8 in
+568) and a varied region-2, so no content semantics are claimed.
+
+**Tooling.** `tools/dmc3/mod.py` gains `BODY_BLOCK_TAIL_TAG_GAP = 0x10`,
+`BODY_BLOCK_TAIL_OFFSET_COUNT = 3`, `BODY_BLOCK_TAIL_RECORD_UNIT = 0x0C`,
+`ModBodyTailDescriptor` (`tag_word`, `offsets`, `stride`, `count`, `class_id`,
+`expected_offsets`, `spacing_ok`) and `tail_descriptor()`, exported from `dmc3`.
+`tests/fixtures.py` gains `mod_tail_descriptor_body()` and `tests/test_mod.py`
+gains `TestModBodyTailDescriptor` (7 tests). Validated read-only through the new
+API: it reproduces `1,556` blocks / `1,210` descriptors / `1,131` `spacing_ok` /
+`1,210` where `v3` is the block's last word, and the class-id census above. No
+game data committed.
+
+**Note on IDs.** This entry was drafted as E-099; a parallel writer committed
+E-099 (a GoW3 mesh-group finding) while it was in progress, so it takes the next
+free id, **E-100**, and all code/doc references use E-100.

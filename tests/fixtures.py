@@ -441,6 +441,69 @@ def mod_two_block_tail_body(
     return record0 + record1 + footer + block0 + block1
 
 
+def mod_tail_descriptor_body(
+    count: int = 4,
+    n: int = None,
+    tail_words: int = 4,
+    tag_class: int = 0,
+    gap_zero: bool = True,
+) -> bytes:
+    """A synthetic two-record ``MOD `` body whose first block ends with the
+    E-100 36-byte descriptor ``[tag][0][0][0][v1][0][v2][0][v3]``.
+
+    ``v1`` is ``block0.end + 0x50`` (the second block's ``payload + 0x24``),
+    ``n`` (default ``count``) is the low u16 of the tag word, ``tag_class`` the
+    high u16, and ``v2``/``v3`` are ``v1 + k * align_up(12*n, 16)``.  When
+    ``gap_zero`` is False the second zero word is set to 1, which makes
+    :func:`dmc3.mod.tail_descriptor` reject the descriptor.
+    """
+    if n is None:
+        n = count
+    array_size = 3 * 0x40  # two records + footer
+    blob = bytearray(0x2C)
+    payload = bytearray()
+    for k in range(count):
+        payload += struct.pack("<3f", k + 0.5, -(k + 0.25), k * 0.125)
+    for _ in range(count):
+        payload += struct.pack("<3f", 0.0, 0.0, 1.0)
+    for k in range(count):
+        payload += struct.pack("<2H", 0x0100 + k, 0x0200 + k)
+    for _ in range(count):
+        payload += struct.pack("<I", 0x0C040800)
+    payload += struct.pack("<I", 0x001F001F) * tail_words
+    payload += b"\x00" * 4
+    payload_offset = array_size + 0x2C
+    value_offset = payload_offset + 28 * count
+    offset_a = value_offset + 0x24
+    offset_b = offset_a + 4 * count
+    struct.pack_into("<I", blob, 0x04, offset_a)
+    struct.pack_into("<I", blob, 0x0C, offset_b)
+    struct.pack_into("<I", blob, 0x1C, payload_offset + 32 * count + 4 * tail_words)
+    descriptor_size = 0x24
+    base = array_size + 0x2C + len(payload)
+    pad = (-(base + descriptor_size)) % 16
+    end0 = base + pad + descriptor_size
+    stride = (12 * n + 15) & ~15
+    v1 = end0 + 0x50
+    v2 = v1 + stride
+    v3 = v2 + stride
+    gap = b"\x00" * 12 if gap_zero else b"\x00" * 4 + struct.pack("<I", 1) + b"\x00" * 4
+    descriptor = (
+        struct.pack("<I", (tag_class << 16) | n)
+        + gap
+        + struct.pack("<III", v1, 0, v2)
+        + struct.pack("<II", 0, v3)
+    )
+    block0 = bytes(blob) + bytes(payload) + b"\x00" * pad + descriptor
+    block1 = mod_tail_block(count=count, start=0, tail_words=tail_words, entries=())
+    record0 = mod_descriptor(tag=0x8001, count=count, data_offset=array_size)
+    record1 = mod_descriptor(tag=0x8001, count=count, data_offset=array_size + len(block0))
+    footer = mod_descriptor(tag_word=(0 << 16) | 0x2C, data_offset=0, aux=4)
+    # pad the body so the descriptor's forward targets (v1..v3) lie inside it,
+    # as they do on the install where blocks tile a much larger body
+    return record0 + record1 + footer + block0 + block1 + b"\x00" * 0x400
+
+
 def shw_chunk(
     alpha: float = 0.5,
     field_08: int = 0,

@@ -511,7 +511,7 @@ files**; evidence E-030), all little-endian:
 +0x24  ...     payload body (vertices, indices, normals, UVs, skin weights)  [UNKNOWN layout]
 ```
 
-### 5.1 `MOD ` payload body prefix - first decoded fields [E-031, E-091, E-092, E-093, E-094, E-095, E-096, E-097, E-098]
+### 5.1 `MOD ` payload body prefix - first decoded fields [E-031, E-091, E-092, E-093, E-094, E-095, E-096, E-097, E-098, E-100]
 
 **Status: [PARTIAL]** — evidence E-031 (pl021.pac), E-091 (all 286 install
 `MOD ` chunks). The body begins at `+0x24` (immediately after the header). Its
@@ -798,6 +798,45 @@ the **286** `MOD ` chunks / **1,556** blocks:
 * `tools/dmc3/mod.py` exposes `BODY_BLOCK_TAIL_NEXT_DELTA = 0x50`,
   `ModBodyBlock.tail_next_target`, `tail_forward_entries()` and `tail_next_ok()`.
   See **E-098**.
+
+#### E-100 update: the tail's last 36 bytes are a 3-offset descriptor spaced by `align_up(12*n, 16)` - structure [PARTIAL]
+
+Reading the *last 36 bytes of the block* (not the tail from its start) shows the
+tail ends with a fixed descriptor; E-098's "second entry" is one of three equally
+spaced offsets, not a free reference. On the **286** `MOD ` chunks / **1,556**
+blocks:
+
+```
+[tag u32][0][0][0][v1 u32][0][v2 u32][0][v3 u32]      <- the last 36 bytes
+```
+
+| observation | result |
+|---|---|
+| blocks whose first forward entry is `end + 0x50` (`v1`) | 1,210 / 1,556 |
+| of those, tag word 16 bytes before `v1` and three zero words after it | **1,210 / 1,210** |
+| `v3` is the block's final u32 (its trailing zero is the next block's first prefix word) | **1,210 / 1,210** |
+| `v2 == v1 + stride` and `v3 == v1 + 2 * stride` | 1,131 / 1,210 (93.5 %) |
+| `n` (`tag & 0xFFFF`) equals the next descriptor's `count` | 1,142 / 1,210 (94.4 %) |
+
+where `stride = align_up(12 * n, 16)` and `n = tag & 0xFFFF`. The tag word's high
+u16 is a small id, **0..6** on the install (`0`×940, `1`×161, `2`×70, `3`×27,
+`4`×9, `5`×2, `6`×1). Because `v3` is the block's last word, only `v1` and `v2`
+fall inside the tail — which is exactly why E-097 saw at most two in-tail entries
+on 1,204 blocks and why E-098 could only ask about the "second" one.
+
+* So E-098's open question is answered structurally: the **second entry is
+  `v1 + align_up(12*n, 16)`** and the third is `v1 + 2 * align_up(12*n, 16)`. The
+  three offsets form one descriptor together with `n`, not a free pointer list.
+* `v1 = block.end + 0x50` is the *next* block's `payload + 0x24` (E-098). The
+  contents of each of the three regions and the meaning of `n` and the class id
+  are **[UNKNOWN]** — the regions do **not** read consistently as positions /
+  normals (region-1 unit-length fraction is bimodal 0.0/0.8), so no semantics are
+  claimed.
+* Worked example `em013.pac` slot 1 block 0 (`count = 44`): tag `0x36` (`n = 54`,
+  class 0), `v1 = 0x1100`, `v2 = 0x1390`, `v3 = 0x1620`, `stride = 0x290`.
+* `tools/dmc3/mod.py` exposes `BODY_BLOCK_TAIL_TAG_GAP = 0x10`,
+  `BODY_BLOCK_TAIL_OFFSET_COUNT = 3`, `BODY_BLOCK_TAIL_RECORD_UNIT = 0x0C`,
+  `ModBodyTailDescriptor` and `tail_descriptor()`. See **E-100**.
 
 
 `SHW ` chunk header (verified bytes across all four `pl021.pac` `SHW `
