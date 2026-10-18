@@ -94,5 +94,84 @@ class TestMaterials(unittest.TestCase):
         self.assertEqual(materials(b"nothing here"), [])
 
 
+# --- mesh groups: the geometry (E-075) -------------------------------------
+
+GROUP_HEADER = 0x28
+
+
+def group_record(name, size, flags=0x52, vertex_bytes=187_840, count=155,
+                 payload=b""):
+    """A MG_<hash>_0 record: 0x40 record + 0x40 second header holding the
+    descriptor at +0x40, then payload bytes."""
+    rec = bytearray(RECORD_SIZE)
+    struct.pack_into("<HHI", rec, 0, groups.ID_RESOURCE, flags, size)
+    rec[8:8 + len(name)] = name.encode("latin-1")
+
+    descriptor = bytearray(RECORD_SIZE)
+    struct.pack_into("<HHIHHIII", descriptor, 0, 0x0D, 1, vertex_bytes, 4, count,
+                     32, 0, 0x10000)
+    struct.pack_into("<4I", descriptor, 0x18, 3140, 11664, 12912, 14344)
+    body = payload or b"\x00" * max(0, size)
+    return bytes(rec) + bytes(descriptor) + body
+
+
+class TestMeshGroups(unittest.TestCase):
+    def setUp(self):
+        self.name = "MG_4196b97c_0"
+        self.data = wad(group_record(self.name, 4096))
+
+    def test_finds_the_group_with_geometry(self):
+        found = meshes.find_mesh_groups(self.data)
+        self.assertEqual([g.name for g in found], [self.name])
+        self.assertEqual(found[0].size, 4096)
+
+    def test_group_hash_and_index_are_parsed(self):
+        g = meshes.find_mesh_groups(self.data)[0]
+        self.assertEqual(g.hash, "4196b97c")
+        self.assertEqual(g.index, 0)
+
+    def test_descriptor_sits_in_the_second_header(self):
+        g = meshes.find_mesh_groups(self.data)[0]
+        self.assertEqual(g.descriptor, g.offset + RECORD_SIZE)
+
+    def test_header_reads_the_documented_fields(self):
+        g = meshes.find_mesh_groups(self.data)[0]
+        h = g.header(self.data)
+        self.assertEqual(h.ident, 0x0D)
+        self.assertEqual(h.flags, 1)
+        self.assertEqual(h.vertex_bytes, 187_840)
+        self.assertEqual(h.first_count, 155)
+        self.assertEqual(h.offsets, (3140, 11664, 12912, 14344))
+
+    def test_vertex_count_is_bytes_over_stride(self):
+        g = meshes.find_mesh_groups(self.data)[0]
+        self.assertEqual(g.vertex_count(self.data), 187_840 // 20)
+        self.assertEqual(g.vertex_count(self.data), 9392)
+
+    def test_zero_size_occurrence_is_skipped(self):
+        # A group name also appears with size 0 elsewhere; only the sized record
+        # carries geometry.
+        empty = bytearray(RECORD_SIZE)
+        struct.pack_into("<HHI", empty, 0, groups.ID_RESOURCE, 0, 0)
+        empty[8:8 + len(self.name)] = self.name.encode("latin-1")
+        data = wad(bytes(empty), group_record(self.name, 4096))
+        found = meshes.find_mesh_groups(data)
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0].size, 4096)
+
+    def test_payload_returns_the_declared_bytes(self):
+        g = meshes.find_mesh_groups(self.data)[0]
+        self.assertEqual(len(g.payload(self.data)), 4096)
+
+    def test_short_buffer_raises(self):
+        with self.assertRaises(meshes.MeshError):
+            meshes.parse_group_header(b"\x00" * 4, 0)
+
+    def test_stride_and_sentinel_constants(self):
+        self.assertEqual(meshes.VERTEX_STRIDE, 20)
+        self.assertEqual(meshes.SKIN_SENTINEL, 0xFFFF)
+        self.assertEqual(meshes.HEADER_SIZE, GROUP_HEADER)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3840,7 +3840,21 @@ now filtered by their own hash.
 
 ---
 
-## E-074 - The vertex buffers are encoded, not f32 positions with u16 indices: a bounded negative (G9/G10)
+## E-074 - [CORRECTED by E-087] The vertex buffers are encoded, not f32 positions with u16 indices: a bounded negative (G9/G10)
+
+> **CORRECTED by E-087 -- the inference below is wrong.** The geometry is plain
+> linear `f32`, inside the `MG_<hash>_<n>` mesh groups (E-087). This entry's
+> negative was an artifact of the scan sampling only the **first 4096 floats of
+> every 0x10000 block**, so any vertex run starting mid-block was invisible. Worse,
+> the two hits it did report -- `0x04CE0000` and `0x04D00000` -- lie *inside* the
+> mesh-group cluster `0x4CC4000..0x4DC5C00` and were dismissed from a single
+> misaligned read. A contiguous scan (512-float windows every 0x400) finds **43**
+> coordinate regions, all in that cluster.
+>
+> What survives: there are no `u16` triangle **index** buffers of the usual shape
+> in this file, and `R_POSHADES00.WAD` is still a *Poseidon* chapter WAD, not
+> position data. Read the rest of this entry as a record of a failed method, not
+> as a property of the container.
 
 **Observation.** With the boss's 19 meshes located (E-073), the next question is
 where their vertex and index buffers are. Two full scans of `R_HADES.WAD`
@@ -4763,3 +4777,92 @@ observed layout (252 records, trailing bytes ignored) and interprets nothing;
 the observed relations. Validated read-only against the real `pl021.pac`
 (all counts reproduced) and locked by a synthetic fixture
 (`raw_chunk_slot6`) and `TestSlot6Table` (8 tests). No game data committed.
+---
+
+## E-087 - The geometry: `MG_<hash>_<n>` mesh groups carry linear f32 vertices (G9/G10)
+
+**Observation.** `MG_<hash>_<n>` is not an empty marker. Every one carries a real
+size, and the 19 of them in `R_HADES.WAD` total **2,458,788 bytes**:
+
+```
+MG_4196b97c_0      624      MG_1a3b8d09_0   42,144
+MG_c13cd430_0      576      MG_8779a9ca_0   42,144
+MG_3c8ec52_0   1,150,564    MG_7a54ff_0    152,928
+MG_a865ab18_0    110,724    MG_18c19a85_0  106,296
+MG_82ce541b_0    110,364    MG_c21a0097_0   25,120
+MG_db637f4f_0    231,012    MG_921b8c0d_0   27,568
+MG_bc314285_0     30,032    MG_175ac067_0  128,968
+MG_b2501477_0     42,144    MG_33c43b9c_0   24,120
+MG_9d29aa5d_0     80,336    MG_c9a3c9b3_0  110,980
+MG_1fcb5836_0     42,144
+```
+
+**Verified by an exact boundary.** `MG_3c8ec52_0` sits at `0x4C8F730` with size
+`1,150,564`, so its payload is `0x4C8F7B0..0x4DA8614`; add the 12 bytes needed to
+round the size up to 0x10 and you land on **`0x4DA8620`, which is exactly where
+`MDL_3c8ec52` begins**. The group and its definition are adjacent, and the length
+accounting closes to the byte.
+
+**The descriptor.** Each group carries a 0x28-byte descriptor in its second header
+(`record + 0x40`). All 19 begin `u16 0x000D ; u16 1`:
+
+```
++0x00  u16 0x000D      +0x02  u16 1
++0x04  u32 vertex_bytes    336 ... 187,840   (always divisible by 4)
++0x08  u16 4           +0x0A  u16 first_count   1, 3, 15, 31, 63 or 155
++0x0C  u32 32          +0x10  u32 0     +0x14  u32 0x10000
++0x18  u32 x4          four ascending sub-block offsets
+```
+
+For `MG_3c8ec52_0` the descriptor reads `vertex_bytes = 187,840`,
+`first_count = 155`, offsets `3140, 11664, 12912, 14344`, and
+**187,840 / 20 = 9,392**.
+
+**The vertex records.** Directly after the descriptor the payload is a run of
+**20-byte** records:
+
+```
+u16 skin_index (0xFFFF = unskinned) ; u16 skin_weight ; f32 x4
+```
+
+read verbatim from `MG_3c8ec52_0`'s payload:
+
+```
+0x4C8F798  FF FF 00 00  6C 30 18 41  E2 97 7C BE  D9 55 43 40  28 4B A5 3E
+0x4C8F7AC  FF FF 00 00  CF 55 3C 41  74 83 72 BE  6A 49 91 40  30 92 46 C0
+0x4C8F7C0  FF FF 00 00  40 6A 2E 41  EB 33 D9 BE  1C 9F 9A 40  62 E0 45 C0
+```
+
+i.e. `(9.5118, -0.2467, 3.0521, 0.3228)`, `(11.7709, -0.2368, 4.5402, -3.1027)`,
+`(10.9009, -0.4242, 4.8319, -3.0918)` -- model-space on a device-scale boss, and
+the trailing `u16 0xFFFF ; u16 0` is constant here (a skin sentinel on a static
+part).
+
+**Consistency between declaration and data.** The descriptor declares
+`first_count = 155` for the first sub-block, and a walk of the payload at stride 20
+finds **153 consecutive records** with the same `(0xFFFF, 0)` shape before the
+record shape changes at a sub-block boundary -- so the declared count and the
+observed run agree to within the boundary itself.
+
+**Inference.** The boss's geometry is **plain linear `f32`, one stream per mesh
+part**, and it is 2.46 MB across 19 groups. This is what a mesh replacement has to
+produce, and it is reachable: locate by name, read the descriptor, read the
+records. Which of the four floats is position and what the other three are (a
+second vec2? a normal? two UV pairs?) is **[UNKNOWN]**; the stride-20 layout and
+the four floats are observed, their interpretation is not. Note also that
+`vertex_bytes / 20` is an exact integer for three groups (`187,840`, `17,840`,
+`4,320`) but not for the rest, so either the stride varies per mesh or the field
+counts more than one stream -- **[UNKNOWN]**, and the next thing to settle.
+
+**This corrects E-074.** Its "encoded/quantised, not linear f32" conclusion was a
+sampling artifact, and this entry supersedes it. The method lesson is recorded on
+E-074 itself: a block-start sample cannot see a run that begins mid-block, and a
+negative is only worth recording when the scan covers the file contiguously.
+
+**Tooling.** `tools/gow3/meshes.py` gains `find_mesh_groups`,
+`parse_group_header`, `MeshGroup`, `GroupHeader`, `MeshError`, and the
+`VERTEX_STRIDE` / `SKIN_SENTINEL` / `HEADER_SIZE` constants; 9 more tests in
+`tests/test_gow3_meshes.py`. The descriptor offset was wrong on the first attempt
+(`record + 0x80`, the payload base, which returned garbage for 16 of 19 groups);
+it is `record + 0x40`. That was caught by running it against all 19 rather than the
+one it was derived from.

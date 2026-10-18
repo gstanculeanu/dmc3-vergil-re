@@ -25,6 +25,7 @@ the body (0 hits for the first four), so the definition-to-geometry link is stil
 from __future__ import annotations
 
 import re
+import struct
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -32,6 +33,10 @@ from . import groups
 
 MDL_RE = re.compile(rb"MDL_[0-9a-f]{6,10}")
 MG_RE = re.compile(r"^MG_([0-9a-f]{6,10})_(\d+)$")
+
+
+class MeshError(ValueError):
+    """Raised when bytes cannot be read as a mesh definition or group."""
 
 #: ``flags`` observed on every mesh definition.
 MESH_FLAGS = 0x52
@@ -115,6 +120,135 @@ def materials(data: bytes) -> List[str]:
         name = match.group().decode("latin-1")
         if name not in out:
             out.append(name)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Mesh groups: the geometry (E-075)
+# ---------------------------------------------------------------------------
+#
+# The ``MDL_<hash>`` record is only a definition. The geometry is in the matching
+# ``MG_<hash>_<n>`` record, which carries a real size:
+#
+#     MG_3c8ec52_0   size 1,150,564
+#
+# and 0x4C8F7B0 + 1,150,564 + 12 bytes of 16-byte padding = 0x4DA8620, exactly
+# where ``MDL_3c8ec52`` begins. Its payload opens with a 0x28-byte descriptor,
+# then 20-byte vertex records:
+#
+#     descriptor: u16 0x000D ; u16 1 ; u32 vertex_bytes ; u16 b ; u16 n
+#                 ; u32 32 ; u32 0 ; u32 0x10000 ; u32 x4
+#     vertex    : u16 skin_index (0xFFFF = unskinned) ; u16 skin_weight
+#                 ; f32 x4      e.g. 11.771, -0.2368, 4.5402, -3.1027
+#
+# On ``MG_3c8ec52_0`` the descriptor's ``vertex_bytes`` is 187,840 and
+# 187,840 / 20 = **9,392** vertices; its ``n`` is 155, matching the observed run of
+# clean records. The first four floats are model-space on a device-scale boss.
+# Which of the four floats is position vs something else is [UNKNOWN].
+
+GROUP_RECORD_RE = re.compile(rb"MG_[0-9a-f]{6,10}_\d+")
+VERTEX_STRIDE = 20
+SKIN_SENTINEL = 0xFFFF
+HEADER_SIZE = 0x28
+
+
+@dataclass(frozen=True)
+class MeshGroup:
+    """A ``MG_<hash>_<n>`` record: the geometry for one mesh definition."""
+
+    name: str
+    offset: int
+    size: int
+    flags: int
+    data: int
+
+    @property
+    def hash(self) -> str:
+        return self.name.split("_")[1]
+
+    @property
+    def index(self) -> int:
+        return int(self.name.rsplit("_", 1)[1])
+
+    @property
+    def descriptor(self) -> int:
+        """Offset of the 0x28-byte descriptor, which sits in the second header."""
+        return self.offset + groups.RECORD_SIZE
+
+    def payload(self, data: bytes) -> bytes:
+        return data[self.data:self.data + self.size]
+
+    def header(self, data: bytes) -> "GroupHeader":
+        return parse_group_header(data, self.descriptor)
+
+    def vertex_count(self, data: bytes) -> int:
+        """``vertex_bytes / 20`` from the descriptor, or 0 if it is absent."""
+        return self.header(data).vertex_count
+
+    def __str__(self) -> str:  # pragma: no cover - cosmetic
+        return f"{self.name} @0x{self.offset:08X} size={self.size:,}"
+
+
+@dataclass(frozen=True)
+class GroupHeader:
+    """The 0x28-byte descriptor at the start of a mesh-group payload."""
+
+    ident: int
+    flags: int
+    vertex_bytes: int
+    field8: int
+    first_count: int
+    field12: int
+    field16: int
+    field20: int
+    offsets: Tuple[int, int, int, int]
+
+    @property
+    def vertex_count(self) -> int:
+        return self.vertex_bytes // VERTEX_STRIDE
+
+
+def parse_group_header(data: bytes, at: int) -> GroupHeader:
+    """Read the mesh-group descriptor at ``at``.
+
+    Raises :class:`meshes.MeshError` when the bytes cannot hold a descriptor.
+    """
+    if at < 0 or at + HEADER_SIZE > len(data):
+        raise MeshError(f"no room for a {HEADER_SIZE}-byte group header at 0x{at:X}")
+    ident, flags, vertex_bytes, field8, first_count, field12, field16, field20 = \
+        struct.unpack_from("<HHIHHIII", data, at)
+    offsets = struct.unpack_from("<4I", data, at + 0x18)
+    return GroupHeader(ident=ident, flags=flags, vertex_bytes=vertex_bytes,
+                       field8=field8, first_count=first_count, field12=field12,
+                       field16=field16, field20=field20, offsets=offsets)
+
+
+def find_mesh_groups(data: bytes, limit: int = 4096) -> List[MeshGroup]:
+    """Every ``MG_<hash>_<n>`` record that carries geometry, in file order.
+
+    A group appears more than once in a WAD; only the occurrence with a non-zero
+    size holds the geometry, and that is the one returned (first per name).
+    """
+    out: List[MeshGroup] = []
+    seen = set()
+    for match in GROUP_RECORD_RE.finditer(data):
+        at = match.start() - 8
+        if at < groups.RECORD_START:
+            continue
+        try:
+            record = groups.read_record(data, at)
+        except groups.LayoutError:
+            continue
+        name = match.group().decode("latin-1")
+        if record.name != name or name in seen:
+            continue
+        if not record.size or record.data is None:
+            continue
+        seen.add(name)
+        out.append(MeshGroup(name=name, offset=record.offset, size=record.size,
+                             flags=record.flags, data=record.data))
+        if len(out) >= limit:
+            break
     return out
 
 
