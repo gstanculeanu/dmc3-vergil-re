@@ -1333,5 +1333,59 @@ indirect), `0x2EF750`/`0x2EF790` the multi-state streaming worker of E-078, and
 the MOD/MOT byte decoders are downstream of the loaded buffer and are still
 **[UNKNOWN]**.
 
+### 8.7 `load_file`'s consumers are text parsers; a `.lst` name resolves to a `.pac` (E-083)
+
+**Corrects E-082's "content parser".** The two functions E-082 named as the
+file-content parser at `0x1B7C70`/`0x1B7D10` are **text tokenizers**, not binary
+container parsers [VERIFIED]:
+
+* `.text` `0x1B7C70..0x1B7D04` (`_type_token`): a 3-state scan over a
+  NUL-terminated string. State 0 treats `/` (`0x2F`) and CR (`0x0D`) as line
+  markers and `#` (`0x23`) as the start of a comment; for **any other** byte it
+  writes the literal **`"PAC"`** (`50 41 43`) into a 4-byte output buffer.
+  State 1 clears on LF (`0x0A`); state 2 (entered on `#`) copies the following
+  bytes into the same output, up to 4 or until LF. An input with no such byte
+  also yields `"PAC"`. The literal and the state transitions are [VERIFIED];
+  what consumes the 4-byte token is [UNKNOWN].
+* `.text` `0x1B7D10..0x1B7E5C` (`_count_tokens`): scans the same buffer, counts
+  line/word breaks (separator bitmask `0x800800002000` = CR, ESC, `#`) and
+  copies one token of up to `0x100` bytes onto the stack; returns the count.
+
+**The surrounding cluster is a `.lst` -> `.pac` name resolver** [VERIFIED].
+`0x1B7FD0..0x1B82B5` (and the parallel `0x1B85C0..0x1B8C98`) load a named text
+file through the synchronous `load_file` (`0x2EF920`), tokenize it, and per
+token:
+
+* a token exactly equal to `"dummy"` (string RVA `0x4DC4D8`) is skipped;
+* a token whose extension is exactly `"lst"` (string RVA `0x4DC4E0`) has the
+  extension overwritten **in place** with `"pac"` (`0x1B81F9 mov dword
+  [..], 0x636170` = `70 61 63 00`) to form `<base>.pac`, which is then probed
+  with `file_size` (`0x2EF620`);
+* the resulting size (rounded up to 64) is accumulated into the return value;
+  the alternative parser `0x1B7FD0` runs on the `.lst` text when the `.pac`
+  is absent (`file_size` <= 0).
+
+`0x1B7E60..0x1B7F4E` is a third parser the two functions share; `"%s%s"`
+(`0x36F4B0`) builds a name. `.pdata` fixes every function boundary above.
+
+**Refinement of E-082 [VERIFIED].** `0x2EF620`'s name argument is **`rdx`**, not
+`rcx`: the prologue (`0x2EF640 mov r9, rdx`, `0x2EF646 mov rcx, rdx`) strcpies
+from `rdx`. E-082's `file_size(name)` did not name the register.
+
+**Consequence for F1/F4.** The synchronous `load_file` route serves **text**
+files, so it does not reach the binary MOD/MOT payload decoders. E-082's
+[INFERRED] "content parser ... the container-parse step ahead of the MOD/MOT
+decoders" is therefore **falsified**. The `.lst` -> `.pac` substitution is the
+engine's *name resolution* for these references (consistent with E-078's
+`(category,index)` open path), not a payload decoder; the MOD/MOT decoders
+remain [UNKNOWN].
+
+**Tooling.** `PeImage.functions()` / `PeImage.function_containing(rva)` read the
+`.pdata` `RUNTIME_FUNCTION` table (12-byte `(begin, end, unwind)` entries,
+`[start, end)` RVAs; **12,235** entries on the real image) so a reference site
+is attributed to its function without a disassembler. `dmc3.pe.PeFunction` is
+exported from `dmc3`.
+
+
 
 

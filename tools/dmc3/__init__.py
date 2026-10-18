@@ -105,6 +105,7 @@ from .pe import (
     PE32_PLUS_MAGIC,
     DecodedInstruction,
     PeError,
+    PeFunction,
     PeImage,
     PeSection,
 )
@@ -202,6 +203,7 @@ __all__ = [
     "PE32_PLUS_MAGIC",
     "DecodedInstruction",
     "PeError",
+    "PeFunction",
     "PeImage",
     "PeSection",
 ]

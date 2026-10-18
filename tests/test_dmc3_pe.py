@@ -442,5 +442,100 @@ class TestPointerAt(unittest.TestCase):
         self.assertIsNone(image.pointer_at(0x10))
 
 
+_PDATA_TEXT_OFFSET = 0x300
+_PDATA_DATA_OFFSET = 0x400
+_PDATA_OFFSET = 0x600
+PDATA_RVA = 0x3000
+
+
+def synthetic_pe_with_pdata(code: bytes, functions,
+                            payload: bytes = b"MSGS_TXT\x00\x00\x00") -> bytes:
+    """A synthetic PE with a third, read-only ``.pdata`` function table.
+
+    ``functions`` is an iterable of ``(begin_rva, end_rva, unwind_rva)`` triples
+    written verbatim as 12-byte ``RUNTIME_FUNCTION`` entries. The file offsets
+    differ from :func:`synthetic_pe` because a three-entry section table would
+    otherwise overlap the first section's bytes.
+    """
+    pdata = b"".join(struct.pack("<III", a, b, u) for (a, b, u) in functions)
+    out = bytearray(_PDATA_OFFSET + len(pdata))
+    out[0:2] = pe.MZ_MAGIC
+    struct.pack_into("<I", out, 0x3C, PE_OFFSET)
+    out[PE_OFFSET:PE_OFFSET + 4] = pe.PE_SIGNATURE
+    coff = PE_OFFSET + 4
+    struct.pack_into("<HHIIIHH", out, coff, pe.MACHINE_AMD64, 3, 0, 0, 0, 0xF0,
+                     0x22)
+    optional = coff + 20
+    struct.pack_into("<H", out, optional, pe.PE32_PLUS_MAGIC)
+    struct.pack_into("<I", out, optional + 16, TEXT_RVA)      # entry point
+    struct.pack_into("<Q", out, optional + 24, IMAGE_BASE)
+    table = optional + 0xF0
+    out[table:table + 40] = _section(
+        ".text", TEXT_RVA, len(code), _PDATA_TEXT_OFFSET, len(code),
+        pe.IMAGE_SCN_CNT_CODE | pe.IMAGE_SCN_MEM_EXECUTE)
+    out[table + 40:table + 80] = _section(
+        ".rdata", DATA_RVA, len(payload), _PDATA_DATA_OFFSET, len(payload),
+        pe.IMAGE_SCN_CNT_INITIALIZED_DATA)
+    out[table + 80:table + 120] = _section(
+        ".pdata", PDATA_RVA, len(pdata), _PDATA_OFFSET, len(pdata),
+        pe.IMAGE_SCN_CNT_INITIALIZED_DATA)
+    out[_PDATA_TEXT_OFFSET:_PDATA_TEXT_OFFSET + len(code)] = code
+    out[_PDATA_DATA_OFFSET:_PDATA_DATA_OFFSET + len(payload)] = payload
+    out[_PDATA_OFFSET:_PDATA_OFFSET + len(pdata)] = pdata
+    return bytes(out)
+
+
+class TestFunctionTable(unittest.TestCase):
+    """E-083: the ``.pdata`` RUNTIME_FUNCTION table and function lookup."""
+
+    FUNCTIONS = ((TEXT_RVA, TEXT_RVA + 0x40, PDATA_RVA + 0x100),
+                 (TEXT_RVA + 0x40, TEXT_RVA + 0x90, PDATA_RVA + 0x120))
+
+    def setUp(self):
+        self.image = pe.PeImage.from_bytes(
+            synthetic_pe_with_pdata(b"\x90" * 8, self.FUNCTIONS))
+
+    def test_pdata_section_present(self):
+        self.assertEqual(self.image.pdata_section.name, ".pdata")
+
+    def test_functions_parsed_in_order(self):
+        self.assertEqual(
+            [(f.start_rva, f.end_rva) for f in self.image.functions()],
+            [(TEXT_RVA, TEXT_RVA + 0x40),
+             (TEXT_RVA + 0x40, TEXT_RVA + 0x90)])
+
+    def test_contains_is_inclusive_start_exclusive_end(self):
+        self.assertEqual(
+            self.image.function_containing(TEXT_RVA).start_rva, TEXT_RVA)
+        self.assertEqual(
+            self.image.function_containing(TEXT_RVA + 0x3F).start_rva, TEXT_RVA)
+        # the first byte of the next function belongs to that function.
+        self.assertEqual(
+            self.image.function_containing(TEXT_RVA + 0x40).start_rva,
+            TEXT_RVA + 0x40)
+
+    def test_function_containing_outside_returns_none(self):
+        self.assertIsNone(self.image.function_containing(TEXT_RVA + 0x200))
+
+    def test_unwind_rva_is_preserved(self):
+        self.assertEqual(self.image.functions()[1].unwind_rva,
+                         PDATA_RVA + 0x120)
+
+    def test_zero_and_empty_entries_are_skipped(self):
+        image = pe.PeImage.from_bytes(synthetic_pe_with_pdata(
+            b"\x90" * 8,
+            ((0, 0, 0), (TEXT_RVA, TEXT_RVA, 0),
+             (TEXT_RVA, TEXT_RVA + 8, 0x10))))
+        self.assertEqual(
+            [(f.start_rva, f.end_rva) for f in image.functions()],
+            [(TEXT_RVA, TEXT_RVA + 8)])
+
+    def test_no_pdata_section_means_no_functions(self):
+        image = pe.PeImage.from_bytes(synthetic_pe(b"\x90" * 8))
+        self.assertIsNone(image.pdata_section)
+        self.assertEqual(image.functions(), ())
+        self.assertIsNone(image.function_containing(TEXT_RVA))
+
+
 if __name__ == "__main__":
     unittest.main()

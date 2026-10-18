@@ -4499,3 +4499,91 @@ virtual-only `.data` state word; how `0x2EF620` is reached; what
 rel32` caller census, the call-side analogue of `rip_relative_references`); 5
 tests (`TestCallSites`) on the synthetic PE. Read-only validation on the real
 image reproduces the census above. No game data committed.
+
+## E-083 - DMC3 `dmc3.exe`: `load_file`'s consumers are text tokenizers and a `.lst` -> `.pac` name resolver, not the container parser (F1/F4 route, bounded slice)
+
+**Observation (read-only from `G:\Games\Devil May Cry HD Collection\dmc3.exe`,
+6,356,432 B; `.text` RVA `0x1000`).** This slice read the "content parser"
+`0x1B7C70`/`0x1B7D10` that E-082 named as "the container-parse step ahead of the
+MOD/MOT decoders", and **falsifies that reading**. Function boundaries below come
+from the new `.pdata` reader (`PeImage.function_containing`); every instruction
+quoted was decoded from the real bytes.
+
+**A. The `.pdata` function table [VERIFIED].** `dmc3.pe.PeImage.functions()`
+parses the `.pdata` section as 12-byte `RUNTIME_FUNCTION` entries
+(`(begin_rva, end_rva, unwind_info_rva)`), skipping zero/empty slots: **12,235**
+functions on the real image. Read-only lookup reproduces the boundaries used
+here, e.g. `0x1B7C70 -> [0x1B7C70, 0x1B7D04)`, `0x1B7D10 -> [0x1B7D10,
+0x1B7E5C)`, `0x1B80AC -> [0x1B7FD0, 0x1B82B5)`, `0x1B871F -> [0x1B85C0,
+0x1B8C98)`.
+
+**B. `0x1B7C70..0x1B7D04` is a 3-state text tokenizer [VERIFIED].** It scans a
+NUL-terminated string (`movzx eax, byte [r10]`) with a state register `r9d`,
+writing into a 4-byte buffer `[r8]`. The literal `"PAC"` is written in two places:
+
+```
+0x1B7CCD  66 41 C7 00 50 41     mov word ptr [r8], 0x4150   ; "PA"
+0x1B7CD3  41 C6 40 02 43        mov byte ptr [r8+2], 0x43   ; "C"
+...
+0x1B7CF3  66 41 C7 00 50 41     mov word ptr [r8], 0x4150   ; empty-input default
+0x1B7CF9  41 C6 40 02 43        mov byte ptr [r8+2], 0x43
+```
+
+State 0 (`r9d == 0`) sends `/` (`0x2F`) and CR (`0x0D`) to state 1 and `#`
+(`0x23`) to state 2, and **otherwise falls through to the `"PAC"` write at
+`0x1B7CCD`**. State 1 clears on LF. State 2 copies the following bytes into the
+same output, up to 4 or until LF. All characters compared are ASCII; the
+consumption of the 4-byte token is **[UNKNOWN]**.
+
+**C. `0x1B7D10..0x1B7E5C` is a line/word counter [VERIFIED].** It scans the same
+buffer, testing membership in the mask `0x800800002000` (`movabs r15,
+0x800800002000`; bits = CR `0x0D`, ESC `0x1B`, `#` `0x23`) when the byte is
+`<= 0x2F`, delimits a token on LF/NUL, and copies up to `0x100` bytes to a stack
+buffer; it returns a count in `eax`. That is text handling; nothing reads a
+binary header.
+
+**D. The surrounding cluster resolves `<name>.lst` to `<name>.pac` [VERIFIED].**
+Both functions containing the `load_file` call sites are one shape. In
+`0x1B7FD0..0x1B82B5`:
+
+```
+0x1B80A2  48 8D 0D 77 77 AF 00   lea rcx, [rip+0xaf7777]   ; 0xCAF820 (.data BSS)
+0x1B80A9  49 8B D1               mov rdx, r9               ; name (load_file reads rdx)
+0x1B80AC  E8 6F 78 13 00         call 0x2EF920             ; load_file(name, dst)
+0x1B80BF  E8 4C FC FF FF         call 0x1B7D10             ; tokenize the buffer
+...
+0x1B8112  4C 8D 05 BF 43 32 00   lea r8, [rip+0x3243bf]    ; 0x4DC4D8 "dummy"
+0x1B817F  4C 8D 0D 5A 43 32 00   lea r9, [rip+0x32435a]    ; 0x4DC4E0 "lst"
+...
+0x1B81F9  C7 84 19 18 66 00 00 70 61 63 00
+                                 mov dword [rcx+rbx+0x6618], 0x636170 ; "pac\0"
+```
+
+So: a token equal to `"dummy"` is skipped; a token whose extension is exactly
+`"lst"` has that extension overwritten in place with `"pac"` and the resulting
+`<base>.pac` is probed with `file_size` (`0x2EF620`); the size (rounded up to 64)
+is accumulated into the function's return value, and `0x1B7FD0` is used on the
+`.lst` text when the `.pac` is absent. The parallel function
+`0x1B85C0..0x1B8C98` (call site `0x1B871F`, `0x1B872F` -> `0x1B7C70`,
+`0x1B8741` -> `0x1B7D10`) is the same pattern. `0x1B7E60..0x1B7F4E` is a third
+shared parser; `"%s%s"` at `0x36F4B0` builds a name.
+
+**E. Refinement of E-082 [VERIFIED].** `0x2EF620`'s name argument is **`rdx`**,
+not `rcx` (`0x2EF640 mov r9, rdx`; `0x2EF646 mov rcx, rdx`; the strcpy reads
+`[rcx]`). E-082 wrote `file_size(name)` without naming the register; the `.pdata`
+lookup also confirms `0x2EF620` is its own function.
+
+**F. Negative / correction.** E-082's [INFERRED] "content parser ... the
+container-parse step ahead of the MOD/MOT decoders" is **falsified**: the
+synchronous `load_file` route serves **text** (the `.lst` lists), so the
+MOD/MOT byte-level decoders (F1/F4) are still not reached. The `.lst` -> `.pac`
+substitution is a *name-resolution* step consistent with E-078's
+`(category,index)` open path, not a decoder.
+
+**Consequence.** `tools/dmc3/pe.py` gains `PeFunction`,
+`PeImage.pdata_section`, `PeImage.functions()` and
+`PeImage.function_containing(rva)`; `PeFunction` is exported from `dmc3`; 7 tests
+(`TestFunctionTable`) run on a synthetic three-section PE. Read-only validation
+on the real image reproduces the 12,235-function table and all boundaries above.
+No game data committed.
+

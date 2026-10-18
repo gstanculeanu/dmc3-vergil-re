@@ -1906,3 +1906,41 @@ moves and health bar and everything."*
   ahead of the MOD/MOT decoders. The GoW3R clip channel array (E-079/E-080) and
   F3 slots 6/7/11/22 remain available.
 
+## 2026-10-18 — F1/F4 bounded slice: `load_file`'s consumers are text tokenizers, not the container parser (E-083)
+
+- Did: followed E-082's stated next step — read the "content parser"
+  `0x1B7C70`/`0x1B7D10` — read-only through
+  `G:\Games\Devil May Cry HD Collection\dmc3.exe` (6,356,432 B), decoding with a
+  local recon disassembler (capstone, **not** a repo dependency). The step
+  **disproved its own premise**. Added `.pdata` function-table reading to
+  `tools/dmc3/pe.py` (`PeFunction`, `PeImage.pdata_section`,
+  `PeImage.functions()`, `PeImage.function_containing(rva)`), exported
+  `PeFunction` from `dmc3`, and added `TestFunctionTable` (7 tests) on a
+  synthetic three-section PE. Full suite: **538 tests, all green** (531 baseline
+  + 7). Nothing written to the game; no game data committed.
+- Found (**E-083**):
+  - `0x1B7C70..0x1B7D04` is a **3-state text tokenizer**: state 0 treats `/` and
+    CR as line markers and `#` as a comment and otherwise writes the literal
+    **`"PAC"`** (`66 41 C7 00 50 41` / `41 C6 40 02 43`) into a 4-byte output;
+    the empty-input default is the same `"PAC"`. `0x1B7D10..0x1B7E5C` is a
+    line/word **counter** (separator mask `0x800800002000` = CR / ESC / `#`).
+  - The two functions containing the synchronous `load_file` (`0x2EF920`) call
+    sites are **`.lst` -> `.pac` name resolvers**: a token equal to `"dummy"`
+    (`0x4DC4D8`) is skipped; a token whose extension is `"lst"` (`0x4DC4E0`) has
+    the extension overwritten in place with `"pac"` (`0x1B81F9 mov dword [..],
+    0x636170`) and the `<base>.pac` is probed with `file_size` (`0x2EF620`).
+  - **Correction to E-082:** its [INFERRED] "content parser ... the
+    container-parse step ahead of the MOD/MOT decoders" is **falsified** — the
+    synchronous route serves text lists, not the binary payloads. Also refined:
+    `file_size`'s name argument is **`rdx`**, not `rcx`.
+  - The `.pdata` table holds **12,235** `RUNTIME_FUNCTION` entries on the real
+    image; the new reader reproduces every boundary used here
+    (`0x1B7C70 -> [0x1B7C70,0x1B7D04)`, `0x1B7D10 -> [0x1B7D10,0x1B7E5C)`,
+    `0x1B7FD0 -> [0x1B7FD0,0x1B82B5)`, `0x1B85C0 -> [0x1B85C0,0x1B8C98)`).
+- Docs: E-083 in `docs/EVIDENCE.md`; `docs/FORMATS.md` gains §8.7;
+  `docs/BACKLOG.md` F1/F4/T10 rows updated. No game data committed.
+- Next: the MOD/MOT byte decoders (F1/F4) stay [UNKNOWN] and the synchronous
+  `load_file` route is now closed as a lead; reach them via the async streaming
+  worker (`0x2EF790`) or the now-readable `.pdata` table rather than the
+  string/tag signatures. F3 slots 6/7/11/22 remain available.
+

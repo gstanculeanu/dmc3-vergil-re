@@ -29,6 +29,11 @@ This module is the DMC3 analogue of :mod:`gow3.eboot`:
   pointers are invisible to the RIP-relative scanner; the engine's asset-name
   table is one of them (E-077), and its accessor indexes the table with an
   addressing displacement (E-078).
+* :meth:`PeImage.functions` / :meth:`PeImage.function_containing` read the
+  ``.pdata`` exception directory (the image's ``RUNTIME_FUNCTION`` table) and
+  return each function's ``[start, end)`` RVA range (E-083) -- the reverse
+  lookup that names the function a reference site belongs to without a
+  disassembler; E-078 and E-082 did it with an external tool.
 
 Like the ELF scanner this is a **byte-pattern scan, not a disassembler**; a hit is
 meaningful when its target is a known string RVA, which is how the tool is used.
@@ -63,6 +68,11 @@ REX_W = 0x08
 MOV_R32_IMM32_MIN = 0xB8   # B8+r: mov r32, imm32 (B8+rd with REX.W is imm64)
 MOV_R32_IMM32_MAX = 0xBF
 CALL_REL32 = 0xE8
+
+# ``.pdata`` = the PE exception directory: a table of 12-byte RUNTIME_FUNCTION
+# entries ``(begin_rva, end_rva, unwind_info_rva)`` (E-083).
+PDATA_SECTION = ".pdata"
+RUNTIME_FUNCTION_SIZE = 12
 
 # String-pool walking. The engine's `.rdata` name pool is a sequence of
 # NUL-terminated printable-ASCII strings, each padded so the next one starts on
@@ -115,6 +125,25 @@ class PeSection:
     def contains_rva(self, rva: int) -> bool:
         """True when an **RVA** is stored in this section's raw bytes."""
         return 0 <= rva - self.virtual_address < self.raw_size
+
+
+@dataclass(frozen=True)
+class PeFunction:
+    """One ``RUNTIME_FUNCTION`` entry from the ``.pdata`` exception directory.
+
+    ``start_rva`` is inclusive and ``end_rva`` exclusive, so a reference site is
+    inside the function when ``start_rva <= rva < end_rva``. ``unwind_rva`` is
+    the RVA of the function's unwind info. Only the RVA range is interpreted
+    here; no unwind data is decoded.
+    """
+
+    start_rva: int
+    end_rva: int
+    unwind_rva: int
+
+    def contains(self, rva: int) -> bool:
+        """True when ``rva`` lies in ``[start_rva, end_rva)``."""
+        return self.start_rva <= rva < self.end_rva
 
 
 @dataclass(frozen=True)
@@ -343,6 +372,52 @@ class PeImage:
             targets.append(target)
             at += stride
         return tuple(targets)
+
+    # -- function table (.pdata) ----------------------------------------
+    @property
+    def pdata_section(self) -> Optional[PeSection]:
+        """The ``.pdata`` section when the image has one, else ``None``."""
+        for section in self.sections:
+            if section.name == PDATA_SECTION:
+                return section
+        return None
+
+    def functions(self) -> Tuple[PeFunction, ...]:
+        """Every function in the image's ``.pdata`` table, sorted by start RVA.
+
+        The ``.pdata`` section is a packed array of 12-byte ``RUNTIME_FUNCTION``
+        entries ``(begin_rva, end_rva, unwind_info_rva)``. Entries with a zero
+        begin (chain/pad slots) or a non-positive size are skipped, so the result
+        is a *prefix* of the table, never a guess. Images built without
+        ``/FUNCTIONPADMIN`` (many prototypes and hand-built fixtures) have no
+        ``.pdata`` at all, in which case this is empty.
+        """
+        section = self.pdata_section
+        if section is None:
+            return ()
+        raw = self.data[section.raw_offset:section.raw_offset + section.raw_size]
+        found: List[PeFunction] = []
+        for at in range(0, len(raw) - RUNTIME_FUNCTION_SIZE + 1,
+                        RUNTIME_FUNCTION_SIZE):
+            start, end, unwind = struct.unpack_from("<III", raw, at)
+            if start == 0 or end <= start:
+                continue
+            found.append(PeFunction(start_rva=start, end_rva=end,
+                                    unwind_rva=unwind))
+        return tuple(sorted(found, key=lambda item: item.start_rva))
+
+    def function_containing(self, rva: int) -> Optional[PeFunction]:
+        """The ``.pdata`` function whose ``[start, end)`` range contains ``rva``.
+
+        ``None`` when the image has no ``.pdata`` or no entry covers ``rva``
+        (the table does not cover every byte of ``.text``). This is how a
+        reference site is attributed to its function without a disassembler
+        (E-083).
+        """
+        for function in self.functions():
+            if function.contains(rva):
+                return function
+        return None
 
     # -- string and reference search ------------------------------------
     def find_all(self, needle: bytes) -> List[int]:
