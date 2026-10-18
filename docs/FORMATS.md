@@ -474,3 +474,45 @@ the two Vergil render variants (with/without the Devil Trigger / coat layers).
 > corrected offsets; see `docs/EVIDENCE.md` E-030 for the raw bytes.
 
 Open issues: mesh vertex/index layout, material→texture binding, skeleton.
+
+## 6. FLVER model header (prior art, FromSoftware) — header [VERIFIED], body [UNKNOWN]
+
+**Evidence E-039** — `BD_M_10100.flver` (467,008 bytes), the body mesh of
+Vergil from the third-party Bloodborne Vergil package (E-014). The weapon was
+already obtained via Source .smd/.ascii (E-015); the body exists only as FLVER.
+
+```
+0x00  char[6]  "FLVER\0"                    [VERIFIED magic]
+0x06  u16      76                           [UNKNOWN]
+0x08  u16      20                           [UNKNOWN]
+0x0A  u16      2                            [UNKNOWN]
+0x0C  u32      61488                        [UNKNOWN]
+0x10  u32      405520                       [UNKNOWN]
+0x14  u32      0                            [UNKNOWN]
+0x18  u32      6                            [UNKNOWN]
+0x1C  u32      334                          [UNKNOWN]
+0x20  u32      6                            [UNKNOWN]
+0x24  u32      12                           [UNKNOWN]
+0x28  f32 x6   -0.7157, 0.0, -0.1980,       [UNKNOWN semantics]
+           0.7180, 1.7909, 0.2405           <- six floats, plausibly a bounding box
+0x40  u32      28062                        [UNKNOWN]
+0x44  u32      28062                        [UNKNOWN]
+0x48  u32      256                          [UNKNOWN]
+0x4C  u32      0                            [UNKNOWN]
+0x50  u32      36                           [UNKNOWN]
+0x54  u32      10                           [UNKNOWN]
+0x58  u32      42                           [UNKNOWN]
+0x5C..0x7F zero bytes                      (padding to the 128-byte header block)
+```
+
+* All integers little-endian. Every field except the magic is [UNKNOWN].
+* The six floats at 0x28–0x3F plausibly form a bounding box (E-017 read a
+  1.79 m vertical extent, consistent with a humanoid body) — that is an
+  inference, not an observation.
+* From 0x80 onward the file contains recurring 16-byte records; their layout
+  and semantics are not decoded (left for a later slice of T7b).
+
+`tools/priorart/flver.py` exposes `FlverHeader` / `parse_flver_header()`
+decoding exactly this header from real bytes, exercised by unit tests on a
+synthetic fixture (no game data committed). The body mesh beyond the header
+remains [UNKNOWN]; T7b is advanced but not complete.

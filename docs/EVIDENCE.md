@@ -1731,3 +1731,63 @@ exactly the observed sub-table structure from real bytes, exercised by 9 new
 unit tests on synthetic fixtures (no game data committed). `docs/FORMATS.md`
 §5 and `docs/BACKLOG.md` F2 are updated below. F2 stays open: texture binding
 and field semantics need engine ground truth.
+
+
+---
+## E-039 — FLVER header of Vergil's body (BD_M_10100) (T7b, bounded slice)
+
+**Observation.** `BD_M_10100.flver` (467,008 bytes) in the prior-art package at
+`C:\Users\GigelCastel\Desktop\vergil\parts\bd_m_10100-partsbnd-dcx\BD_M_10100.flver`
+(the Bloodborne Vergil mod, E-014). This is the **body** mesh; the weapon was
+already obtained via Source .smd/.ascii (E-015). File offset 0x00, little-endian:
+
+```
+0x00  46 4C 56 45 52 00  "FLVER\0"                      [VERIFIED magic]
+0x06  4C 00                u16 76                        [UNKNOWN]
+0x08  14 00                u16 20                        [UNKNOWN]
+0x0A  02 00                u16 2                         [UNKNOWN]
+0x0C  30 F0 00 00          u32 61488                     [UNKNOWN]
+0x10  10 30 06 00          u32 405520                    [UNKNOWN]
+0x14  00 00 00 00          u32 0                         [UNKNOWN]
+0x18  06 00 00 00          u32 6                         [UNKNOWN]
+0x1C  4E 01 00 00          u32 334                       [UNKNOWN]
+0x20  06 00 00 00          u32 6                         [UNKNOWN]
+0x24  0C 00 00 00          u32 12                        [UNKNOWN]
+0x28  4A 36 37 BF          f32 -0.7157   <- six f32s   [UNKNOWN semantics]
+0x2C  00 00 00 00          f32 0.0                       [UNKNOWN semantics]
+0x30  5D CB 4A BE          f32 -0.1980                   [UNKNOWN semantics]
+0x34  47 D0 37 3F          f32 0.7180                    [UNKNOWN semantics]
+0x38  7A 3D E5 3F          f32 1.7909                    [UNKNOWN semantics]
+0x3C  1E 41 76 3E          f32 0.2405                    [UNKNOWN semantics]
+0x40  9E 6D 00 00          u32 28062                     [UNKNOWN]
+0x44  9E 6D 00 00          u32 28062                     [UNKNOWN]
+0x48  00 01 00 00          u32 256                       [UNKNOWN]
+0x4C  00 00 00 00          u32 0                         [UNKNOWN]
+0x50  24 00 00 00          u32 36                        [UNKNOWN]
+0x54  0A 00 00 00          u32 10                        [UNKNOWN]
+0x58  2A 00 00 00          u32 42                        [UNKNOWN]
+0x5C..0x7F zero bytes (padding to the 128-byte header block)
+```
+
+The six floats at 0x28–0x3F plausibly form a bounding box (E-017 read them as
+a box with a 1.79 m vertical extent, consistent with a humanoid body), but that
+is an inference, not an observation; every field is [UNKNOWN] here.
+
+From 0x80 onward the file contains recurring 16-byte records (e.g.
+`[50624, 50640, 7, 0]`, `[366, 48416, 0, 0]`, …); their layout and semantics
+are not decoded and are left for a later slice.
+
+**Inference.** None beyond: the file is a FromSoftware FLVER model whose header
+is a fixed 128-byte block; `u32_1c == 334` and `u32_40 == u32_44 == 28062` are
+candidates for counts (bones? vertex count?) but are not established.
+
+**Unknown.** Every field meaning except the magic; whether 0x1C/0x40/0x44 are
+counts; the bounding-box interpretation; the 16-byte record structure from 0x80;
+the vertex declaration, bone table, mesh and index-buffer layout. Not decodable
+from this one file alone — engine ground truth or a FLVER spec needed.
+
+**Consequence.** `tools/priorart/flver.py` exposes `FlverHeader` and
+`parse_flver_header()` decoding exactly this header from real bytes, exercised
+by unit tests on a synthetic fixture mirroring the observed bytes (no game data
+committed). The body mesh beyond the header remains [UNKNOWN]; T7b is advanced
+but not complete.

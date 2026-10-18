@@ -1,8 +1,46 @@
-"""Synthetic fixtures for the prior-art (Source ``.smd`` / ``.ascii``) parsers.
+"""Synthetic fixtures for the prior-art (Source ``.smd`` / ``.ascii``) parsers
+and the FLVER header reader.
 
 Mirrors the layouts observed in the Bloodborne Vergil package (E-014) without
 shipping any third-party asset.
 """
+
+import struct
+
+
+def flver_header() -> bytes:
+    """The 128-byte FLVER header of ``BD_M_10100.flver`` from the prior-art
+    package (E-039).
+
+    Every field is a verbatim observation of the real file at offset 0x00; no
+    field meaning is assumed. Bytes 0x5C..0x7F are zero.
+    """
+    blob = bytearray(0x80)
+    blob[0x00:0x06] = b"FLVER\x00"
+    struct.pack_into("<H", blob, 0x06, 0x004C)   # u16 76
+    struct.pack_into("<H", blob, 0x08, 0x0014)   # u16 20
+    struct.pack_into("<H", blob, 0x0A, 0x0002)   # u16 2
+    struct.pack_into("<I", blob, 0x0C, 0x0000F030)  # u32 61488
+    struct.pack_into("<I", blob, 0x10, 0x00063010)  # u32 405520
+    struct.pack_into("<I", blob, 0x14, 0)
+    struct.pack_into("<I", blob, 0x18, 6)
+    struct.pack_into("<I", blob, 0x1C, 0x0000014E)  # u32 334
+    struct.pack_into("<I", blob, 0x20, 6)
+    struct.pack_into("<I", blob, 0x24, 0x0000000C)  # u32 12
+    struct.pack_into("<f", blob, 0x28, -0.7157)     # f32 (bbox)
+    struct.pack_into("<f", blob, 0x2C, 0.0)
+    struct.pack_into("<f", blob, 0x30, -0.1980)
+    struct.pack_into("<f", blob, 0x34, 0.7180)
+    struct.pack_into("<f", blob, 0x38, 1.7909)
+    struct.pack_into("<f", blob, 0x3C, 0.2405)
+    struct.pack_into("<I", blob, 0x40, 0x00006D9E)  # u32 28062
+    struct.pack_into("<I", blob, 0x44, 0x00006D9E)
+    struct.pack_into("<I", blob, 0x48, 0x00000100)  # u32 256
+    struct.pack_into("<I", blob, 0x4C, 0)
+    struct.pack_into("<I", blob, 0x50, 0x00000024)  # u32 36
+    struct.pack_into("<I", blob, 0x54, 0x0000000A)  # u32 10
+    struct.pack_into("<I", blob, 0x58, 0x0000002A)  # u32 42
+    return bytes(blob)
 
 
 def smd_text(materials=None) -> str:

@@ -2,7 +2,7 @@ import _bootstrap  # noqa: F401
 import unittest
 
 import fixtures_priorart as fx
-from priorart import parse_ascii, parse_smd
+from priorart import FlverError, HEADER_SIZE, parse_flver_header, parse_ascii, parse_smd
 
 
 class TestSmdParser(unittest.TestCase):
@@ -123,6 +123,51 @@ class TestAsciiParser(unittest.TestCase):
     def test_truncated_input_raises(self):
         with self.assertRaises(Exception):
             parse_ascii("2\nRoot\n-1\n0 0 0 0 0 0 1\nBlade\n0\n0 -0.5 0 0 0 0.05 0.999\n5\n")
+
+
+class TestFlverHeader(unittest.TestCase):
+    def setUp(self):
+        self.header = parse_flver_header(fx.flver_header())
+
+    def test_magic_and_size(self):
+        self.assertEqual(self.header.magic, b"FLVER\x00")
+
+    def test_u16_fields_match_real_bytes(self):
+        self.assertEqual(self.header.u16_06, 76)
+        self.assertEqual(self.header.u16_08, 20)
+        self.assertEqual(self.header.u16_0a, 2)
+
+    def test_u32_fields_match_real_bytes(self):
+        self.assertEqual(self.header.u32_0c, 61488)
+        self.assertEqual(self.header.u32_10, 405520)
+        self.assertEqual(self.header.u32_14, 0)
+        self.assertEqual(self.header.u32_18, 6)
+        self.assertEqual(self.header.u32_1c, 334)
+        self.assertEqual(self.header.u32_20, 6)
+        self.assertEqual(self.header.u32_24, 12)
+        self.assertEqual(self.header.u32_40, 28062)
+        self.assertEqual(self.header.u32_44, 28062)
+        self.assertEqual(self.header.u32_48, 256)
+        self.assertEqual(self.header.u32_4c, 0)
+        self.assertEqual(self.header.u32_50, 36)
+        self.assertEqual(self.header.u32_54, 10)
+        self.assertEqual(self.header.u32_58, 42)
+
+    def test_bbox_floats_match_real_bytes(self):
+        self.assertAlmostEqual(self.header.bbox[0], -0.7157, places=4)
+        self.assertAlmostEqual(self.header.bbox[1], 0.0, places=4)
+        self.assertAlmostEqual(self.header.bbox[2], -0.1980, places=4)
+        self.assertAlmostEqual(self.header.bbox[3], 0.7180, places=4)
+        self.assertAlmostEqual(self.header.bbox[4], 1.7909, places=4)
+        self.assertAlmostEqual(self.header.bbox[5], 0.2405, places=4)
+
+    def test_truncated_input_raises(self):
+        with self.assertRaises(FlverError):
+            parse_flver_header(b"FLVER\x00")
+
+    def test_bad_magic_raises(self):
+        with self.assertRaises(FlverError):
+            parse_flver_header(b"XXXX\x00" + b"\x00" * (HEADER_SIZE - 6))
 
 
 if __name__ == "__main__":

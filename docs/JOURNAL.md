@@ -754,3 +754,30 @@ moves and health bar and everything."*
 - Next: F6 payload semantics remain [UNKNOWN] (raw blocks, nested containers,
   empty-slot sentinel). F1/F4 remain blocked on engine ground truth and are not
   re-spun.
+
+---
+
+## 2026-10-18 — T7b bounded slice: FLVER header of Vergil's body decoded
+
+- Did: picked T7b (issue #34, tooling, phase-1, critical-path — roadmap
+  milestone 1.0 lists "body FLVER still open"). F1/F4/F5 are blocked on engine
+  ground truth and not re-spun; F8 needs more TM2 samples; F2/F3 need engine
+  ground truth for their remaining unknowns, so T7b is the available
+  critical-path slice. Read real bytes from
+  `C:\Users\GigelCastel\Desktop\vergil\parts\bd_m_10100-partsbnd-dcx\BD_M_10100.flver`
+  (467,008 bytes — reading only, outside the two forbidden game-install paths).
+  Added `tools/priorart/flver.py` (`FlverHeader`, `parse_flver_header()`),
+  exported from `priorart/__init__.py`, a synthetic `flver_header()` fixture in
+  `tests/fixtures_priorart.py`, and `TestFlverHeader` (6 tests) in
+  `tests/test_priorart.py`.
+- Found (**E-039**): header is a fixed 128-byte block. Magic `FLVER\0`
+  [VERIFIED]. u16 76/20/2, u32 61488/405520/0/6/334/6/12, six f32s
+  (-0.7157, 0.0, -0.1980, 0.7180, 1.7909, 0.2405), u32 28062/28062/256/0/36/10/42
+  — every field meaning [UNKNOWN]; only the magic is verified. The six f32s are
+  plausibly a bounding box (E-017's 1.79 m vertical extent is an inference,
+  not an observation). 16-byte records begin at 0x80; not decoded.
+- Docs: E-039 in EVIDENCE.md; FORMATS.md §6 (FLVER header, [UNKNOWN] marking);
+  BACKLOG.md T7 row updated (header decoded, body layout open).
+- Next: T7b is advanced, not complete — the 0x80+ record structure and the
+  body mesh layout remain. F1/F4 still blocked on engine ground truth.
+- Tests: full suite **190 tests, all green**. Commented issue #34.
