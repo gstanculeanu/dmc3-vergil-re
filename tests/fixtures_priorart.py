@@ -43,6 +43,31 @@ def flver_header() -> bytes:
     return bytes(blob)
 
 
+def flver_sections() -> bytes:
+    """FLVER header plus section table mirroring real observations.
+
+    Builds the 128-byte header of ``BD_M_10100.flver`` followed by the six
+    32-byte section entries observed at file offset 0x80 (E-039/E-040). Every
+    value is a verbatim observation of the real file; no field meaning is
+    assumed. The layout is what the parser under test consumes.
+    """
+    blob = bytearray(flver_header())
+    blob.extend(b"\x00" * (6 * 0x20))  # room for the six section entries
+    # u32_18 == 6 => six section entries; each entry is two 16-byte records.
+    sections = [
+        (49600, 49616, 7, 0, 366, 48160, 0, 0),
+        (49966, 49976, 7, 7, 360, 48400, 1, 0),
+        (50326, 50338, 7, 14, 362, 48640, 2, 0),
+        (50688, 50700, 7, 21, 370, 48880, 3, 0),
+        (51058, 51082, 7, 28, 374, 49120, 4, 0),
+        (51432, 51442, 7, 35, 334, 49360, 5, 0),
+    ]
+    for index, fields in enumerate(sections):
+        off = 0x80 + index * 0x20
+        struct.pack_into("<8I", blob, off, *fields)
+    return bytes(blob)
+
+
 def smd_text(materials=None) -> str:
     """A small but structurally faithful ``version 1`` SMD.
 

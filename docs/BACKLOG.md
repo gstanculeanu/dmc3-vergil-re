@@ -35,7 +35,7 @@ Labels used: `re`, `tooling`, `format`, `phase-1`, `phase-2`, `phase-3`, `blocke
 | T4 | Extract/verify `plwp_vergilsword` once F6 lands | blocked by F6 |
 | T5 | CLI to diff two PAC files slot-by-slot (mod comparison) | ready |
 | T6 | CI running the unit tests on push | ready |
-| T7 | Prior-art mesh → OBJ/glTF conversion | **done for the weapon** (E-015); **body FLVER header decoded** (E-039: 128-byte header, magic `FLVER\0`, all field meanings [UNKNOWN]); body layout beyond the header still open |
+| T7 | Prior-art mesh → OBJ/glTF conversion | **done for the weapon** (E-015); **body FLVER header + section table decoded** (E-039: 128-byte header, magic `FLVER\0` [VERIFIED]; E-040: six 32-byte section entries at 0x80, all field meanings [UNKNOWN]); body layout beyond the table still open |
 
 ## Phase 2 — round-trip into DMC3
 

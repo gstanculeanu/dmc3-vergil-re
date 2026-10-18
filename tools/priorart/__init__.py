@@ -11,7 +11,16 @@ All are read-only. Nothing here writes a game asset into the repository; OBJ
 output goes wherever the caller asks.
 """
 
-from .flver import FlverError, FlverHeader, HEADER_SIZE, parse_flver_header
+from .flver import (
+    FlverError,
+    FlverHeader,
+    FlverSection,
+    HEADER_SIZE,
+    SECTION_SIZE,
+    SECTION_TABLE_OFFSET,
+    parse_flver_header,
+    parse_flver_sections,
+)
 from .obj import ObjBuilder
 from .sourceascii import AsciiFile, AsciiMesh, AsciiVertex, parse_ascii
 from .sourcesmd import SmdFile, SmdVertex, parse_smd
@@ -19,8 +28,12 @@ from .sourcesmd import SmdFile, SmdVertex, parse_smd
 __all__ = [
     "FlverError",
     "FlverHeader",
+    "FlverSection",
     "HEADER_SIZE",
+    "SECTION_SIZE",
+    "SECTION_TABLE_OFFSET",
     "parse_flver_header",
+    "parse_flver_sections",
     "ObjBuilder",
     "AsciiFile",
     "AsciiMesh",

@@ -509,10 +509,26 @@ already obtained via Source .smd/.ascii (E-015); the body exists only as FLVER.
 * The six floats at 0x28–0x3F plausibly form a bounding box (E-017 read a
   1.79 m vertical extent, consistent with a humanoid body) — that is an
   inference, not an observation.
-* From 0x80 onward the file contains recurring 16-byte records; their layout
-  and semantics are not decoded (left for a later slice of T7b).
+* From 0x80 to 0x140 the file contains six 32-byte section entries (E-040),
+  each eight little-endian u32s: `u32_00, u32_04, u32_08 == 7, u32_0c ==
+  7 * entry_index, u32_10, u32_14 = 48160 + 240 * index, u32_18 in 0..5,
+  u32_1c == 0`. Verified on this file; every field meaning is [UNKNOWN].
+  `u32_00` is a running offset whose step equals the previous entry's `u32_10`;
+  `u32_14` points at a `"GX**"` magic block (exact for entries 0, 2, 4, 5;
+  +4/+16 off for 1/3 — discrepancy not explained). Entry 0's `u32_00`
+  (0xC1C0) opens a UTF-16LE name string (`costume_parsn_...`).
+* Header +0x0C (61488 = 0xF030) points at u16 index-like data
+  (25, 39, 0 / 25, 40, 39 …); header +0x10 (405520 = 0x63010) points at
+  further record data. Whether header +0x18 (== 6) is the section count or
+  header +0x24 (== 12) is the record count is [UNKNOWN].
+* The `"GX**"` block layout (verified at 0xBC20): `"GXNN"`, u32 100,
+  u32 44/64/24, u32 0; GX04 at 0xBC44 is additionally followed by u32 0 and
+  f32 data (5, 1, 0.5, 0 / 5, 0.5, 1, 0). The same sequence recurs at
+  0xBEF0, 0xBFE0, 0xC0D0, ending each group with an f32 0x7FFFFFFF sentinel.
+  All block-internal meanings [UNKNOWN].
 
 `tools/priorart/flver.py` exposes `FlverHeader` / `parse_flver_header()`
-decoding exactly this header from real bytes, exercised by unit tests on a
-synthetic fixture (no game data committed). The body mesh beyond the header
-remains [UNKNOWN]; T7b is advanced but not complete.
+and `FlverSection` / `parse_flver_sections()`, decoding exactly this header
+and table from real bytes, exercised by unit tests on synthetic fixtures
+(no game data committed). The body mesh beyond the table remains [UNKNOWN];
+T7b is advanced but not complete.

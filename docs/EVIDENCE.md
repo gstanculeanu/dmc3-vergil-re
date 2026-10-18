@@ -1773,9 +1773,9 @@ The six floats at 0x28–0x3F plausibly form a bounding box (E-017 read them as
 a box with a 1.79 m vertical extent, consistent with a humanoid body), but that
 is an inference, not an observation; every field is [UNKNOWN] here.
 
-From 0x80 onward the file contains recurring 16-byte records (e.g.
-`[50624, 50640, 7, 0]`, `[366, 48416, 0, 0]`, …); their layout and semantics
-are not decoded and are left for a later slice.
+From 0x80 onward the file contains 16-byte records grouped into six 32-byte
+section entries (e.g. at 0x80: `[49600, 49616, 7, 0]`, `[366, 48160, 0, 0]`);
+their layout is recorded in E-040 and every field meaning is [UNKNOWN].
 
 **Inference.** None beyond: the file is a FromSoftware FLVER model whose header
 is a fixed 128-byte block; `u32_1c == 334` and `u32_40 == u32_44 == 28062` are
@@ -1791,3 +1791,62 @@ from this one file alone — engine ground truth or a FLVER spec needed.
 by unit tests on a synthetic fixture mirroring the observed bytes (no game data
 committed). The body mesh beyond the header remains [UNKNOWN]; T7b is advanced
 but not complete.
+
+## E-040 — FLVER section table: six 32-byte entries at 0x80 (T7b, bounded slice)
+
+**Observation.** `BD_M_10100.flver` (467,008 bytes), same file as E-039, at
+`C:\Users\GigelCastel\Desktop\vergil\parts\bd_m_10100-partsbnd-dcx\BD_M_10100.flver`.
+From file offset 0x80 to 0x140 the file holds six 32-byte section entries
+(each two 16-byte records), little-endian u32s. Verified bytes (offset | u32s):
+
+```
+0x0080  49600, 49616, 7, 0        |   366, 48160, 0, 0
+0x00A0  49966, 49976, 7, 7        |   360, 48400, 1, 0
+0x00C0  50326, 50338, 7, 14       |   362, 48640, 2, 0
+0x00E0  50688, 50700, 7, 21       |   370, 48880, 3, 0
+0x0100  51058, 51082, 7, 28       |   374, 49120, 4, 0
+0x0120  51432, 51442, 7, 35       |   334, 49360, 5, 0
+```
+Non-pattern data (float/u16 streams) resumes at 0x140, so the table is exactly
+these six entries.
+
+**Observed structure (all field meanings [UNKNOWN]):**
+- Entry = u32_00, u32_04, u32_08, u32_0c, u32_10, u32_14, u32_18, u32_1c.
+- u32_08 == 7 in all six entries; u32_0c == 7 * entry_index (0, 7, …, 35);
+  u32_1c == 0 in all six entries; u32_18 takes 0, 1, 2, 3, 4, 5.
+- u32_14 = 48160 + 240 * index for all six entries.
+- u32_00 forms a running offset: each entry's u32_00 = previous u32_00 +
+  previous u32_10 (49600, +366 = 49966, +360 = 50326, +362 = 50688, +370 =
+  51058, +374 = 51432). u32_10 values: 366, 360, 362, 370, 374, 334.
+- u32_10 of the last entry (334) equals header +0x1C — whether related is not
+  established. Count source [UNKNOWN]: header +0x18 == 6 matches the entry
+  count; header +0x24 == 12 matches 2 * 6.
+
+**Referenced data (verified locations, meanings [UNKNOWN]):**
+- Entry u32_14 points at a "GX**" magic block: exact at 0xBC20 (entry 0),
+  0xBE00 (entry 2), 0xBFE0 (entry 4), 0xC0D0 (entry 5); within 4 bytes for
+  entries 1 (0xBCD0 → "GX26" at 0xBCD4) and 3 (0xBEE0 → "GX00" at 0xBEE4).
+  Block layout (verified at 0xBC20): `"GXNN"`, u32 100, u32 44/64/24,
+  u32 0; GX04 at 0xBC44 is additionally followed by u32 0 and f32 data
+  (5, 1, 0.5, 0 / 5, 0.5, 1, 0). The same block sequence recurs at 0xBEF0,
+  0xBFE0, 0xC0D0; groups end with an f32 0x7FFFFFFF sentinel.
+- The u32_14 pointer is exact (delta 0) for entries 0, 2, 4, 5, +4 for entry
+  1 and +16 for entry 3; the discrepancy is not explained.
+- Entry 0's u32_00 = 49600 = 0xC1C0 opens a UTF-16LE name string:
+  `costume_parsn_...`
+- Header +0x0C = 61488 = 0xF030 points at u16 index-like data
+  (25, 39, 0 / 25, 40, 39 / 25, 1, 2 …). Header +0x10 = 405520 = 0x63010
+  points at record data beginning 0, 0x7F7F7F7F, 0x004B0039 …
+  Header +0x10 + header +0x0C == file size (405520 + 61488 == 467008) — an
+  inference about layout, not an observation of intent.
+
+**Inference.** None beyond raw structure.
+
+**Unknown.** Every field's meaning; whether entries are 32 bytes (count from
++0x18) or 16-byte records (count candidate +0x24 == 12); whether u32_00 is a
+name-string offset and u32_10 a size; what the "GX**" blocks encode; the
+why u32_14 is exact for entries 0, 2, 4, 5 but +4/+16 off for entries 1/3.
+`tools/priorart/flver.py` exposes `FlverSection` / `parse_flver_sections()`
+decoding exactly this table from real bytes, exercised by unit tests on a
+synthetic fixture (no game data committed). The body mesh beyond the table
+remains [UNKNOWN]; T7b is advanced but not complete.

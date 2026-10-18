@@ -1,8 +1,19 @@
 import _bootstrap  # noqa: F401
+import struct
 import unittest
 
 import fixtures_priorart as fx
-from priorart import FlverError, HEADER_SIZE, parse_flver_header, parse_ascii, parse_smd
+from priorart import (
+    FlverError,
+    FlverSection,
+    HEADER_SIZE,
+    SECTION_SIZE,
+    SECTION_TABLE_OFFSET,
+    parse_flver_header,
+    parse_flver_sections,
+    parse_ascii,
+    parse_smd,
+)
 
 
 class TestSmdParser(unittest.TestCase):
@@ -168,6 +179,46 @@ class TestFlverHeader(unittest.TestCase):
     def test_bad_magic_raises(self):
         with self.assertRaises(FlverError):
             parse_flver_header(b"XXXX\x00" + b"\x00" * (HEADER_SIZE - 6))
+
+
+class TestFlverSection(unittest.TestCase):
+    def setUp(self):
+        self.sections = parse_flver_sections(fx.flver_sections())
+
+    def test_section_count_and_size(self):
+        self.assertEqual(len(self.sections), 6)
+        self.assertEqual(SECTION_SIZE, 0x20)
+
+    def test_section_fields_match_real_observations(self):
+        expected = [
+            FlverSection(49600, 49616, 7, 0, 366, 48160, 0, 0),
+            FlverSection(49966, 49976, 7, 7, 360, 48400, 1, 0),
+            FlverSection(50326, 50338, 7, 14, 362, 48640, 2, 0),
+            FlverSection(50688, 50700, 7, 21, 370, 48880, 3, 0),
+            FlverSection(51058, 51082, 7, 28, 374, 49120, 4, 0),
+            FlverSection(51432, 51442, 7, 35, 334, 49360, 5, 0),
+        ]
+        self.assertEqual(self.sections, expected)
+
+    def test_section_offsets_start_at_table_offset(self):
+        # Each entry is SECTION_SIZE bytes starting at SECTION_TABLE_OFFSET.
+        data = fx.flver_sections()
+        for index, section in enumerate(self.sections):
+            fields = struct.unpack_from("<8I", data, SECTION_TABLE_OFFSET + index * SECTION_SIZE)
+            self.assertEqual(FlverSection(*fields), section)
+
+    def test_observed_constants(self):
+        # u32_08 == 7, u32_0c == 7 * index, u32_1c == 0 in every entry.
+        for index, section in enumerate(self.sections):
+            self.assertEqual(section.u32_08, 7)
+            self.assertEqual(section.u32_0c, 7 * index)
+            self.assertEqual(section.u32_1c, 0)
+
+    def test_truncated_table_raises(self):
+        data = bytearray(fx.flver_sections())
+        del data[SECTION_TABLE_OFFSET:]  # drop the whole table
+        with self.assertRaises(FlverError):
+            parse_flver_sections(bytes(data))
 
 
 if __name__ == "__main__":
