@@ -1092,6 +1092,61 @@ byte-level work (E-050/E-051) was blocked on.
 **Note.** The `.wad`/`WAD_` string references are a promising entry point for
 finding the file loader, hence the container format.
 
+---
+
+## E-054 — Named-blob descriptor table, and a **verified** length-changing rename
+
+**Observation.** `R_LANG_EN.WAD` has a descriptor table starting at `0xD80`, and a
+descriptor is 0x40 bytes::
+
+    +0x00  u32   id
+    +0x04  u32   size of the blob
+    +0x08  char  name[0x38], NUL padded
+    +0x40  the blob's data begins here
+
+The first (and in this file only parsed) descriptor is::
+
+    @0xD80  id=7  size=318,537 (0x4DC49)  "MSGS_TXT"
+    data  0xDC0 .. 0x4EA09
+
+So `MSGS_TXT` is the localisation text, **data at 0xDC0**, and the `*832* "Hades"`
+entry at `0xC4B3` lies inside it.
+
+**Correction to E-052.** The marker regex first used demanded 3+ digits, so entry
+ids `1`–`99` were skipped and the "first entry" was reported as `*100*` at `0x11E5`.
+In fact the text begins at `0xDC0` with `*1*` (`Spartan (Easy)`). Fixed; a
+regression test now covers 1- and 2-digit ids.
+
+**Observation — the edit, verified byte-for-byte.** Renaming `*832*` from `Hades`
+(5 bytes) to `Vergil` (6) was performed and checked:
+
+| Check | Result |
+|---|---|
+| file size | 456,432 → 456,433 (+1) |
+| `MSGS_TXT` size field | 318,537 → **318,538** |
+| bytes before the insertion | identical apart from that 4-byte size field |
+| bytes after the insertion | a pure 1-byte shift |
+| `*832*` | reads `Vergil`, no longer `Hades` |
+| **source file sha256** | **unchanged** |
+
+**Inference.** A blob's only bookkeeping is its `size` field; the container stores
+no offset or size that covers a blob's *interior*. So a length-changing edit is
+safe when the blob's size field is updated by the same delta and the blob is the
+text itself — entries are located by scanning `*id*` markers, so the shift is
+harmless. This is a **narrow writer** that needs no understanding of the record
+directory, and it is what made the Hades → Vergil rename possible ahead of the
+full WAD writer.
+
+**Unknown.** Whether the game reads entry `*832*` for the boss health bar (rather
+than a menu or bestiary label) — one in-game look settles it. Also unknown is
+whether a *second* blob follows `MSGS_TXT` at `0x4EA09` and what it is.
+
+**Tooling.** `lang.find_blob()`, `lang.replace_exact_line_in_blob()`,
+`tools/gow3/make_lang_mod.py` (verifies all six checks, refuses to write inside the
+game install or the repo) and `scripts/vergil-name-mod.ps1` (`-Install` / `-Restore`
+/ `-Status`, with a SHA-256-verified backup). 7 further tests (278 total).
+
+
 
 ---
 

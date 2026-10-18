@@ -19,7 +19,96 @@ import re
 from dataclasses import dataclass
 from typing import Iterator, List, Optional
 
-MARKER = re.compile(rb"\*(\d{3,6})\*")
+MARKER = re.compile(rb"\*(\d{1,6})\*")
+
+
+@dataclass(frozen=True)
+class Blob:
+    """A named blob described by the table after a WAD's directory (E-054)."""
+
+    name: str
+    descriptor_offset: int   # offset of the descriptor's id field
+    size_offset: int         # offset of its u32 size
+    size: int
+    data_offset: int         # descriptor_offset + 0x40
+
+    @property
+    def end(self) -> int:
+        return self.data_offset + self.size
+
+
+def find_blob(data: bytes, name: str) -> Optional[Blob]:
+    """Locate ``name`` in a WAD's named-blob descriptor table.
+
+    Observed layout of a descriptor (0x40 bytes)::
+
+        +0x00  u32   id
+        +0x04  u32   size of the blob
+        +0x08  char  name[0x38], NUL padded
+        +0x40  the blob's data begins here
+
+    Only a descriptor whose name field *exactly* matches is accepted, so the many
+    incidental occurrences of a name inside the text are not mistaken for it.
+    """
+    needle = name.encode("latin-1")
+    at = data.find(needle)
+    while at >= 0:
+        descriptor = at - 8
+        if descriptor >= 0 and descriptor % 4 == 0:
+            raw = data[at:at + 0x38]
+            head = raw.split(b"\x00", 1)[0]
+            if head.decode("latin-1", "replace") == name:
+                size = int.from_bytes(data[descriptor + 4:descriptor + 8], "little")
+                return Blob(name=name, descriptor_offset=descriptor,
+                            size_offset=descriptor + 4, size=size,
+                            data_offset=descriptor + 0x40)
+        at = data.find(needle, at + 1)
+    return None
+
+
+def replace_exact_line_in_blob(
+    data: bytes, blob: Blob, old: str, new: str
+) -> Optional[bytes]:
+    """Rename ``old`` to ``new`` inside ``blob``, keeping the container valid.
+
+    Unlike :func:`replace_exact_line`, this permits a change of length: it inserts
+    the bytes and adds the difference to the blob's stored size, which is the only
+    bookkeeping the container appears to carry (E-054 -- the file stores no offset
+    or size that covers the blob's interior). Everything after the insertion point
+    shifts, which is harmless for a text blob whose entries are found by scanning
+    ``*id*`` markers.
+
+    Returns ``None`` if the entry cannot be located, or is not inside ``blob``.
+    """
+    entries = parse_entries(data)
+    target = None
+    line_offset = None
+    for entry in entries:
+        if not (blob.data_offset <= entry.start < blob.end):
+            continue
+        body = entry.text
+        for line in body.splitlines():
+            stripped = line.strip()
+            if stripped == old:
+                target = entry
+                line_offset = body.index(line) + line.index(stripped)
+                break
+        if target is not None:
+            break
+    if target is None or line_offset is None:
+        return None
+
+    absolute = target.text_offset + line_offset
+    delta = len(new) - len(old)
+    out = bytearray()
+    out += data[:absolute]
+    out += new.encode("latin-1")
+    out += data[absolute + len(old):]
+    new_size = blob.size + delta
+    if new_size < 0:
+        return None
+    out[blob.size_offset:blob.size_offset + 4] = new_size.to_bytes(4, "little")
+    return bytes(out)
 
 
 @dataclass(frozen=True)

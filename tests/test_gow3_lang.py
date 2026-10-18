@@ -1,4 +1,5 @@
 import _bootstrap  # noqa: F401
+import struct
 import unittest
 
 from gow3 import lang
@@ -99,6 +100,68 @@ class TestReplaceExactLine(unittest.TestCase):
         self.assertEqual(len("Hades"), 5)
         self.assertEqual(len("Vergil"), 6)
         self.assertEqual(len("Helios"), len("Vergil"))   # a same-length swap exists
+
+
+class TestBlobAndWriter(unittest.TestCase):
+    """The named-blob descriptor and the length-changing writer (E-054)."""
+
+    def setUp(self):
+        body = b"*1*\r\nA\r\n*832*\r\nHades\r\n*833*\r\nHelios\r\n"
+        blob = bytearray()
+        blob += b"\x00" * 0xD80                      # header + directory + padding
+        descriptor = bytearray(0x40)
+        struct.pack_into("<I", descriptor, 0, 7)               # id
+        struct.pack_into("<I", descriptor, 4, len(body))       # size
+        descriptor[8:8 + len(b"MSGS_TXT")] = b"MSGS_TXT"
+        blob += descriptor
+        data_start = len(blob)                        # == 0xDC0
+        blob += body
+        self.data = bytes(blob)
+        self.data_start = data_start
+
+    def test_blob_found_with_correct_size_and_offset(self):
+        blob = lang.find_blob(self.data, "MSGS_TXT")
+        self.assertIsNotNone(blob)
+        self.assertEqual(blob.size, len(self.data) - self.data_start)
+        self.assertEqual(blob.data_offset, self.data_start)
+        self.assertEqual(blob.end, len(self.data))
+
+    def test_unknown_blob_is_none(self):
+        self.assertIsNone(lang.find_blob(self.data, "NOPE_TXT"))
+
+    def test_one_and_two_digit_ids_are_parsed(self):
+        # regression: the marker regex used to demand 3+ digits, so *1* and *10*
+        # were silently skipped and the first entry appeared to be *100*.
+        ids = [e.entry_id for e in lang.parse_entries(self.data)]
+        self.assertIn(1, ids)
+        self.assertIn(832, ids)
+
+    def test_length_changing_replace_updates_only_the_size_field(self):
+        blob = lang.find_blob(self.data, "MSGS_TXT")
+        out = lang.replace_exact_line_in_blob(self.data, blob, "Hades", "Vergil")
+        self.assertIsNotNone(out)
+        self.assertEqual(len(out), len(self.data) + 1)
+        new_size = struct.unpack_from("<I", out, blob.size_offset)[0]
+        self.assertEqual(new_size, blob.size + 1)
+        entry = next(e for e in lang.parse_entries(out) if e.entry_id == 832)
+        self.assertIn("Vergil", entry.text)
+        self.assertNotIn("Hades", entry.text)
+
+    def test_other_entries_are_untouched(self):
+        blob = lang.find_blob(self.data, "MSGS_TXT")
+        out = lang.replace_exact_line_in_blob(self.data, blob, "Hades", "Vergil")
+        helios = next(e for e in lang.parse_entries(out) if e.entry_id == 833)
+        self.assertIn("Helios", helios.text)
+
+    def test_missing_line_returns_none(self):
+        blob = lang.find_blob(self.data, "MSGS_TXT")
+        self.assertIsNone(lang.replace_exact_line_in_blob(self.data, blob, "Nope", "X"))
+
+    def test_entry_outside_the_blob_is_refused(self):
+        blob = lang.find_blob(self.data, "MSGS_TXT")
+        blob = lang.Blob(name=blob.name, descriptor_offset=blob.descriptor_offset,
+                         size_offset=blob.size_offset, size=0, data_offset=0)
+        self.assertIsNone(lang.replace_exact_line_in_blob(self.data, blob, "Hades", "Vergil"))
 
 
 if __name__ == "__main__":
