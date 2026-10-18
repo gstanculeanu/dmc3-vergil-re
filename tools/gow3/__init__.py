@@ -54,9 +54,11 @@ from .wadgraph import (
 )
 from . import eboot
 from . import lang
+from . import anim
 
 __all__ = [
     "eboot",
+    "anim",
     "FIELD_OFFSETS",
     "FIELD_SIZE",
     "PARAM_SIZE",

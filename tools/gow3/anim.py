@@ -15,7 +15,8 @@ clip**, e.g. ``hadesKnifeAttLhigh``, ``hadesKnifeAttRlow``,
 ``06``, ``csHadesKnifeKill``. So a boss's move set is enumerable, and each move has
 a known offset and span.
 
-Only what is observed is exposed: clip names, offsets and spans. The *internal*
+Only what is observed is exposed: clip names, offsets, spans and the fixed clip
+header (E-059: name in a 0x38-byte field, then the size at +0x38). The *internal*
 clip encoding (bone channels, keyframes) is [UNKNOWN] and is not interpreted here.
 """
 
@@ -32,6 +33,18 @@ MAX_CLIP_OFFSET = 8 * 1024 * 1024
 _NAME = re.compile(rb"[A-Za-z][A-Za-z0-9_]{2,60}")
 COMMAND_NAMES = {1, 2, 3, 0x12, 0x15}
 
+# Per-clip header, observed on R_HADES.WAD and R_HERCULES.WAD (E-059). The name is
+# a fixed 0x38-byte, NUL-terminated field, exactly like a WAD directory record's;
+# the clip's byte size follows it. Everything past the size is only structurally
+# described, so no meaning beyond the offsets is claimed.
+CLIP_HEADER_SIZE = 0x38          # fixed size of the name field
+CLIP_SIZE_OFFSET = 0x38          # u32 clip size
+CLIP_FLAGS_OFFSET = 0x3C         # u32, 0 on every observed clip
+CLIP_FRAME_RATE_OFFSET = 0x6C    # f32, 1/30 or 1/15 observed
+CLIP_SUB_FRAME_RATE_OFFSET = 0xA8  # f32, 1/60 on every observed clip
+CLIP_SIZE_COPY_OFFSETS = (0x7C, 0x90, 0xA4)  # u32 copies of CLIP_SIZE_OFFSET
+CLIP_HEADER_MIN = CLIP_SUB_FRAME_RATE_OFFSET + 4  # bytes needed to parse the header
+
 
 class AnimError(ValueError):
     """Raised when a WAD's animation directory does not match the observed layout."""
@@ -39,19 +52,75 @@ class AnimError(ValueError):
 
 @dataclass(frozen=True)
 class Clip:
-    """One animation clip: a name and the byte span it occupies."""
+    """One animation clip: a name, its byte size and the directory span."""
 
     index: int
     name: str
     offset: int          # file offset of the clip's name
     span: int            # bytes to the next clip (upper bound for the last one)
+    size: int = 0        # clip size from its header (+0x38); 0 when unreadable
 
     @property
     def end(self) -> int:
-        return self.offset + self.span
+        return self.offset + self.size if self.size else self.offset + self.span
 
     def __str__(self) -> str:  # pragma: no cover - cosmetic
-        return f"[{self.index:>3}] 0x{self.offset:08X} span={self.span:>9,}  {self.name}"
+        return (f"[{self.index:>3}] 0x{self.offset:08X} size={self.size:>9,} "
+                f"span={self.span:>9,}  {self.name}")
+
+
+@dataclass(frozen=True)
+class ClipHeader:
+    """The fixed header of one animation clip (E-059).
+
+    Only the name and the size are semantically verified. ``flags``,
+    ``frame_rate`` and ``sub_frame_rate`` are recorded exactly as observed;
+    ``size_copies`` holds the three redundant copies of the size.
+    """
+
+    offset: int          # file offset of the clip (its name field)
+    name: str
+    size: int            # u32 at +0x38
+    flags: int           # u32 at +0x3C, 0 on every observed clip
+    frame_rate: float    # f32 at +0x6C, 1/30 or 1/15 observed
+    sub_frame_rate: float  # f32 at +0xA8, 1/60 on every observed clip
+    size_copies: tuple   # u32s at +0x7C, +0x90, +0xA4 (equal the size)
+
+
+def _read_u32(data: bytes, offset: int) -> int:
+    if offset < 0 or offset + 4 > len(data):
+        return 0
+    return struct.unpack_from("<I", data, offset)[0]
+
+
+def _read_f32(data: bytes, offset: int) -> float:
+    if offset < 0 or offset + 4 > len(data):
+        return 0.0
+    return struct.unpack_from("<f", data, offset)[0]
+
+
+def parse_clip_header(data: bytes, offset: int) -> Optional[ClipHeader]:
+    """Read the fixed per-clip header at ``offset``, or ``None`` if not one.
+
+    Returns only observed values (E-059); no field meaning is asserted beyond the
+    name and the size.
+    """
+    if offset < 0 or offset + CLIP_HEADER_MIN > len(data):
+        return None
+    name = clip_name_at(data, offset)
+    if name is None:
+        return None
+
+    return ClipHeader(
+        offset=offset,
+        name=name,
+        size=_read_u32(data, offset + CLIP_SIZE_OFFSET),
+        flags=_read_u32(data, offset + CLIP_FLAGS_OFFSET),
+        frame_rate=_read_f32(data, offset + CLIP_FRAME_RATE_OFFSET),
+        sub_frame_rate=_read_f32(data, offset + CLIP_SUB_FRAME_RATE_OFFSET),
+        size_copies=tuple(_read_u32(data, offset + o)
+                          for o in CLIP_SIZE_COPY_OFFSETS),
+    )
 
 
 def read_clip_offsets(data: bytes, table: int = TABLE_DEFAULT) -> List[int]:
@@ -90,8 +159,13 @@ def parse_clips(data: bytes, table: int = TABLE_DEFAULT,
         if name is None:
             continue
         nxt = base + offsets[index + 1] if index + 1 < len(offsets) else len(data)
+        span = max(0, nxt - absolute)
+        # The header's own size is authoritative; fall back to the span when it is
+        # absent (synthetic fixtures) or unreadable. For every non-final clip in
+        # the two sampled WADs the two are equal (E-059).
+        size = _read_u32(data, absolute + CLIP_SIZE_OFFSET)
         clips.append(Clip(index=index, name=name, offset=absolute,
-                          span=max(0, nxt - absolute)))
+                          span=span, size=size or span))
     return clips
 
 

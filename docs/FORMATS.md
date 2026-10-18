@@ -744,3 +744,35 @@ opcode name. `tools/gow3/eboot.py` maps addresses and lists the code that
 references a named string (`WAD_`, `hfsm`, `DEPENDENCY`, `.wad`), which is the
 route to the numeric constants. `[UNKNOWN]`: the loader logic and the
 directory→bulk binding (G9/G10).
+
+### 7.7 Animation clip header — [PARTIAL] (E-058, E-059)
+
+The clip directory of E-058 points `base + offsets[i]` at each clip. At that
+offset is a **fixed per-clip header** (E-059), verified on every clip of
+`R_HADES.WAD` (77) and `R_HERCULES.WAD` (46). All integers little-endian; the
+header is at least `0xAC` bytes.
+
+```
++0x00  char[0x38]  clip name, NUL-terminated          [VERIFIED]
++0x38  u32         clip size                          [VERIFIED]
++0x3C  u32         0 on 123/123 clips                  [VERIFIED]
++0x6C  f32         1/30 (114 clips) or 1/15 (9)        [VERIFIED]
++0x7C  u32         == the +0x38 size (123/123)         [VERIFIED]
++0x90  u32         == the +0x38 size (123/123)         [VERIFIED]
++0xA4  u32         == the +0x38 size (123/123)         [VERIFIED]
++0xA8  f32         1/60 on 123/123 clips               [VERIFIED]
+```
+
+The size at `+0x38` is the authoritative clip bound: it equals the directory
+offset delta for every non-final clip, and for the **final** clip it is the true
+size while the directory span (`len(file) − offset`) is an over-estimate. This
+corrects E-058's "the clip span bounds each move": only the header size does.
+`flags`, the three redundant sizes and the two frame rates have **[UNKNOWN]**
+semantics, and much of the header region is `0xCD`/`0xCC`-filled (MSVC
+uninitialized-memory patterns), so no further field meaning is claimed. The
+clip's *internal* encoding (channels, keyframes, root motion) remains
+**[UNKNOWN]** and is the remaining gap for F9/"moves".
+
+`tools/gow3/anim.py`: `ClipHeader`, `parse_clip_header()`, `CLIP_*` constants;
+`Clip.size` is read from `+0x38` (`Clip.end` uses it), the directory span is
+retained as the upper bound.

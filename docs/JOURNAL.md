@@ -1106,3 +1106,32 @@ moves and health bar and everything."*
 - Next: read the code the `WAD_` / `hfsm` references point at to recover the
   **numeric record opcodes** and the directory→bulk binding (G9/G10) — the loader
   is now locatable. F1/F4 stay blocked on DMC3-side engine ground truth.
+
+---
+
+## 2026-10-18 — F9/G9 bounded slice: GoW3R animation clip header decoded
+
+- Did: continued the GoW3R "moves" work from E-058 (clip directory). Read real
+  bytes (read-only) from `R_HADES.WAD` and `R_HERCULES.WAD` under
+  `C:\Users\GigelCastel\Desktop\gow3\CUSA01715\EXEC\WAD\PS4_LE\`; implemented
+  `ClipHeader` / `parse_clip_header()` and the `CLIP_*` offset constants in
+  `tools/gow3/anim.py`, gave `Clip` a header-derived `size`, and added
+  `TestClipHeader` (4 tests) on a realistic synthetic clip record. Full suite:
+  **332 tests, all green**.
+- Found (**E-059**): the ANM clip record has a **fixed header**.
+  - The name is a **fixed 0x38-byte field**: the u32 at `+0x38` is the clip size
+    in all 123 clips (77 Hades + 46 Hercules), whatever the name's length.
+  - `+0x3C` = 0 (123/123); `+0x7C`/`+0x90`/`+0xA4` equal `+0x38` (123/123);
+    `+0x6C` = 1/30 (114) or 1/15 (9); `+0xA8` = 1/60 (123/123).
+  - **E-058 correction**: the directory *span* over-estimates the final clip
+    (83,651,932 for `csHadesFlickL`); the header size (34,304) is the true bound.
+    `Clip.size` now carries it and `Clip.end` uses it.
+  - The rest of the header is `0xCD`/`0xCC`-filled (MSVC uninitialized-memory
+    patterns) with pointer-like u32s; no field meaning is claimed beyond the name
+    and size, and the clip's internal encoding stays [UNKNOWN].
+- Docs: `docs/EVIDENCE.md` E-059; `docs/FORMATS.md` §7.7; `docs/BACKLOG.md`
+  F9/G9 rows updated. No game data committed; all fixtures synthetic.
+- Next: the clip's internal encoding (channels/keyframes/root motion) is the
+  remaining "moves" gap and is decodable from the file and `eboot.bin`; the
+  `+0x7C`/`+0x90`/`+0xA4` structural analogy (three tracks + a 60 Hz track) is a
+  hypothesis to test. F1/F4 remain blocked on DMC3-side engine ground truth.

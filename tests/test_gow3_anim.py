@@ -9,6 +9,7 @@ from gow3.anim import AnimError
 # table sits *inside* that region at 0xE78, so base < table.
 BASE, TABLE, HEAD = 0xE40, 0xE78, 0xE00
 LEAD = 0x100
+CLIP_SIZE = 0x100  # size of each synthetic clip record
 
 
 def anim_wad(names, lead=LEAD, table=TABLE, base=BASE, head=HEAD) -> bytes:
@@ -17,7 +18,16 @@ def anim_wad(names, lead=LEAD, table=TABLE, base=BASE, head=HEAD) -> bytes:
     offsets = []
     for name in names:
         offsets.append(len(payload))
-        payload += name.encode("latin-1") + b"\x00" * 24
+        record = bytearray(CLIP_SIZE)
+        raw = name.encode("latin-1")
+        record[0:len(raw)] = raw
+        struct.pack_into("<I", record, anim.CLIP_SIZE_OFFSET, CLIP_SIZE)
+        struct.pack_into("<I", record, anim.CLIP_FLAGS_OFFSET, 0)
+        struct.pack_into("<f", record, anim.CLIP_FRAME_RATE_OFFSET, 1.0 / 30)
+        for copy in anim.CLIP_SIZE_COPY_OFFSETS:
+            struct.pack_into("<I", record, copy, CLIP_SIZE)
+        struct.pack_into("<f", record, anim.CLIP_SUB_FRAME_RATE_OFFSET, 1.0 / 60)
+        payload += record
     blob += b"\x00" * (base - len(blob))
     blob += payload
     for i, value in enumerate(offsets):
@@ -97,6 +107,44 @@ class TestClipDirectory(unittest.TestCase):
         for i in range(BASE + LEAD, min(len(blob), BASE + LEAD + 0x80)):
             blob[i] = 0x00
         self.assertEqual(anim.parse_clips(bytes(blob)), [])
+
+
+class TestClipHeader(unittest.TestCase):
+    """E-059: the fixed per-clip header (name field, size, frame rates)."""
+
+    def setUp(self):
+        self.names = ["csHadesIntro", "hadesKnifeAttLhigh"]
+        self.data = anim_wad(self.names)
+
+    def test_parses_observed_header_fields(self):
+        clips = anim.parse_clips(self.data)
+        header = anim.parse_clip_header(self.data, clips[0].offset)
+        self.assertIsNotNone(header)
+        self.assertEqual(header.name, "csHadesIntro")
+        self.assertEqual(header.size, CLIP_SIZE)
+        self.assertEqual(header.flags, 0)
+        self.assertAlmostEqual(header.frame_rate, 1.0 / 30, places=6)
+        self.assertAlmostEqual(header.sub_frame_rate, 1.0 / 60, places=6)
+        self.assertEqual(header.size_copies, (CLIP_SIZE,) * 3)
+
+    def test_clip_offsets_land_on_a_fixed_name_field(self):
+        # the name field is 0x38 bytes, so the size is at a constant offset
+        clips = anim.parse_clips(self.data)
+        for clip in clips:
+            self.assertEqual(clip.size, CLIP_SIZE)
+
+    def test_header_is_none_on_a_non_clip_region(self):
+        self.assertIsNone(anim.parse_clip_header(self.data, TABLE))
+        self.assertIsNone(anim.parse_clip_header(self.data, len(self.data) - 2))
+
+    def test_clip_size_is_authoritative_over_the_directory_span(self):
+        # a trailing region beyond the last clip makes its span an over-estimate;
+        # the header size must win (E-058 correction).
+        data = anim_wad(self.names) + b"\x00" * 0x1000
+        last = anim.parse_clips(data)[-1]
+        self.assertEqual(last.size, CLIP_SIZE)
+        self.assertGreater(last.span, last.size)
+        self.assertEqual(last.end, last.offset + CLIP_SIZE)
 
 
 if __name__ == "__main__":

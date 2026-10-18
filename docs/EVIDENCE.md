@@ -2711,3 +2711,77 @@ observed segmentation from real bytes and exercised by unit tests on
 synthetic fixtures (no game data committed). `docs/FORMATS.md` §1.3 and
 `docs/BACKLOG.md` F3 are updated below. F3 remains open: slots 6, 7, 9, 11,
 22 and all field meanings are still [UNKNOWN].
+
+
+---
+## E-059 — GoW3R animation clip header: a fixed 0x38-byte name field, then the size (G9/F9, bounded slice)
+
+**Observation.** `R_HADES.WAD` (85,727,632 bytes), read-only. The clip directory of
+E-058 points `base + offsets[i]` at each clip; reading that byte range shows a
+**fixed per-clip header**. `clip[0]` (`angryKratosWalk`, file `0x5A74`):
+
+```
+0x5A74 (+0x000)  61 6e 67 72 79 4b 72 61 74 6f 73 57 61 6c 6b 00  angryKratosWalk.
+0x5A84 (+0x010)  cd cd cd cd cd cd cd cd cd cd cd cd cd cd cd cd
+0x5A94 (+0x020)  cd cd cd cd cd cd cd cd cd cd cd cd cd cd cd cd
+0x5AA4 (+0x030)  cd cd cd cd cd cd cd cd 40 3c 00 00 00 00 00 00  ........@<......
+0x5AB4 (+0x040)  cd cd cd cd cd cd cd cd cd cd cd cd cd cd cd cd
+0x5AC4 (+0x050)  cd cd cd cd cd cd cd cd cd cd cd cd 00 cd 00 00
+0x5AD4 (+0x060)  01 00 00 00 01 00 cd cd 00 01 00 00 89 88 08 3d
+0x5AE4 (+0x070)  00 cd 00 00 00 00 00 00 01 00 cd cd 40 3c 00 00
+0x5AF4 (+0x080)  89 88 08 3d 00 cd 00 00 00 00 00 00 01 00 cd cd
+0x5B04 (+0x090)  40 3c 00 00 89 88 08 3d 0b cd 00 00 00 00 00 00
+0x5B14 (+0x0A0)  01 00 cd cd 40 3c 00 00 89 88 88 3c 00 00 00 00
+```
+
+Fields, verified on **every** clip of two WADs (`R_HADES.WAD` 77 clips,
+`R_HERCULES.WAD` 46 clips):
+
+| offset | type | observation | status |
+|---|---|---|---|
+| `+0x00` | char[0x38] | NUL-terminated clip name; the name is a **fixed 0x38-byte field**, because the size below lands at `+0x38` whatever the name's length | [VERIFIED] |
+| `+0x38` | u32 | **clip size** — equals `offsets[i+1] − offsets[i]` for 76/77 (Hades) and 45/46 (Hercules) clips; the one mismatch each is the *final* clip, whose directory span is instead `len(file) − offset` (83,651,932 for `csHadesFlickL`), so the stored value (34,304) is the real bound | [VERIFIED] |
+| `+0x3C` | u32 | `0` on 123/123 clips | [VERIFIED] |
+| `+0x6C` | f32 | `1/30` on 114 clips, `1/15` on 9 | [VERIFIED] |
+| `+0x7C`, `+0x90`, `+0xA4` | u32 | equal `+0x38` on 123/123 clips | [VERIFIED] |
+| `+0xA8` | f32 | `1/60` on 123/123 clips | [VERIFIED] |
+
+The remaining bytes are `0xCD`-filled or repeat values like `0x0000CD00`,
+`0xCDCD0001`, `0xCCCCCCCC` (the MSVC uninitialized-memory patterns) and pointer-like
+u32s (`0x43440106`, `0xD3EFBBA7`), so no further field is assigned a meaning.
+
+For context, the ANM blob head (E-058's descriptor says data starts at `0xE00`)
+holds the character name and the table base:
+
+```
+0xE00 (+0x000)  03 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00
+0xE10 (+0x010)  6b 0f 5b b7 00 00 00 00 00 00 00 00 88 00 00 00
+0xE20 (+0x020)  00 00 00 00 80 04 00 00 40 00 10 00 4e 00 00 00   u32 0xE2C = 78
+0xE30 (+0x030)  04 00 00 00 48 61 64 65 73 00 00 00 00 00 00 00   "Hades" at 0xE34
+0xE40 (+0x040)  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+0xE60 (+0x060)  00 00 00 00 00 00 00 00 00 00 00 00 3e e3 60 13
+0xE70 (+0x070)  c0 8f a0 00 b4 01 00 00 34 4c 00 00 74 88 00 00   u32 0xB4=436, then offsets
+```
+
+**Inference.** The ANM clip record is framed like a WAD directory record's *name*
+part: a 0x38-byte name field, then integers. The stored size is the authoritative
+clip bound, so the last clip is the only one whose E-058 span is an over-estimate.
+Equalling `+0x38`, the three copies at `+0x7C/+0x90/+0xA4` look like three
+per-track sizes, and the `1/30 … 1/60` floats like sampling rates, but that is a
+structural analogy, **not** a decoded meaning.
+
+**Unknown.** The semantics of `flags`, the three size copies and the two frame
+rates; the `0xCD`/`0xCC` fill (uninitialized memory carried into the file?); the
+clip's *internal* encoding (channels, keyframes, root motion); and whether a
+same-size in-place replacement of a clip is safe (E-055 makes same-size edits
+mechanically possible). Engine ground truth (`eboot.bin`) or an authored-vs-stock
+comparison is the route.
+
+**Consequence.** `tools/gow3/anim.py` gains `ClipHeader`, `parse_clip_header()` and
+the `CLIP_*` offset constants; `Clip` gains a `size` field read from the header
+(the directory span is retained as the upper bound), so `Clip.end` is now correct
+for the final clip. All values are read straight from the bytes; no field meaning
+is asserted beyond the name and size. Unit-tested on a synthetic clip record
+(no game data committed). `docs/FORMATS.md` §7.7 and `docs/BACKLOG.md` F9 updated.
+
+
