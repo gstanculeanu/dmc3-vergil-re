@@ -10,6 +10,8 @@ from dmc3.raw import (
     SLOT10_PAIR_COUNT,
     SLOT21_SEPARATOR,
     SLOT5_SEGMENT_COUNT,
+    SLOT6_RECORD_COUNT,
+    SLOT6_RECORD_SIZE,
     SLOT9_FLOAT_COUNT,
     TEXTURE_DESCRIPTOR_SIZE,
     TEXTURE_DDS_OFFSET,
@@ -18,12 +20,15 @@ from dmc3.raw import (
     maybe_slot10_table,
     maybe_slot21_table,
     maybe_slot5_table,
+    maybe_slot6_table,
     maybe_slot9_table,
     maybe_texture_chunk,
     RawHeader,
     Slot10Table,
     Slot21Table,
     Slot5Table,
+    Slot6Record,
+    Slot6Table,
     Slot9Table,
     TextureChunk,
 )
@@ -47,6 +52,10 @@ def slot5_data() -> bytes:
 
 def slot9_data() -> bytes:
     return fixtures.raw_chunk_slot9()
+
+
+def slot6_data() -> bytes:
+    return fixtures.raw_chunk_slot6()
 
 
 class TestRawHeader(unittest.TestCase):
@@ -238,6 +247,82 @@ class TestSlot9Table(unittest.TestCase):
         with self.assertRaises(ValueError):
             Slot9Table.parse(slot9_data() + b"\x00\x00\x00\x00")
         self.assertIsNone(maybe_slot9_table(b"\x00" * 8))
+
+
+class TestSlot6Table(unittest.TestCase):
+    """Decoded slot-6 4-byte record table (E-086). All values are verbatim
+    observations from pl021.pac slot 6; every field meaning is [UNKNOWN] and is
+    only asserted, never interpreted."""
+
+    REAL_ZERO_INDICES = (23, 44, 45, 99, 119, 130, 166, 167, 168, 169, 176, 177,
+                         178, 179, 182, 199, *range(236, 252))
+    """Indices of the all-zero records in pl021.pac slot 6 (E-086)."""
+
+    REAL_GROUP_STARTS = (0, 24, 46, 100, 120, 131, 170, 180, 183, 200)
+    """First index of each non-empty run in pl021.pac slot 6 (E-086)."""
+
+    def test_parses_slot_6_records(self):
+        table = Slot6Table.parse(slot6_data())
+        self.assertEqual(len(table.records), SLOT6_RECORD_COUNT)
+        self.assertEqual(SLOT6_RECORD_COUNT, 252)
+        self.assertEqual(SLOT6_RECORD_SIZE, 4)
+
+    def test_head_matches_real_bytes(self):
+        # Verbatim records 0..5 from pl021.pac slot 6, file offset 0x070210
+        # (E-086).
+        table = Slot6Table.parse(slot6_data())
+        head = tuple(
+            (r.field_a, r.field_b, r.field_c) for r in table.records[:6]
+        )
+        self.assertEqual(
+            head,
+            ((6, 0, 0), (6, 3, 1), (2, 0, 0), (2, 3, 1), (4, 0, 0), (4, 3, 1)),
+        )
+
+    def test_zero_records_match_real_positions(self):
+        table = Slot6Table.parse(slot6_data())
+        self.assertEqual(table.zero_indices, self.REAL_ZERO_INDICES)
+        self.assertEqual(len(table.zero_indices), 32)
+
+    def test_groups_split_on_zero_records(self):
+        table = Slot6Table.parse(slot6_data())
+        groups = table.groups()
+        self.assertEqual(len(groups), 10)
+        # Group sizes observed on the real chunk (E-086), with the all-zero
+        # terminator records removed: 23, 20, 53, 19, 10, 35, 6, 2, 16, 36.
+        self.assertEqual([len(g) for g in groups],
+                         [23, 20, 53, 19, 10, 35, 6, 2, 16, 36])
+        starts = [table.records.index(g[0]) for g in groups]
+        self.assertEqual(starts, list(self.REAL_GROUP_STARTS))
+
+    def test_field_c_usually_matches_index(self):
+        table = Slot6Table.parse(slot6_data())
+        matches = sum(table.index_matches)
+        # 209/252 records carry field_c == their own index (E-086).
+        self.assertEqual(matches, 209)
+        # The exceptions are the 32 zero records plus indices 2, 3, 4, 5, 47
+        # and the six-record run 93..98 that all share field_c == 81.
+        mismatched = [i for i, ok in enumerate(table.index_matches) if not ok]
+        self.assertEqual(
+            mismatched,
+            [2, 3, 4, 5, 23, 44, 45, 47, *range(93, 100), 119, 130,
+             *range(166, 170), *range(176, 180), 182, 199, *range(236, 252)],
+        )
+
+    def test_rejects_short_input(self):
+        with self.assertRaises(ValueError):
+            Slot6Table.parse(slot6_data()[:4 * SLOT6_RECORD_COUNT - 1])
+        self.assertIsNone(maybe_slot6_table(b"\x00" * 16))
+
+    def test_trailing_bytes_are_ignored(self):
+        # A PAC span can carry padding; the parser reads exactly the observed
+        # 252 records.
+        table = Slot6Table.parse(slot6_data() + b"\xAA" * 8)
+        self.assertEqual(len(table.records), SLOT6_RECORD_COUNT)
+
+    def test_record_is_zero_flag(self):
+        self.assertTrue(Slot6Record(0, 0, 0).is_zero)
+        self.assertFalse(Slot6Record(1, 0, 0).is_zero)
 
 
 class TestTextureChunk(unittest.TestCase):

@@ -4712,3 +4712,54 @@ framing** of `0x68200` as "the animation evaluator" (it is one object's spin
 update) and **refines E-078's** [INFERRED] "array of `0x88`-byte records" to
 "runtime job queue". No game data committed; no code change beyond E-084.
 
+## E-086 — `pl021.pac` slot 6 is a table of 252 four-byte records, grouped by all-zero terminators (F3, bounded slice)
+
+**Observation (read-only from
+`G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\pl021.pac`, 548,768 B).**
+The PAC entry table places slot 6 at file offset `0x070210` with span `0x3F0`
+(1008 bytes). The whole span parses cleanly as **252 fixed 4-byte records**,
+each `u8 field_a`, `u8 field_b`, `u16 field_c` (little-endian), with **no
+header and no count field**. The fourth byte (the high byte of `field_c`) is
+`0x00` in every one of the 252 records, so `field_c <= 255`.
+
+* The first six records are verbatim
+  `(6,0,0) (6,3,1) (2,0,0) (2,3,1) (4,0,0) (4,3,1)` (file bytes
+  `06 00 00 00 06 03 01 00 02 00 00 00 02 03 01 00 04 00 00 00 04 03 01 00`).
+* `field_a` distribution: `1` ×201, `0` ×32, `4` ×7, `6` ×6, `2` ×5, `5` ×1.
+* `field_b` distribution: `0` ×171, `9` ×29, `13` ×14, `1` ×8, `2` ×5, `3`,
+  `4`, `15`, `20` ×3 each, `7`, `14` ×2 each, and `10`, `16`, `17`, `19`, `21`,
+  `22`, `23`, `24`, `25` ×1 each.
+* **32 records are all-zero** (`field_a = field_b = field_c = 0`), at indices
+  `23, 44, 45, 99, 119, 130, 166, 167, 168, 169, 176, 177, 178, 179, 182, 199`
+  and `236..251`. Splitting on them yields **ten non-empty runs** with first
+  indices `0, 24, 46, 100, 120, 131, 170, 180, 183, 200` and sizes
+  `23, 20, 53, 19, 10, 35, 6, 2, 16, 36` (23+20+53+19+10+35+6+2+16+36 = 220
+  plus the 32 zero records = 252).
+* `field_c` equals the record's own index for **209/252** records. The 43
+  exceptions are the 32 all-zero records plus indices `2, 3, 4, 5`, `47`
+  (`field_c = 46`) and the six-record run `93..98` (all `field_a = 1`,
+  `field_b` = `20, 7, 22, 23, 24, 25`, `field_c = 81`).
+* The three other untagged slots do **not** share this shape: slot 7 opens
+  `02 00 00 00` and slot 11 opens the f32 `10.0`; for slot 7 `field_c == index`
+  holds for 1/5,020 records and for slot 11 for 0/168 records. So the slot-6
+  record framing is slot-specific, not a raw-chunk-wide header.
+
+**Inference (marked, not proven).** The regular `field_c == index` (209/252),
+the shared `field_c == 81` run, and the clean split on all-zero records are
+consistent with a **directory of entries** in which each record carries a small
+type byte, a small second value, and a mostly self-referential id. No field is
+assigned a meaning; the three fields are named by offset only.
+
+**Unknown.** What each field encodes; why the zero records appear (terminators,
+empty entries, or padding); what the ten runs denote; whether any of it is bone
+transforms, UV tables or primitive groups (the F3 hypothesis). Engine ground
+truth (`dmc3.exe`) or a decoded peer artifact is needed for the semantics.
+
+**Tooling.** `Slot6Record` / `Slot6Table` / `maybe_slot6_table` in
+`tools/dmc3/raw.py` (plus `SLOT6_RECORD_SIZE`, `SLOT6_RECORD_COUNT`,
+`SLOT6_CHUNK_SPAN`), exported from `dmc3`. The parser reads exactly the
+observed layout (252 records, trailing bytes ignored) and interprets nothing;
+`groups()` reproduces the ten runs, `zero_indices` and `index_matches` expose
+the observed relations. Validated read-only against the real `pl021.pac`
+(all counts reproduced) and locked by a synthetic fixture
+(`raw_chunk_slot6`) and `TestSlot6Table` (8 tests). No game data committed.

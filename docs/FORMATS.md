@@ -80,9 +80,9 @@ its layout is undecoded.
 
 The other eight untagged slots (5, 6, 7, 9, 10, 11, 21, 22) have different
 leading bytes (E-008) — so no single header shape is shared across them.
-Slot 0's header (E-033), slot 5's segment stream (E-052), slot 10's pair
-table (E-037) and slot 21's segment table (E-043) are decoded structurally;
-every field meaning remains [UNKNOWN]:
+Slot 0's header (E-033), slot 5's segment stream (E-052), slot 6's record table
+(E-086), slot 10's pair table (E-037) and slot 21's segment table (E-043) are
+decoded structurally; every field meaning remains [UNKNOWN]:
 
 * **slot 5** [PARTIAL structure / [UNKNOWN] semantics] — at file offset
   `0x06B6E0`, span `0x4B30` (9,624 u16s): a little-endian u16 stream split
@@ -109,7 +109,24 @@ every field meaning remains [UNKNOWN]:
   sub-record `32767, 0, 32767, 1, 1, 0, VALUE` with `VALUE` stepping by 256.
   `0x7FFF` occurs inside segments and is not a delimiter. Segment-internal
   layout and all field meanings [UNKNOWN] (evidence E-043).
-* **slots 6, 7, 11** — leading bytes differ per slot. Layouts [UNKNOWN].
+* **slot 6** [PARTIAL structure / [UNKNOWN] semantics] — at file offset
+  `0x070210`, span `0x3F0` (1008 bytes = **252 fixed 4-byte records**), no
+  separate header or count field (evidence E-086). Each record is
+  `u8 field_a`, `u8 field_b`, `u16 field_c`; the fourth byte is zero in all
+  252 records. `field_a` values: `1` ×201, `0` ×32, `4` ×7, `6` ×6, `2` ×5,
+  `5` ×1. `field_b` values: `0` ×171, `9` ×29, `13` ×14, `1` ×8, `2` ×5,
+  `3`/`4`/`15`/`20` ×3 each, `7`/`14` ×2 each, and `10`, `16`, `17`, `19`,
+  `21`–`25` ×1 each. 32 records are all-zero; they sit at indices
+  `23, 44, 45, 99, 119, 130, 166–169, 176–179, 182, 199` and `236–251`, so the
+  non-zero records form **ten runs** (sizes `23, 20, 53, 19, 10, 35, 6, 2, 16,
+  36`). `field_c` equals the record's own index for **209/252** records; the
+  exceptions are the all-zero records plus indices `2, 3, 4, 5, 47` and the
+  six-record run `93–98` (which all carry `field_c == 81`). Every field
+  meaning is [UNKNOWN]; the parser reads exactly the observed layout.
+* **slots 7, 11** — leading bytes differ per slot and neither shares slot 6's
+  record shape (slot 7 opens `02 00 00 00`, slot 11 opens the f32 `10.0`;
+  `field_c == index` holds for 1/5,020 and 0/168 records respectively).
+  Layouts [UNKNOWN].
 * **slot 22** [PARTIAL] — a **texture slot**: the shared descriptor of §1.4 at
   body+0x808 followed by an embedded `DXT1` DDS at body+0x870 (32×32, 1 mip,
   512-byte payload); the descriptor's relations to the DDS header are

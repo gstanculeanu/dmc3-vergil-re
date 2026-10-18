@@ -482,6 +482,45 @@ def raw_chunk_slot9() -> bytes:
     return bytes(blob)
 
 
+def raw_chunk_slot6() -> bytes:
+    """A synthetic ``pl021.pac`` slot-6 chunk mirroring the observed record
+    table (evidence E-086).
+
+    Layout (body-relative, little-endian): 252 fixed 4-byte records, each
+    ``u8 field_a`` / ``u8 field_b`` / ``u16 field_c``, with no header or count
+    field. The fixture mirrors the observed *structure*: records
+    ``0..5`` carry the verbatim real values ``(6,0,0) (6,3,1) (2,0,0)
+    (2,3,1) (4,0,0) (4,3,1)``; the all-zero terminator records sit at the
+    observed indices ``23, 44, 45, 99, 119, 130, 166-169, 176-179, 182, 199,
+    236-251``; records ``93-98`` share ``field_c == 81``; record ``47`` carries
+    ``field_c == 46``; every other non-zero record is ``(1, 0, index)``
+    (``field_c`` == its own index). No game bytes are committed beyond those
+    handful of verbatim scalar observations; the fixture locks the observed
+    layout so a parser can't silently drift from the real artifact.
+    """
+    ZERO_INDICES = (23, 44, 45, 99, 119, 130, 166, 167, 168, 169, 176, 177,
+                    178, 179, 182, 199, *range(236, 252))
+    verbatim = {
+        0: (6, 0, 0), 1: (6, 3, 1), 2: (2, 0, 0),
+        3: (2, 3, 1), 4: (4, 0, 0), 5: (4, 3, 1),
+        47: (4, 15, 46),
+    }
+    shared_81 = (20, 7, 22, 23, 24, 25)
+    blob = bytearray()
+    for index in range(252):
+        if index in ZERO_INDICES:
+            record = (0, 0, 0)
+        elif index in verbatim:
+            record = verbatim[index]
+        elif 93 <= index <= 98:
+            record = (1, shared_81[index - 93], 81)
+        else:
+            record = (1, 0, index)
+        blob += struct.pack("<BBH", *record)
+    assert len(blob) == 4 * 252, "slot-6 table must be 252 records"
+    return bytes(blob)
+
+
 PAC_TEXTURE_DESCRIPTOR = 0x808
 
 

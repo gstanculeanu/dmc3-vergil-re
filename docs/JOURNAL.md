@@ -1997,3 +1997,41 @@ moves and health bar and everything."*
   byte decoders are still the critical path and the next engine lead is the
   `.pdata`/call-graph route (E-083/E-085), not the string/tag signatures.
 
+---
+
+## 2026-10-18 — F3 bounded slice: `pl021.pac` slot 6 is a 252-record four-byte table, grouped by zero terminators (E-086)
+
+- Did: picked F3 (issue #4) from the always-available list — the Phase-1 format
+  critical path (F1/F4) stays blocked on engine ground truth and is not re-spun,
+  and the last DMC3 engine slice (E-085) closed three leads without reaching the
+  MOD/MOT decoders. Read real bytes (read-only) from
+  `pl021.pac` slot 6 (`G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs\
+  pl021.pac`, file offset `0x070210`, span `0x3F0`). Added `Slot6Record` /
+  `Slot6Table` / `maybe_slot6_table` and the `SLOT6_RECORD_SIZE` /
+  `SLOT6_RECORD_COUNT` / `SLOT6_CHUNK_SPAN` constants to `tools/dmc3/raw.py`,
+  exported from `dmc3`, added the `raw_chunk_slot6()` fixture and
+  `TestSlot6Table` (8 tests) to `tests/test_raw.py`. Full suite: **553 tests,
+  all green** (545 baseline + 8). Nothing written to the game; no game data
+  committed.
+- Found (**E-086**): slot 6 is **252 fixed 4-byte records** (`u8 field_a`,
+  `u8 field_b`, `u16 field_c`) with no header or count field; the fourth byte is
+  zero in all 252. `field_a` = 1×201, 0×32, 4×7, 6×6, 2×5, 5×1; `field_b` = 0×171,
+  9×29, 13×14, 1×8, 2×5, then singletons/small groups. **32 all-zero records** at
+  indices `23, 44, 45, 99, 119, 130, 166–169, 176–179, 182, 199, 236–251` split
+  the non-zero records into **ten runs** (sizes `23, 20, 53, 19, 10, 35, 6, 2,
+  16, 36`). `field_c` equals the record's own index for **209/252**; the 43
+  exceptions are the zero records plus indices `2, 3, 4, 5`, `47`, and the
+  six-record run `93–98` (all `field_c == 81`). Slots 7 and 11 do **not** share
+  the shape (`field_c == index` for 1/5,020 and 0/168), so the framing is
+  slot-specific. Every field meaning is [UNKNOWN]; the parser interprets
+  nothing. Verified read-only against the real chunk (all counts reproduced).
+- Docs: E-086 in `docs/EVIDENCE.md`; `docs/FORMATS.md` §1.3 gains the slot-6
+  bullet and narrows the remaining unknown slots to 7/11; `docs/BACKLOG.md` F3
+  row updated. Commented issue #4 (left open).
+- Next: F3 slots 7/11 remain; every Phase-1 format critical-path item (F1/F4/
+  F2/F5/F6/F8) stays blocked on engine ground truth and is not re-spun. F1's MOD
+  body is heterogeneous across the four chunks (slots 1/12/23/25 have different
+  bodies at body+0x60), so its payload is harder than a header fix — the next
+  engine lead remains the `.pdata`/call-graph route. F9's clip leaf keyframe
+  encoding (GoW3R) is also open and decodable from the file.
+

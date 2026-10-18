@@ -277,6 +277,136 @@ def maybe_slot9_table(data: bytes) -> Optional[Slot9Table]:
         return None
 
 
+SLOT6_RECORD_SIZE = 4
+"""Size in bytes of one ``pl021.pac`` slot-6 record: ``u8 field_a``,
+``u8 field_b``, ``u16 field_c``."""
+
+SLOT6_RECORD_COUNT = 252
+"""Number of records observed in ``pl021.pac`` slot 6 (evidence E-086).
+
+The count is a property of the single observed chunk (1008 bytes / 4) and is
+not known to be stored in the payload; it locks the observed layout, not a rule.
+"""
+
+SLOT6_CHUNK_SPAN = SLOT6_RECORD_SIZE * SLOT6_RECORD_COUNT
+"""Observed size of the slot-6 payload (1008 bytes)."""
+
+SLOT6_ZERO_RECORD = (0, 0, 0)
+"""A record whose three fields are all zero; observed 32 times in slot 6."""
+
+
+@dataclass(frozen=True)
+class Slot6Record:
+    """One 4-byte record of ``pl021.pac`` slot 6 (evidence E-086)::
+
+        +0x00  u8  field_a   values observed: 1 (201x), 0 (32x), 4 (7x),
+                             6 (6x), 2 (5x), 5 (1x)
+        +0x01  u8  field_b   values observed: 0 (171x), 9 (29x), 13 (14x),
+                             1 (8x), 2 (5x), 3/4/15/20 (3x each), 7/14 (2x),
+                             10/16/17/19/21..25 (1x each)
+        +0x02  u16 field_c   0..235; equals the record's own index for 209/252
+
+    The fourth byte of every observed record is zero, so ``field_c`` never
+    exceeds 255. Field meanings are [UNKNOWN]; the parser reads exactly the
+    observed layout and interprets nothing.
+    """
+
+    field_a: int
+    field_b: int
+    field_c: int
+
+    @property
+    def is_zero(self) -> bool:
+        """True when all three fields are zero (an observed terminator record)."""
+        return self.field_a == 0 and self.field_b == 0 and self.field_c == 0
+
+
+@dataclass(frozen=True)
+class Slot6Table:
+    """``pl021.pac`` slot 6 as a table of 4-byte records (evidence E-086).
+
+    Observed at file offset 0x070210 of ``pl021.pac`` (span 0x3F0, 1008 bytes):
+    the whole span is ``SLOT6_RECORD_COUNT`` fixed 4-byte records
+    (:class:`Slot6Record`), with no separate header or count field. 32 records
+    are all-zero; they occur at indices 23, 44, 45, 99, 119, 130, 166-169,
+    176-179, 182, 199 and 236-251, so the non-zero records group into ten runs
+    beginning at indices 0, 24, 46, 100, 120, 131, 170, 180, 183 and 200.
+    ``field_c`` equals the record's own index for 209/252 records; the
+    exceptions are the zero records plus records 2, 3, 4, 5 and 47 and the
+    six-record run 93-98 (all sharing ``field_c == 81``).
+
+    All field meanings are [UNKNOWN]; the parser reads exactly the observed
+    layout and interprets nothing.
+    """
+
+    records: tuple[Slot6Record, ...]
+    """``SLOT6_RECORD_COUNT`` records in file order."""
+
+    @classmethod
+    def parse(cls, data: bytes) -> "Slot6Table":
+        """Parse the slot-6 record table from ``data`` (chunk-relative bytes).
+
+        Requires at least :data:`SLOT6_CHUNK_SPAN` bytes; trailing bytes beyond
+        the observed span are ignored (a PAC span can include padding).
+        """
+        if len(data) < SLOT6_CHUNK_SPAN:
+            raise ValueError(
+                f"slot-6 table only {len(data)} bytes, need {SLOT6_CHUNK_SPAN} "
+                f"for {SLOT6_RECORD_COUNT} records"
+            )
+        records = tuple(
+            Slot6Record(
+                field_a=data[SLOT6_RECORD_SIZE * index],
+                field_b=data[SLOT6_RECORD_SIZE * index + 1],
+                field_c=u16(data, SLOT6_RECORD_SIZE * index + 2),
+            )
+            for index in range(SLOT6_RECORD_COUNT)
+        )
+        return cls(records=records)
+
+    @property
+    def zero_indices(self) -> tuple[int, ...]:
+        """Indices of the all-zero records, in ascending order."""
+        return tuple(
+            index for index, record in enumerate(self.records) if record.is_zero
+        )
+
+    @property
+    def index_matches(self) -> tuple[bool, ...]:
+        """Per record: whether ``field_c`` equals the record's own index."""
+        return tuple(
+            record.field_c == index
+            for index, record in enumerate(self.records)
+        )
+
+    def groups(self) -> tuple[tuple[Slot6Record, ...], ...]:
+        """Non-empty runs of records separated by the all-zero records.
+
+        Splitting on every zero record mirrors the observed layout; the zero
+        records themselves (and any empty runs they create) are dropped.
+        """
+        groups: list[list[Slot6Record]] = []
+        current: list[Slot6Record] = []
+        for record in self.records:
+            if record.is_zero:
+                if current:
+                    groups.append(current)
+                    current = []
+            else:
+                current.append(record)
+        if current:
+            groups.append(current)
+        return tuple(tuple(group) for group in groups)
+
+
+def maybe_slot6_table(data: bytes) -> Optional[Slot6Table]:
+    """Like :meth:`Slot6Table.parse` but returns ``None`` on short input."""
+    try:
+        return Slot6Table.parse(data)
+    except ValueError:
+        return None
+
+
 DDS_MAGIC = b"DDS "
 """Magic of the embedded DDS blobs carried by the texture containers."""
 
