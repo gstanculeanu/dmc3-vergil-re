@@ -1198,6 +1198,72 @@ verifies texture hashes.
 `tools/gow3/make_boss_mod.py` (builds both files, verifies every changed byte) and
 `scripts/vergil-boss-mod.ps1`. 20 further tests (317 total).
 
+---
+
+## E-056 — The animation clip directory: a boss's move set is enumerable
+
+**Observation.** In `R_HADES.WAD` (85,727,632 bytes) the descriptor table's first
+real entry is an animation blob:
+
+```
+0xD80  id=2 flags=0    size=0        "GroupStart"
+0xDC0  id=1 flags=0x34 size=2,106,384 "ANM_hero_Hades"
+0xE00  a record naming the character: "Hades"
+0xE78  u32 clip offsets, strictly increasing, **relative to 0xE40**
+0xE40  the blob's data; clip i is at 0xE40 + offsets[i] and its name is right there
+```
+
+Note the table (0xE78) sits **inside** the blob region (which starts at 0xE40).
+
+**Verified.** 77 entries, every one landing exactly on a named clip, with a
+constant base — the relationship held to the byte on all of them:
+
+| relative | file offset | clip |
+|---|---|---|
+| 0x4C34 | 0x5A74 | `angryKratosWalk` |
+| 0x8874 | 0x96B4 | `csHadesIntro` |
+| 0x12E74 | 0x13CB4 | `csHadesIntroStruggle` |
+| 0x2EA74 | 0x2F8B4 | `csHadesKnifeEnter` |
+| 0x52074 | 0x52EB4 | `csHadesKnifeKill` |
+| 0x12B0F4 | 0x12BF34 | `hadesKnifeAttLhigh` |
+| 0x1300F4 | 0x130F34 | `hadesKnifeAttLlow` |
+| 0x1351B4 | 0x135FF4 | `hadesKnifeAttRHigh` |
+| 0x13A274 | 0x13B0B4 | `hadesKnifeAttRlow` |
+| 0x13F234 | 0x140074 | `hadesKnifeAttShortRound` |
+| 0x1455B4 | 0x1463F4 | `hadesKnifeBlock01` |
+
+**A boss's move set is therefore enumerable, named and addressable.** For
+`R_HADES.WAD` the 77 clips group as: `cshadesRip01` ×12, `cshadesRip02` ×11,
+`csHadesKnife` ×6, `hadesKnifeAtt*` ×5, `csHadesHelme*` ×5, `csHadesIntro` ×4,
+`cshadesSoulRip*` ×4, `hadesKnifeBlock*` ×4, and the rest. `R_HERCULES.WAD` yields
+**46** at the same table offset (`csHercules*`, `csMiscHercBe*`, `hitWallStuck`, …).
+
+The clip *span* (offsets[i+1] − offsets[i]) is an upper bound on each clip's size,
+so every move has a known, bounded byte range in the file.
+
+**Inference.** The container's animation side is a directory of **named clips with
+known offsets and spans**, which is the structure a move-set replacement needs.
+Combined with E-055 (same-size in-place edits work on this container) it means a
+*clip-level* change is mechanically reachable without a full writer — what is
+missing is the clip's *internal* encoding, not its location.
+
+**Unknown (this is the remaining gap for "moves").** The internal encoding of a
+clip: bone channels, keyframe format, frame count, root motion. Without it a clip
+can be located and copied but not authored or retargeted. Note also that this side
+of the work does **not** depend on the DMC3 dead end (E-051) — the GoW3R encoding is
+in the file and in `eboot.bin`, so it is decodable.
+
+**Tooling.** `tools/gow3/anim.py` (`read_clip_offsets`, `clip_name_at`,
+`parse_clips`, `find_table`, `Clip`). `find_table` **validates**: a merely
+increasing run is not accepted, because an earlier version mis-fired on
+`R_HERCULES.WAD` and returned a table of 1 clip; it now requires ≥80% of a
+candidate's offsets to land on clip names. 11 tests (328 total).
+
+**Two bugs of my own, found by those tests:** the last clip's span used
+`len(data) - base` instead of `len(data)`, and base detection demanded 12 sample
+hits so small tables were rejected — both fixed before commit.
+
+
 
 ---
 
