@@ -2784,4 +2784,81 @@ for the final clip. All values are read straight from the bytes; no field meanin
 is asserted beyond the name and size. Unit-tested on a synthetic clip record
 (no game data committed). `docs/FORMATS.md` §7.7 and `docs/BACKLOG.md` F9 updated.
 
+---
+
+## E-060 — GoW3R animation clip header: size ×4, frame rate ×4 + reciprocal, frame count and loop flag (G9/F9, bounded slice)
+
+**Observation.** The same two archives read read-only in E-059 —
+`R_HADES.WAD` (85,727,632 B) and `R_HERCULES.WAD` (63,144,480 B) under
+`C:\Users\GigelCastel\Desktop\gow3\CUSA01715\EXEC\WAD\PS4_LE\` — clipped by E-058's
+directory. **All 123 clips** (77 + 46) were censused: every u32-aligned offset in
+`+0x00..+0x123` of every clip.
+
+Four relations hold on **all 123 clips**, with no exception:
+
+| relation | result |
+|---|---|
+| `u32 @ clip_size` at exactly four offsets `+0x38`, `+0x7C`, `+0x90`, `+0xA4` | 123/123; no fifth offset in `+0x00..+0x123` carries the size |
+| `f32 == f32@+0x6C` at exactly four offsets `+0x6C`, `+0x80`, `+0x94`, `+0x110` | 123/123; no fifth offset carries the rate |
+| `f32@+0x10C × f32@+0x6C == 1` | 123/123; worst \|product − 1\| = **5.215e-08** (binary32 rounding only) |
+| `f32@+0x114 == float32(1 / (u16@+0xF6 − 1))` | 123/123, **exact binary32 equality** |
+
+`u16@+0xF6` takes 44 distinct values in `15..686` — `angryKratosWalk` 41,
+`csHadesIntro` 141, `hadesKnifeBlockEnter` 15, `cshadesRip01Stab01` 31,
+`csHadesKnifeEnter` 396, `csHadesFlickL` 686.
+
+`u16@+0xF4` is `1` on **11/123** clips and `0` on the other 112. The eleven are,
+verbatim: `csHadesKnifeKillIdle`, `cshadesRip01Idle`, `cshadesRip01IdleL`,
+`cshadesRip01IdleR`, `csHadesRip02Idle`, `cshadesRip02IdleL`, `cshadesRip02IdleR`,
+`hadesKnifeIdle`, `csHadesHelmetRipIdle`, `hadesKnifeStrafeIdle`,
+`csMiscHercBeatingIdle`. Two further clips whose names contain "Idle"
+(`hadesKnifeIdleB`, 51 frames; `hadesKnifeIdleF`, 81 frames) hold `0`.
+
+Every other u32 in `+0x00..+0x123` is **constant on 123/123 clips**, including the
+`0xCD`/`0xCC` uninitialized-memory bytes — e.g. `+0x3C` = 0, `+0x5C` = 0x0000CD00,
+`+0x60` = 1, `+0x64` = 0xCDCD0001, `+0x68` = 0x100, `+0x70` = 0x0000CD00,
+`+0x74` = 0, `+0x78` = 0xCDCD0001, `+0x84` = 0x0000CD00, `+0x88` = 0,
+`+0x8C` = 0xCDCD0001, `+0x98` = 0x0000CD0B, `+0x9C` = 0, `+0xA0` = 0xCDCD0001,
+`+0xA8` = float32(1/60), `+0xAC` = 0, `+0xB0` = 0, `+0xE4` = 0x00100000,
+`+0xE8` = 0xCCCCCCCC, `+0xEC` = 0x43440106, `+0xF0` = 0xD3EFBBA7,
+`+0xF8` = 0x00020002, `+0xFC` = 0, `+0x100` = 0, `+0x104` = 0x30,
+`+0x108` = 0x50, `+0x118` = 0, `+0x11C` = 0x60, `+0x120` = 0x00010000,
+`+0x128` = 0x00800000, `+0x130` = 0x00010001, `+0x138` = 0x037B0000,
+`+0x14C..+0x158` = 0xFFFFFFFF. (`+0x15C` and `+0x17C` are constant within each
+file but differ between the two, so they are not claimed as global constants.)
+
+Within `+0x00..+0x123` the only per-clip-varying u32s are therefore `+0x38`,
+`+0x6C`, `+0x7C`, `+0x80`, `+0x90`, `+0x94`, `+0xA4`, `+0x10C`, `+0x110`,
+`+0xF4` and `+0x114`; from `+0x124` onward the u32s are pointer-like and differ
+per clip (e.g. `0x003612A0`, `0x000890F3`, `0x00341230`).
+
+**Inference.** `u16@+0xF6` is **[INFERRED]** the clip's frame count: the 44
+values in `15..686` read as counts, and `+0x114 == float32(1/(N−1))` is then the
+sample spacing of an `N`-point curve normalised to `[0,1]` — the standard
+encoding for a keyframe track, which is why the relation is *exact*. `u16@+0xF4`
+is **[INFERRED]** a loop flag, because all 11 clips that set it are `*Idle*`
+clips; the two `Idle`-named clips that do not set it mean the flag is **not**
+identical to "the name says Idle", so this one stays unproven. The four-fold size
+and four-fold frame-rate repetition, and the separately-stored reciprocal at
+`+0x10C`, look like redundant per-track copies written by a serializer — a
+structural analogy, **not** a decoded meaning.
+
+**Unknown.** The meaning of every value not listed above; what the four copies
+index; why `hadesKnifeIdleB`/`hadesKnifeIdleF` do not set the `+0xF4` flag; the
+`0xCD`/`0xCC` fill; and the clip's internal encoding (channels, keyframes, root
+motion), which remains the gap for F9/"moves".
+
+**Consequence.** `tools/gow3/anim.py` gains `CLIP_RATE_COPY_OFFSETS`,
+`CLIP_RATE_RECIPROCAL_OFFSET`, `CLIP_LOOP_OFFSET`, `CLIP_FRAME_COUNT_OFFSET`,
+`CLIP_SAMPLE_RATE_OFFSET`, `CLIP_SIZE_OFFSETS`, `CLIP_FRAME_RATE_OFFSETS`,
+`float32()`, `expected_sample_rate()`, and a `ClipHeader` carrying `frames`,
+`loop_flag`, `sample_rate`, `frame_count_rate` and `rate_copies` with the four
+E-060 relations exposed as `size_repeat_ok` / `rate_repeat_ok` / `reciprocal_ok`
+/ `sample_rate_ok` and `header.invariants()`. `CLIP_HEADER_MIN` grows to `0x118`
+(the last field read). All values are read straight from the bytes; a relation
+that fails is reported, never silently raised. Unit-tested on a synthetic clip
+record (no game data committed). `docs/FORMATS.md` §7.7 and `docs/BACKLOG.md`
+F9/G9 updated.
+
+
 

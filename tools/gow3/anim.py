@@ -16,8 +16,10 @@ clip**, e.g. ``hadesKnifeAttLhigh``, ``hadesKnifeAttRlow``,
 a known offset and span.
 
 Only what is observed is exposed: clip names, offsets, spans and the fixed clip
-header (E-059: name in a 0x38-byte field, then the size at +0x38). The *internal*
-clip encoding (bone channels, keyframes) is [UNKNOWN] and is not interpreted here.
+header (E-059: name in a 0x38-byte field, then the size at +0x38; E-060: the size
+is repeated at three further offsets, the frame rate at three further offsets plus
+its reciprocal, and the clip frame count and loop flag). The *internal* clip
+encoding (bone channels, keyframes) is [UNKNOWN] and is not interpreted here.
 """
 
 from __future__ import annotations
@@ -33,17 +35,29 @@ MAX_CLIP_OFFSET = 8 * 1024 * 1024
 _NAME = re.compile(rb"[A-Za-z][A-Za-z0-9_]{2,60}")
 COMMAND_NAMES = {1, 2, 3, 0x12, 0x15}
 
-# Per-clip header, observed on R_HADES.WAD and R_HERCULES.WAD (E-059). The name is
-# a fixed 0x38-byte, NUL-terminated field, exactly like a WAD directory record's;
-# the clip's byte size follows it. Everything past the size is only structurally
-# described, so no meaning beyond the offsets is claimed.
+# Per-clip header, observed on R_HADES.WAD and R_HERCULES.WAD (E-059, E-060). The
+# name is a fixed 0x38-byte, NUL-terminated field, exactly like a WAD directory
+# record's; the clip's byte size follows it. Everything past the size is only
+# structurally described, so no meaning beyond the verified relations is claimed.
 CLIP_HEADER_SIZE = 0x38          # fixed size of the name field
 CLIP_SIZE_OFFSET = 0x38          # u32 clip size
 CLIP_FLAGS_OFFSET = 0x3C         # u32, 0 on every observed clip
 CLIP_FRAME_RATE_OFFSET = 0x6C    # f32, 1/30 or 1/15 observed
 CLIP_SUB_FRAME_RATE_OFFSET = 0xA8  # f32, 1/60 on every observed clip
 CLIP_SIZE_COPY_OFFSETS = (0x7C, 0x90, 0xA4)  # u32 copies of CLIP_SIZE_OFFSET
-CLIP_HEADER_MIN = CLIP_SUB_FRAME_RATE_OFFSET + 4  # bytes needed to parse the header
+CLIP_RATE_COPY_OFFSETS = (0x80, 0x94, 0x110)  # f32 copies of CLIP_FRAME_RATE_OFFSET
+CLIP_RATE_RECIPROCAL_OFFSET = 0x10C  # f32 == 1 / f32@CLIP_FRAME_RATE_OFFSET
+CLIP_LOOP_OFFSET = 0xF4          # u32; low u16 is 1 on the observed loop clips
+CLIP_FRAME_COUNT_OFFSET = 0xF6   # u16; [INFERRED] frame count (E-060)
+CLIP_SAMPLE_RATE_OFFSET = 0x114  # f32 == float32(1 / (frames - 1))
+
+# Every offset that carries the clip size / frame rate. The size sits at four
+# offsets and the frame rate at four; no other u32 in 0x00..0x123 matches either
+# value on the 123 clips censused in E-060.
+CLIP_SIZE_OFFSETS = (CLIP_SIZE_OFFSET,) + CLIP_SIZE_COPY_OFFSETS
+CLIP_FRAME_RATE_OFFSETS = (CLIP_FRAME_RATE_OFFSET,) + CLIP_RATE_COPY_OFFSETS
+
+CLIP_HEADER_MIN = CLIP_SAMPLE_RATE_OFFSET + 4  # bytes needed to parse the header
 
 
 class AnimError(ValueError):
@@ -71,20 +85,76 @@ class Clip:
 
 @dataclass(frozen=True)
 class ClipHeader:
-    """The fixed header of one animation clip (E-059).
+    """The fixed header of one animation clip (E-059, E-060).
 
-    Only the name and the size are semantically verified. ``flags``,
-    ``frame_rate`` and ``sub_frame_rate`` are recorded exactly as observed;
-    ``size_copies`` holds the three redundant copies of the size.
+    Only the name, the size and the relations verified in E-060 are semantic:
+    ``size`` is repeated at three further offsets, ``frame_rate`` at three further
+    offsets, ``frame_count_rate`` is its reciprocal, and ``sample_rate`` equals
+    ``float32(1 / (frames - 1))``. ``frames`` is [INFERRED] to be the clip's frame
+    count from that relation; ``loop_flag`` is 1 on the eleven observed looping
+    clips and 0 elsewhere, also [INFERRED].
     """
 
     offset: int          # file offset of the clip (its name field)
     name: str
-    size: int            # u32 at +0x38
+    size: int            # u32 at +0x38, repeated at +0x7C/+0x90/+0xA4
     flags: int           # u32 at +0x3C, 0 on every observed clip
-    frame_rate: float    # f32 at +0x6C, 1/30 or 1/15 observed
+    frame_rate: float    # f32 at +0x6C, repeated at +0x80/+0x94/+0x110
     sub_frame_rate: float  # f32 at +0xA8, 1/60 on every observed clip
     size_copies: tuple   # u32s at +0x7C, +0x90, +0xA4 (equal the size)
+    frame_count_rate: float = 0.0  # f32 at +0x10C, the reciprocal of frame_rate
+    frames: int = 0      # u16 at +0xF6 ([INFERRED] frame count)
+    loop_flag: int = 0   # low u16 of the u32 at +0xF4 ([INFERRED] loop flag)
+    sample_rate: float = 0.0  # f32 at +0x114, float32(1 / (frames - 1))
+    rate_copies: tuple = ()   # f32s at +0x6C, +0x80, +0x94, +0x110
+
+    @property
+    def size_repeat_ok(self) -> bool:
+        """All four size offsets hold the same value (E-060, 123/123 clips)."""
+        return self.size != 0 and all(c == self.size for c in self.size_copies)
+
+    @property
+    def rate_repeat_ok(self) -> bool:
+        """All four frame-rate offsets hold the same value (E-060)."""
+        return bool(self.rate_copies) and all(r == self.frame_rate
+                                              for r in self.rate_copies)
+
+    @property
+    def reciprocal_ok(self) -> bool:
+        """``frame_count_rate * frame_rate == 1`` (E-060, 123/123 clips).
+
+        The stored pair is ``(30.0, float32(1/30))``, whose product is 1 to
+        within binary32 rounding (observed worst case ~5.3e-8), so the relation
+        is checked with a 1e-6 absolute tolerance.
+        """
+        return (self.frame_rate > 0
+                and abs(self.frame_count_rate * self.frame_rate - 1.0) <= 1e-6)
+
+    @property
+    def sample_rate_ok(self) -> bool:
+        """``sample_rate == float32(1 / (frames - 1))`` (E-060, 123/123 clips)."""
+        return self.frames > 1 and self.sample_rate == expected_sample_rate(self.frames)
+
+    def invariants(self) -> dict:
+        """The E-060 relations, each as a name -> bool. Evidence, not a verdict."""
+        return {
+            "size_repeat": self.size_repeat_ok,
+            "rate_repeat": self.rate_repeat_ok,
+            "rate_reciprocal": self.reciprocal_ok,
+            "sample_rate": self.sample_rate_ok,
+        }
+
+
+def float32(value: float) -> float:
+    """``value`` rounded to the nearest IEEE-754 binary32, as a Python float."""
+    return struct.unpack("<f", struct.pack("<f", value))[0]
+
+
+def expected_sample_rate(frames: int) -> float:
+    """``float32(1 / (frames - 1))`` -- the value observed at +0x114 (E-060)."""
+    if frames <= 1:
+        return 0.0
+    return float32(1.0 / (frames - 1))
 
 
 def _read_u32(data: bytes, offset: int) -> int:
@@ -120,6 +190,12 @@ def parse_clip_header(data: bytes, offset: int) -> Optional[ClipHeader]:
         sub_frame_rate=_read_f32(data, offset + CLIP_SUB_FRAME_RATE_OFFSET),
         size_copies=tuple(_read_u32(data, offset + o)
                           for o in CLIP_SIZE_COPY_OFFSETS),
+        frame_count_rate=_read_f32(data, offset + CLIP_RATE_RECIPROCAL_OFFSET),
+        frames=struct.unpack_from("<H", data, offset + CLIP_FRAME_COUNT_OFFSET)[0],
+        loop_flag=struct.unpack_from("<H", data, offset + CLIP_LOOP_OFFSET)[0],
+        sample_rate=_read_f32(data, offset + CLIP_SAMPLE_RATE_OFFSET),
+        rate_copies=tuple(_read_f32(data, offset + o)
+                          for o in CLIP_FRAME_RATE_OFFSETS),
     )
 
 

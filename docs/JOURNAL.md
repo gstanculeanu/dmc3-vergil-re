@@ -1135,3 +1135,46 @@ moves and health bar and everything."*
   remaining "moves" gap and is decodable from the file and `eboot.bin`; the
   `+0x7C`/`+0x90`/`+0xA4` structural analogy (three tracks + a 60 Hz track) is a
   hypothesis to test. F1/F4 remain blocked on DMC3-side engine ground truth.
+
+---
+
+## 2026-10-18 — F9/G9 bounded slice: clip frame count and loop flag decoded (E-060)
+
+- Did: continued E-059's "what is the rest of the clip header?" question on the
+  GoW3R side, which is where the "moves" ground truth lives. Censused **every
+  u32-aligned offset in `+0x00..+0x123` of all 123 clips** (77 `R_HADES.WAD` +
+  46 `R_HERCULES.WAD`, read-only) instead of the four chunks E-059 sampled.
+  Extended `tools/gow3/anim.py` — `CLIP_RATE_COPY_OFFSETS`,
+  `CLIP_RATE_RECIPROCAL_OFFSET`, `CLIP_LOOP_OFFSET`, `CLIP_FRAME_COUNT_OFFSET`,
+  `CLIP_SAMPLE_RATE_OFFSET`, `CLIP_SIZE_OFFSETS`, `CLIP_FRAME_RATE_OFFSETS`,
+  `float32()`, `expected_sample_rate()`, and `ClipHeader` now carries `frames`,
+  `loop_flag`, `sample_rate`, `frame_count_rate`, `rate_copies` plus the four
+  relations as `*_ok` properties and `invariants()`. `CLIP_HEADER_MIN` → `0x118`.
+  The E-059 synthetic fixture grew to `0x180` bytes; `TestClipHeaderRelations`
+  (9 tests) exercises the relations on synthetic bytes. Full suite: **342 tests,
+  all green**. Committed and pushed; commented issues #24 and #36.
+- Found (**E-060**), all four relations **123/123 clips with no exception**:
+  - the clip size sits at **exactly four** offsets (`+0x38`, `+0x7C`, `+0x90`,
+    `+0xA4`) and the frame rate at **exactly four** (`+0x6C`, `+0x80`, `+0x94`,
+    `+0x110`); no fifth offset in `+0x00..+0x123` carries either value. E-059's
+    "three copies" are one field written four times.
+  - `f32@+0x10C × f32@+0x6C == 1`, worst deviation **5.215e-08** (binary32
+    rounding only) — the reciprocal is stored explicitly.
+  - **`f32@+0x114 == float32(1 / (u16@+0xF6 − 1))`, exact binary32 equality, on
+    123/123.** So `+0xF6` is [INFERRED] the clip's **frame count** (44 values,
+    15..686; `angryKratosWalk` 41, `csHadesIntro` 141, `csHadesKnifeEnter` 396)
+    and `+0x114` the sample spacing of a curve normalised to `[0,1]`.
+  - `u16@+0xF4 == 1` on **11/123** clips, and all eleven are `*Idle*` loops
+    ([INFERRED] loop flag). Recorded honestly: `hadesKnifeIdleB` and
+    `hadesKnifeIdleF` are `Idle`-named and hold `0`, so the flag is **not**
+    "the name says Idle" and the inference is unproven.
+  - Everything else in `+0x00..+0x123` is constant on all 123 clips, `0xCD`/`0xCC`
+    fill included; the only per-clip-varying u32s in that range are the four size
+    slots, the four rate slots, the reciprocal, `+0xF4`, `+0x114`; from `+0x124`
+    the u32s are pointer-like and per-clip.
+- Docs: `docs/EVIDENCE.md` E-060; `docs/FORMATS.md` §7.7 rewritten with the
+  relation table and `[VERIFIED]`/`[INFERRED]` markings; `docs/BACKLOG.md` F9/G9
+  rows updated.
+- Next: the clip's **internal** encoding (channels, keyframes, root motion) is
+  still the F9 "moves" gap; `+0x124`-onward pointer-like data is the lead. F1/F4
+  remain blocked on DMC3-side engine ground truth and are not re-spun.

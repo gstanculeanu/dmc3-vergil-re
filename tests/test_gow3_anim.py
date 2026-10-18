@@ -9,7 +9,8 @@ from gow3.anim import AnimError
 # table sits *inside* that region at 0xE78, so base < table.
 BASE, TABLE, HEAD = 0xE40, 0xE78, 0xE00
 LEAD = 0x100
-CLIP_SIZE = 0x100  # size of each synthetic clip record
+CLIP_SIZE = 0x180  # size of each synthetic clip record (>= CLIP_HEADER_MIN)
+FRAMES = 41
 
 
 def anim_wad(names, lead=LEAD, table=TABLE, base=BASE, head=HEAD) -> bytes:
@@ -26,7 +27,15 @@ def anim_wad(names, lead=LEAD, table=TABLE, base=BASE, head=HEAD) -> bytes:
         struct.pack_into("<f", record, anim.CLIP_FRAME_RATE_OFFSET, 1.0 / 30)
         for copy in anim.CLIP_SIZE_COPY_OFFSETS:
             struct.pack_into("<I", record, copy, CLIP_SIZE)
+        for copy in anim.CLIP_RATE_COPY_OFFSETS:
+            struct.pack_into("<f", record, copy, 1.0 / 30)
+        struct.pack_into("<f", record, anim.CLIP_RATE_RECIPROCAL_OFFSET, 30.0)
         struct.pack_into("<f", record, anim.CLIP_SUB_FRAME_RATE_OFFSET, 1.0 / 60)
+        # E-060: loop flag, frame count and 1/(frames-1) sample rate
+        struct.pack_into("<H", record, anim.CLIP_LOOP_OFFSET, 1)
+        struct.pack_into("<H", record, anim.CLIP_FRAME_COUNT_OFFSET, FRAMES)
+        struct.pack_into("<f", record, anim.CLIP_SAMPLE_RATE_OFFSET,
+                         anim.expected_sample_rate(FRAMES))
         payload += record
     blob += b"\x00" * (base - len(blob))
     blob += payload
@@ -145,6 +154,72 @@ class TestClipHeader(unittest.TestCase):
         self.assertEqual(last.size, CLIP_SIZE)
         self.assertGreater(last.span, last.size)
         self.assertEqual(last.end, last.offset + CLIP_SIZE)
+
+
+class TestClipHeaderRelations(unittest.TestCase):
+    """E-060: the four-fold size/frame-rate repetition and the derived fields."""
+
+    def setUp(self):
+        self.data = anim_wad(["csHadesIntro", "hadesKnifeBlockEnter"])
+        self.header = anim.parse_clip_header(
+            self.data, anim.parse_clips(self.data)[0].offset)
+
+    def test_size_is_repeated_at_four_offsets(self):
+        self.assertEqual(anim.CLIP_SIZE_OFFSETS, (0x38, 0x7C, 0x90, 0xA4))
+        self.assertEqual(self.header.size, CLIP_SIZE)
+        self.assertTrue(self.header.size_repeat_ok)
+
+    def test_frame_rate_is_repeated_at_four_offsets(self):
+        self.assertEqual(anim.CLIP_FRAME_RATE_OFFSETS, (0x6C, 0x80, 0x94, 0x110))
+        self.assertEqual(self.header.rate_copies, (anim.float32(1.0 / 30),) * 4)
+        self.assertTrue(self.header.rate_repeat_ok)
+
+    def test_rate_reciprocal_is_stored(self):
+        self.assertEqual(self.header.frame_count_rate, 30.0)
+        self.assertTrue(self.header.reciprocal_ok)
+
+    def test_frame_count_and_sample_rate_relation(self):
+        self.assertEqual(self.header.frames, FRAMES)
+        self.assertEqual(self.header.sample_rate, anim.expected_sample_rate(FRAMES))
+        self.assertEqual(anim.expected_sample_rate(FRAMES),
+                         anim.float32(1.0 / (FRAMES - 1)))
+        self.assertTrue(self.header.sample_rate_ok)
+
+    def test_loop_flag_is_read(self):
+        self.assertEqual(self.header.loop_flag, 1)
+
+    def test_invariants_report_every_relation(self):
+        self.assertEqual(self.header.invariants(),
+                         {"size_repeat": True, "rate_repeat": True,
+                          "rate_reciprocal": True, "sample_rate": True})
+
+    def test_a_broken_relation_is_reported_not_raised(self):
+        blob = bytearray(self.data)
+        offset = anim.parse_clips(self.data)[0].offset
+        struct.pack_into("<I", blob, offset + 0x90, CLIP_SIZE + 0x10)
+        header = anim.parse_clip_header(bytes(blob), offset)
+        self.assertFalse(header.size_repeat_ok)
+        self.assertFalse(header.invariants()["size_repeat"])
+        self.assertTrue(header.invariants()["rate_repeat"])
+
+    def test_expected_sample_rate_is_undefined_below_two_frames(self):
+        self.assertEqual(anim.expected_sample_rate(1), 0.0)
+        self.assertEqual(anim.expected_sample_rate(0), 0.0)
+        self.assertFalse(anim.ClipHeader(
+            offset=0, name="x", size=1, flags=0, frame_rate=1.0 / 30,
+            sub_frame_rate=1.0 / 60, size_copies=(1, 1, 1),
+            frames=1, sample_rate=0.0).sample_rate_ok)
+
+    def test_header_needs_the_full_block(self):
+        # CLIP_HEADER_MIN must cover the last field the parser reads
+        self.assertEqual(anim.CLIP_HEADER_MIN,
+                         anim.CLIP_SAMPLE_RATE_OFFSET + 4)
+        self.assertGreater(anim.CLIP_HEADER_MIN, anim.CLIP_FRAME_COUNT_OFFSET)
+
+    def test_float32_rounds_like_the_format(self):
+        self.assertEqual(anim.float32(1.0 / 30),
+                         struct.unpack("<f", struct.pack("<f", 1.0 / 30))[0])
+        self.assertNotEqual(anim.float32(1.0 / 30), 1.0 / 30)
 
 
 if __name__ == "__main__":
