@@ -462,15 +462,15 @@ def raw_chunk_slot5() -> bytes:
 
 def raw_chunk_slot9() -> bytes:
     """A synthetic ``pl021.pac`` slot-9 chunk mirroring the observed f32 array
-    (evidence E-053).
+    (evidence E-062).
 
     Layout (body-relative, little-endian)::
         +0x00  224 little-endian f32s, no header, no count field, no separators.
 
-    The first f32s mirror the real chunk verbatim (10.4, -1.2, 10.0, 12.0,
-    -1.2, 15.0 ...); the remaining values are synthetic. No game bytes are
-    committed; the fixture locks the observed array length so a parser can't
-    silently drift from the real artifact.
+    The first 12 f32s mirror the real chunk verbatim (10.4, -1.2, 10.0, 12.0,
+    -1.2, 15.0, 10.4, -0.8, 6.4, 12.4, -0.8, 12.0); the remaining values are
+    synthetic. No game bytes are committed; the fixture locks the observed array
+    length so a parser can't silently drift from the real artifact.
     """
     real_prefix = (10.4, -1.2, 10.0, 12.0, -1.2, 15.0, 10.4, -0.8, 6.4,
                    12.4, -0.8, 12.0)

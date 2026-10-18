@@ -196,5 +196,43 @@ class TestSlot5Table(unittest.TestCase):
         self.assertIsNone(maybe_slot5_table(b"\x00" * 3))
 
 
+class TestSlot9Table(unittest.TestCase):
+    """Decoded slot-9 flat f32 array (E-062). All values are verbatim
+    observations from pl021.pac slot 9; every field meaning is [UNKNOWN] and is
+    only asserted, never interpreted."""
+
+    REAL_HEAD_HEX = (
+        "666626419a9999bf0000204100004041"
+        "9a9999bf0000704166662641cdcc4cbf"
+        "cdcccc4066664641cdcc4cbf00004041"
+    )
+    """The first 12 f32s (48 bytes) at pl021.pac file offset 0x077B50 (E-062)."""
+
+    def expected_head(self) -> tuple[float, ...]:
+        return struct.unpack("<12f", bytes.fromhex(self.REAL_HEAD_HEX))
+
+    def test_parses_slot_9_array(self):
+        table = Slot9Table.parse(slot9_data())
+        self.assertEqual(len(table.floats), SLOT9_FLOAT_COUNT)
+
+    def test_float_count_constant(self):
+        # The real chunk's span is 896 bytes = 224 f32s (E-062); the constant
+        # locks that observation without requiring every chunk to match it.
+        self.assertEqual(SLOT9_FLOAT_COUNT, 224)
+
+    def test_head_matches_real_bytes(self):
+        table = Slot9Table.parse(slot9_data())
+        for observed, want in zip(table.floats, self.expected_head()):
+            self.assertAlmostEqual(observed, want, places=6)
+
+    def test_rejects_wrong_length(self):
+        # The parser requires exactly 4 * SLOT9_FLOAT_COUNT bytes.
+        with self.assertRaises(ValueError):
+            Slot9Table.parse(slot9_data()[:-4])
+        with self.assertRaises(ValueError):
+            Slot9Table.parse(slot9_data() + b"\x00\x00\x00\x00")
+        self.assertIsNone(maybe_slot9_table(b"\x00" * 8))
+
+
 if __name__ == "__main__":
     unittest.main()

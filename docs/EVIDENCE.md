@@ -2917,5 +2917,62 @@ record (no game data committed). `docs/FORMATS.md` §7.7 and `docs/BACKLOG.md`
 F9/G9 updated.
 
 
+---
+## E-062 — `pl021.pac` slot 9: a flat 224-f32 array, and the stale `E-053` citation corrected (F3, bounded slice)
+
+**Observation.** `pl021.pac` slot 9 (read-only, `G:\Games\Devil May Cry HD
+Collection\data\dmc3\GData.afs\pl021.pac`) is an untagged ("raw") chunk at **file
+offset `0x077B50`** (490,320), span **896 bytes** (the next occupied slot is 10 at
+`0x077ED0`). The whole span is exactly **224 little-endian f32s** — no ASCII tag,
+no count field, no separator. Raw bytes at the head:
+
+```
+file +0x077B50: 66 66 26 41 9a 99 99 bf 00 00 20 41 00 00 40 41
+                 f32=10.4     f32=-1.2     f32=10.0     f32=12.0
+file +0x077B60: 9a 99 99 bf 00 00 70 41 66 66 26 41 cd cc 4c bf
+                 f32=-1.2     f32=15.0     f32=10.4     f32=-0.8
+file +0x077B70: cd cc cc 40 66 66 46 41 cd cc 4c bf 00 00 40 41
+                 f32=6.4      f32=12.4     f32=-0.8     f32=12.0
+file +0x077B80: 00 00 bc 41 9a 99 99 bf 9a 99 99 3e 00 00 20 42
+                 f32=23.5     f32=-1.2     f32=0.3      f32=40.0
+```
+
+First 24 values: `10.4, -1.2, 10.0, 12.0, -1.2, 15.0, 10.4, -0.8, 6.4, 12.4,
+-0.8, 12.0, 23.5, -1.2, 0.3, 40.0, 13.0, -1.5, 25.0, 200.0, 500.0, 150.0, 150.0,
+500.0`.
+
+Census over all 224 values: **206 non-zero** (indices 0…210) and **18 trailing
+zeros** (indices 211…223); **83 distinct** values; min `-790.0` (index 202), max
+`9000.0` (index 138). Most common: `0.0` (18), `500.0` (15), `150.0` (10),
+`60.0` (10), `10.0` (8), `20.0` (8), `120.0` (7), `5.0` (7), `12.0` (6),
+`300.0` (6). Values are not all integer-valued (e.g. `23.5`, `13.75`, `0.3`).
+
+**Inference.** The array length is exactly the chunk span (`896 = 4 × 224`), which
+is consistent with a **self-delimiting flat array** — but whether the count is
+stored anywhere (e.g. in another slot or in code) is not established from slot 9's
+bytes. None of the values look like byte offsets or primitive indices (they are
+non-integer and include negative magnitudes), so the array is probably **not** an
+index/offset table; what it is (UVs, collision/camera/parameter data, …) is not
+decidable from these bytes.
+
+**Unknown.** What the 224 values index; why the array is 224 long; the meaning of
+the trailing zero run; whether slot 9 pairs with any other slot (e.g. slot 10's
+f32 stream, E-037). Engine ground truth needed.
+
+**Citation correction.** `tools/dmc3/raw.py` and `tests/fixtures.py` carried the
+slot-9 layout under "evidence E-053", but the ledger's E-053 is the `eboot.bin`
+reference scan — wrong. Slot 9's array is recorded here as **E-062**; both
+citations now read E-062. The parser (`Slot9Table` / `maybe_slot9_table`) already
+read the observed layout; this slice adds the missing ledger entry, the first
+`TestSlot9Table` unit tests, and the spec text in `docs/FORMATS.md` §1.3.
+
+**Consequence.** No parser logic changed. `tests/test_raw.py` gains
+`TestSlot9Table` (length, count constant, verbatim real head, rejection of
+wrong-length input) on the existing synthetic `raw_chunk_slot9()` fixture (no game
+data committed). `docs/FORMATS.md` §1.3 and `docs/BACKLOG.md` F3 updated. F3 stays
+open: slots 6, 7, 11, 22 and all field meanings are still [UNKNOWN].
+
+
+
 
 

@@ -1221,3 +1221,36 @@ moves and health bar and everything."*
   — the pl021.pac slot-9 f32 array still has **no ledger entry**. Next free ID is
   **E-062**; a future slice should re-read slot 9 and record it, then correct the
   stale citation.
+
+---
+
+## 2026-10-18 — F3 boundable housekeeping: slot-9 f32 array recorded as E-062; stale E-053 citation fixed
+
+- Did: closed the journal's own open housekeeping note. Re-read real bytes from
+  `pl021.pac` slot 9 (read-only, `G:\Games\Devil May Cry HD Collection\data\dmc3\GData.afs`)
+  and recorded the missing ledger entry **E-062**. Corrected the stale "evidence
+  E-053" citations in `tools/dmc3/raw.py` (twice) and `tests/fixtures.py` to
+  E-062. Added the previously absent `TestSlot9Table` (4 tests) in
+  `tests/test_raw.py` on the existing synthetic `raw_chunk_slot9()` fixture;
+  added the slot-9 spec to `docs/FORMATS.md` §1.3 and the E-062 evidence to
+  `docs/BACKLOG.md` F3. Full suite: **355 tests, all green** (351 baseline + 4).
+- Found (**E-062**): `pl021.pac` slot 9 is an untagged chunk at **file offset
+  0x077B50**, span **896 bytes = 224 little-endian f32s** with no header, no count
+  field and no separator. Head verbatim: `10.4, -1.2, 10.0, 12.0, -1.2, 15.0,
+  10.4, -0.8, 6.4, 12.4, -0.8, 12.0, 23.5, -1.2, 0.3, 40.0, 13.0, -1.5, 25.0,
+  200.0, 500.0, 150.0, 150.0, 500.0`. Census: 206 non-zero (indices 0..210) + 18
+  trailing zeros (211..223), 83 distinct values, min `-790.0` (index 202), max
+  `9000.0` (index 138); most common `0.0` (18), `500.0` (15), `150.0` (10),
+  `60.0` (10). Not all values are integers, so the array is not an obvious
+  index/offset table; what it indexes remains [UNKNOWN].
+- **Citation correction recorded:** the earlier `Slot9Table` docstrings pointed
+  at E-053, which is the `eboot.bin` reference scan — wrong ID for this data.
+  E-062 is now the ledger's home for the slot-9 array, and the code/fixtures cite
+  it.
+- No parser logic changed (the parse was already correct; the ledger entry and
+  the tests were missing).
+- Docs: E-062 in docs/EVIDENCE.md; §1.3 slot-9 bullet in docs/FORMATS.md;
+  BACKLOG.md F3 row now lists E-008/E-033/E-037/E-043/E-052/E-062.
+- Next: F3 slots 6/7/11/22 remain undecoded; the Phase 1 format critical path
+  (F1/F4/F2/F5/F6/F8) stays blocked on engine ground truth and is not re-spun.
+

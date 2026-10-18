@@ -231,7 +231,7 @@ def maybe_slot5_table(data: bytes) -> Optional[Slot5Table]:
 
 
 SLOT9_FLOAT_COUNT = 224
-"""Number of little-endian f32s observed in ``pl021.pac`` slot 9 (evidence E-053).
+"""Number of little-endian f32s observed in ``pl021.pac`` slot 9 (evidence E-062).
 
 The count comes from the single observed chunk (896 bytes / 4) and locks the
 observed layout, not a rule. Every field meaning is [UNKNOWN].
@@ -240,15 +240,16 @@ observed layout, not a rule. Every field meaning is [UNKNOWN].
 
 @dataclass(frozen=True)
 class Slot9Table:
-    """``pl021.pac`` slot 9 as a little-endian f32 array (evidence E-053).
+    """``pl021.pac`` slot 9 as a little-endian f32 array (evidence E-062).
 
     Observed at file offset 0x077B50 of ``pl021.pac`` (span 0x380, 896 bytes):
     the entire span is ``SLOT9_FLOAT_COUNT`` little-endian f32s with no header,
     no count field and no separators. The first values read ``10.4, -1.2,
-    10.0, 12.0, -1.2, 15.0, ...`` and the run ends in zeros. Whether the count
-    is stored anywhere in the chunk, and what the array indexes (UVs, vertices,
-    colours, …), are [UNKNOWN]; the parser reads exactly the observed layout
-    and interprets nothing.
+    10.0, 12.0, -1.2, 15.0, ...``; 206 values are non-zero (indices 0..210) and
+    the last 18 (indices 211..223) are zeros. Whether the count is stored
+    anywhere in the chunk, and what the array indexes (UVs, vertices, colours,
+    …), are [UNKNOWN]; the parser reads exactly the observed layout and
+    interprets nothing.
     """
 
     floats: tuple[float, ...]

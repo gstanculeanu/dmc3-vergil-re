@@ -106,8 +106,18 @@ every field meaning remains [UNKNOWN]:
   sub-record `32767, 0, 32767, 1, 1, 0, VALUE` with `VALUE` stepping by 256.
   `0x7FFF` occurs inside segments and is not a delimiter. Segment-internal
   layout and all field meanings [UNKNOWN] (evidence E-043).
-* **slots 6, 7, 9, 11, 22** — leading bytes differ per slot; slots 9/11 are
-  f32 arrays. Layouts [UNKNOWN].
+* **slots 6, 7, 11, 22** — leading bytes differ per slot. Layouts [UNKNOWN].
+* **slot 9** [structural / [UNKNOWN] semantics] — at file offset `0x077B50`,
+  span `0x380` (896 bytes = **224 little-endian f32s**), no header, no count
+  field, no separator (evidence E-062). The first 24 values read `10.4, -1.2,
+  10.0, 12.0, -1.2, 15.0, 10.4, -0.8, 6.4, 12.4, -0.8, 12.0, 23.5, -1.2, 0.3,
+  40.0, 13.0, -1.5, 25.0, 200.0, 500.0, 150.0, 150.0, 500.0`. 206 values are
+  non-zero (indices 0…210) and the last 18 (indices 211…223) are zeros; 83
+  distinct values, min `-790.0`, max `9000.0`, most common `0.0` (18), `500.0`
+  (15), `150.0` (10), `60.0` (10). What the array indexes (the values are not
+  all integer-valued, so it is not an obvious index/offset table) and whether
+  the count is stored elsewhere are [UNKNOWN]. **Corrects a stale citation:**
+  `Slot9Table` previously cited "E-053", which is the `eboot.bin` ledger entry.
 
 Every field meaning in this section is [UNKNOWN].
 
